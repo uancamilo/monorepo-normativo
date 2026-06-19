@@ -1,0 +1,15 @@
+{
+  "name": "monorepo-normativo",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "npm run test:dominio",
+    "test:dominio": "npm run test --workspace=@normativo/dominio",
+    "typecheck": "npm run typecheck:dominio",
+    "typecheck:dominio": "npm run typecheck --workspace=@normativo/dominio",
+    "build": "npm run build:dominio",
+    "build:dominio": "npm run build --workspace=@normativo/dominio"
+  }
+}

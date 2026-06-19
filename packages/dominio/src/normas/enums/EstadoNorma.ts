@@ -1,0 +1,6 @@
+export enum EstadoNorma {
+  BORRADOR = 'BORRADOR',
+  EN_REVISION = 'EN_REVISION',
+  PUBLICADA = 'PUBLICADA',
+  ARCHIVADA = 'ARCHIVADA',
+}
