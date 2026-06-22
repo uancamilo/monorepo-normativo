@@ -1,5 +1,9 @@
 import { RolUsuario } from '../enums/RolUsuario';
-import { estaTextoVacio, normalizarTexto } from '../../compartido/validaciones/texto';
+import {
+  estaTextoVacio,
+  normalizarCorreo,
+  normalizarTexto,
+} from '../../compartido/validaciones/texto';
 
 export interface UsuarioProps {
   id: string;
@@ -27,7 +31,7 @@ export class Usuario {
 
     this._id = normalizarTexto(props.id);
     this.nombre = normalizarTexto(props.nombre);
-    this.correo = normalizarTexto(props.correo);
+    this.correo = normalizarCorreo(props.correo);
     this.rol = props.rol;
   }
 
@@ -37,6 +41,14 @@ export class Usuario {
 
   obtenerId(): string {
     return this._id;
+  }
+
+  tieneCorreo(correo: string): boolean {
+    return this.correo === normalizarCorreo(correo);
+  }
+
+  obtenerCorreo(): string {
+    return this.correo;
   }
 
   tieneRol(rol: RolUsuario): boolean {

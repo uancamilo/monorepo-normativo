@@ -119,15 +119,52 @@ describe('Usuario', () => {
       expect(usuario.nombre).toBe('Juan Pérez');
     });
 
-    it('normaliza espacios laterales en correo', () => {
+    it('normaliza espacios laterales y mayúsculas en correo', () => {
       const usuario = new Usuario({
         id: 'u-1',
         nombre: 'Juan',
-        correo: '  juan@test.com  ',
+        correo: '  JUAN@Test.COM  ',
         rol: RolUsuario.SUSCRIPTOR,
       });
 
       expect(usuario.correo).toBe('juan@test.com');
+    });
+  });
+
+  describe('tieneCorreo', () => {
+    it('devuelve true para el mismo correo aunque tenga mayúsculas o espacios', () => {
+      const usuario = new Usuario({
+        id: 'u-1',
+        nombre: 'Juan',
+        correo: 'juan@test.com',
+        rol: RolUsuario.SUSCRIPTOR,
+      });
+
+      expect(usuario.tieneCorreo('  JUAN@Test.COM  ')).toBe(true);
+    });
+
+    it('devuelve false cuando el correo no coincide', () => {
+      const usuario = new Usuario({
+        id: 'u-1',
+        nombre: 'Juan',
+        correo: 'juan@test.com',
+        rol: RolUsuario.SUSCRIPTOR,
+      });
+
+      expect(usuario.tieneCorreo('otro@test.com')).toBe(false);
+    });
+  });
+
+  describe('obtenerCorreo', () => {
+    it('devuelve el correo normalizado', () => {
+      const usuario = new Usuario({
+        id: 'u-1',
+        nombre: 'Juan',
+        correo: '  JUAN@Test.COM  ',
+        rol: RolUsuario.SUSCRIPTOR,
+      });
+
+      expect(usuario.obtenerCorreo()).toBe('juan@test.com');
     });
   });
 

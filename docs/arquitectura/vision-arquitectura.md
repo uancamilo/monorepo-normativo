@@ -23,6 +23,18 @@ Plataforma de contenido normativo por suscripción que permite a usuarios accede
 
 Contiene entidades, enums y políticas de negocio organizados por módulo funcional. No tiene dependencias externas.
 
+#### Modelo de suscripción por cliente/cuenta
+
+- Una suscripción pertenece a un cliente/cuenta, no a un usuario individual. El cliente/cuenta puede corresponder a una empresa, una organización o una cuenta monousuario.
+- En esta fase, `Suscripcion` representa la relación mediante `clienteId`; todavía no se implementan las entidades `Cliente`, `Cuenta` u `Organizacion`.
+- Una suscripción habilita uno o varios usuarios por correo electrónico y define `cantidadMaximaUsuarios`. El dueño de cuenta está incluido en esa cantidad máxima.
+- Todos los usuarios habilitados por una suscripción activa y vigente acceden completamente a todas las normas publicadas.
+- El correo electrónico identifica globalmente a un usuario. No pueden existir dos usuarios con el mismo correo y un correo no puede estar habilitado en más de una suscripción.
+- `Suscripcion` valida únicamente correos duplicados dentro de su propia lista, después de normalizarlos. La unicidad global de usuarios por correo y la pertenencia exclusiva del correo a una suscripción se aplicarán en una fase posterior desde aplicación y persistencia.
+- Solo `SUPERADMINISTRADOR` o `ADMINISTRADOR` podrán crear cuentas y suscripciones, y definir `cantidadMaximaUsuarios`. `EDITOR` no podrá realizar esas operaciones.
+- Dueño de cuenta y miembros son conceptos internos del cliente/cuenta, no roles administrativos globales. No pueden crear la cuenta inicial ni la suscripción inicial.
+- En la fase 1 no se implementan `Cliente`, `Cuenta`, `Organizacion`, `RolEnCuenta`, invitaciones, cupos dinámicos, estados por miembro ni una política de creación de suscripciones.
+
 Estructura:
 ```
 src/

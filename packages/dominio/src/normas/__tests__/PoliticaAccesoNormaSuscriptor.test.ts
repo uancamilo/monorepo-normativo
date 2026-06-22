@@ -7,77 +7,39 @@ import { RolUsuario } from '../../usuarios/enums/RolUsuario';
 import { EstadoSuscripcion } from '../../suscripciones/enums/EstadoSuscripcion';
 import { EstadoNorma } from '../enums/EstadoNorma';
 
-function crearUsuarioSuscriptor(id: string): Usuario {
+function crearUsuario(id: string, rol: RolUsuario, correo = `${id}@test.com`): Usuario {
   return new Usuario({
     id,
-    nombre: 'Usuario ' + id,
-    correo: id + '@test.com',
-    rol: RolUsuario.SUSCRIPTOR,
+    nombre: `Usuario ${id}`,
+    correo,
+    rol,
   });
 }
 
-function crearUsuarioSuperAdministrador(id: string): Usuario {
-  return new Usuario({
-    id,
-    nombre: 'SuperAdmin ' + id,
-    correo: id + '@superadmin.test.com',
-    rol: RolUsuario.SUPERADMINISTRADOR,
-  });
+interface OpcionesSuscripcion {
+  correoHabilitado: string;
+  estado?: EstadoSuscripcion;
+  fechaInicio?: Date;
+  fechaFin?: Date;
 }
 
-function crearUsuarioAdministrador(id: string): Usuario {
-  return new Usuario({
-    id,
-    nombre: 'Admin ' + id,
-    correo: id + '@admin.test.com',
-    rol: RolUsuario.ADMINISTRADOR,
-  });
-}
-
-function crearUsuarioEditor(id: string): Usuario {
-  return new Usuario({
-    id,
-    nombre: 'Editor ' + id,
-    correo: id + '@editor.test.com',
-    rol: RolUsuario.EDITOR,
-  });
-}
-
-function crearSuscripcionActiva(id: string, usuarioId: string, fechaFin?: Date): Suscripcion {
+function crearSuscripcion(id: string, opciones: OpcionesSuscripcion): Suscripcion {
   return new Suscripcion({
     id,
-    usuarioId,
-    estado: EstadoSuscripcion.ACTIVA,
-    fechaInicio: new Date('2025-01-01'),
-    fechaFin: fechaFin ?? new Date('2030-01-01'),
-  });
-}
-
-function crearSuscripcionVencida(id: string, usuarioId: string): Suscripcion {
-  return new Suscripcion({
-    id,
-    usuarioId,
-    estado: EstadoSuscripcion.VENCIDA,
-    fechaInicio: new Date('2024-01-01'),
-    fechaFin: new Date('2025-01-01'),
-  });
-}
-
-function crearSuscripcionActivaVencidaPorFecha(id: string, usuarioId: string): Suscripcion {
-  return new Suscripcion({
-    id,
-    usuarioId,
-    estado: EstadoSuscripcion.ACTIVA,
-    fechaInicio: new Date('2024-01-01'),
-    fechaFin: new Date('2024-06-30'),
+    clienteId: `cliente-${id}`,
+    correosUsuariosHabilitados: [opciones.correoHabilitado],
+    cantidadMaximaUsuarios: 1,
+    estado: opciones.estado ?? EstadoSuscripcion.ACTIVA,
+    fechaInicio: opciones.fechaInicio ?? new Date('2025-01-01'),
+    fechaFin: opciones.fechaFin ?? new Date('2030-01-01'),
   });
 }
 
 function crearNormaPublicada(id: string): Norma {
   return new Norma({
     id,
-    titulo: 'Norma ' + id,
-    contenido: 'Contenido de la norma ' + id,
+    titulo: `Norma ${id}`,
+    contenido: `Contenido de la norma ${id}`,
     estado: EstadoNorma.PUBLICADA,
     fechaPublicacion: new Date('2025-06-01'),
   });
@@ -86,8 +48,8 @@ function crearNormaPublicada(id: string): Norma {
 function crearNormaBorrador(id: string): Norma {
   return new Norma({
     id,
-    titulo: 'Norma ' + id,
-    contenido: 'Contenido del borrador ' + id,
+    titulo: `Norma ${id}`,
+    contenido: `Contenido del borrador ${id}`,
     estado: EstadoNorma.BORRADOR,
     fechaPublicacion: null,
   });
@@ -95,85 +57,110 @@ function crearNormaBorrador(id: string): Norma {
 
 describe('PoliticaAccesoNormaSuscriptor', () => {
   const politica = new PoliticaAccesoNormaSuscriptor();
+  const fechaReferencia = new Date('2025-06-01');
 
-  it('permite acceso a una norma publicada cuando el usuario tiene suscripción activa', () => {
-    const usuario = crearUsuarioSuscriptor('u-1');
-    const suscripcion = crearSuscripcionActiva('s-1', usuario.obtenerId());
+  it('permite acceso cuando el SUSCRIPTOR está habilitado por correo en una suscripción activa', () => {
+    const usuario = crearUsuario('u-1', RolUsuario.SUSCRIPTOR);
+    const suscripcion = crearSuscripcion('s-1', {
+      correoHabilitado: usuario.obtenerCorreo(),
+    });
     const norma = crearNormaPublicada('n-1');
 
-    const resultado = politica.puedeAcceder({ usuario, suscripcion, norma });
-
-    expect(resultado).toBe(true);
+    expect(
+      politica.puedeAcceder({ usuario, suscripcion, norma, fechaReferencia }),
+    ).toBe(true);
   });
 
-  it('deniega acceso cuando la suscripción no está activa', () => {
-    const usuario = crearUsuarioSuscriptor('u-2');
-    const suscripcion = crearSuscripcionVencida('s-2', usuario.obtenerId());
+  it('permite acceso si los correos difieren por mayúsculas y espacios', () => {
+    const usuario = crearUsuario('u-2', RolUsuario.SUSCRIPTOR, '  Usuario@Test.COM  ');
+    const suscripcion = crearSuscripcion('s-2', {
+      correoHabilitado: '  USUARIO@test.com  ',
+    });
     const norma = crearNormaPublicada('n-2');
 
-    const resultado = politica.puedeAcceder({ usuario, suscripcion, norma });
+    expect(
+      politica.puedeAcceder({ usuario, suscripcion, norma, fechaReferencia }),
+    ).toBe(true);
+  });
 
-    expect(resultado).toBe(false);
+  it('deniega acceso cuando el usuario no está habilitado en la suscripción', () => {
+    const usuario = crearUsuario('u-3', RolUsuario.SUSCRIPTOR);
+    const suscripcion = crearSuscripcion('s-3', {
+      correoHabilitado: 'otro@test.com',
+    });
+    const norma = crearNormaPublicada('n-3');
+
+    expect(
+      politica.puedeAcceder({ usuario, suscripcion, norma, fechaReferencia }),
+    ).toBe(false);
+  });
+
+  it('deniega acceso cuando la suscripción tiene fechaInicio futura', () => {
+    const usuario = crearUsuario('u-4', RolUsuario.SUSCRIPTOR);
+    const suscripcion = crearSuscripcion('s-4', {
+      correoHabilitado: usuario.obtenerCorreo(),
+      fechaInicio: new Date('2026-01-01'),
+      fechaFin: new Date('2030-01-01'),
+    });
+    const norma = crearNormaPublicada('n-4');
+
+    expect(
+      politica.puedeAcceder({ usuario, suscripcion, norma, fechaReferencia }),
+    ).toBe(false);
+  });
+
+  it('deniega acceso cuando la suscripción no está ACTIVA', () => {
+    const usuario = crearUsuario('u-5', RolUsuario.SUSCRIPTOR);
+    const suscripcion = crearSuscripcion('s-5', {
+      correoHabilitado: usuario.obtenerCorreo(),
+      estado: EstadoSuscripcion.VENCIDA,
+    });
+    const norma = crearNormaPublicada('n-5');
+
+    expect(
+      politica.puedeAcceder({ usuario, suscripcion, norma, fechaReferencia }),
+    ).toBe(false);
+  });
+
+  it('deniega acceso cuando la suscripción está vencida por fecha', () => {
+    const usuario = crearUsuario('u-6', RolUsuario.SUSCRIPTOR);
+    const suscripcion = crearSuscripcion('s-6', {
+      correoHabilitado: usuario.obtenerCorreo(),
+      fechaInicio: new Date('2024-01-01'),
+      fechaFin: new Date('2025-01-01'),
+    });
+    const norma = crearNormaPublicada('n-6');
+
+    expect(
+      politica.puedeAcceder({ usuario, suscripcion, norma, fechaReferencia }),
+    ).toBe(false);
   });
 
   it('deniega acceso cuando la norma no está publicada', () => {
-    const usuario = crearUsuarioSuscriptor('u-3');
-    const suscripcion = crearSuscripcionActiva('s-3', usuario.obtenerId());
-    const norma = crearNormaBorrador('n-3');
+    const usuario = crearUsuario('u-7', RolUsuario.SUSCRIPTOR);
+    const suscripcion = crearSuscripcion('s-7', {
+      correoHabilitado: usuario.obtenerCorreo(),
+    });
+    const norma = crearNormaBorrador('n-7');
 
-    const resultado = politica.puedeAcceder({ usuario, suscripcion, norma });
-
-    expect(resultado).toBe(false);
+    expect(
+      politica.puedeAcceder({ usuario, suscripcion, norma, fechaReferencia }),
+    ).toBe(false);
   });
 
-  it('deniega acceso cuando la suscripción activa pertenece a otro usuario', () => {
-    const usuario = crearUsuarioSuscriptor('u-4');
-    const suscripcion = crearSuscripcionActiva('s-4', 'otro-usuario-id');
-    const norma = crearNormaPublicada('n-4');
+  it.each([
+    RolUsuario.SUPERADMINISTRADOR,
+    RolUsuario.ADMINISTRADOR,
+    RolUsuario.EDITOR,
+  ])('deniega acceso explícitamente al rol %s', (rol) => {
+    const usuario = crearUsuario(`u-${rol}`, rol);
+    const suscripcion = crearSuscripcion(`s-${rol}`, {
+      correoHabilitado: usuario.obtenerCorreo(),
+    });
+    const norma = crearNormaPublicada(`n-${rol}`);
 
-    const resultado = politica.puedeAcceder({ usuario, suscripcion, norma });
-
-    expect(resultado).toBe(false);
-  });
-
-  it('deniega acceso cuando la suscripción está activa por estado pero vencida por fecha', () => {
-    const usuario = crearUsuarioSuscriptor('u-5');
-    const suscripcion = crearSuscripcionActivaVencidaPorFecha('s-5', usuario.obtenerId());
-    const norma = crearNormaPublicada('n-5');
-    const fechaReferencia = new Date('2025-01-01');
-
-    const resultado = politica.puedeAcceder({ usuario, suscripcion, norma, fechaReferencia });
-
-    expect(resultado).toBe(false);
-  });
-
-  it('deniega acceso cuando el usuario tiene rol SUPERADMINISTRADOR', () => {
-    const usuario = crearUsuarioSuperAdministrador('u-6');
-    const suscripcion = crearSuscripcionActiva('s-6', usuario.obtenerId());
-    const norma = crearNormaPublicada('n-6');
-
-    const resultado = politica.puedeAcceder({ usuario, suscripcion, norma });
-
-    expect(resultado).toBe(false);
-  });
-
-  it('deniega acceso cuando el usuario tiene rol ADMINISTRADOR', () => {
-    const usuario = crearUsuarioAdministrador('u-7');
-    const suscripcion = crearSuscripcionActiva('s-7', usuario.obtenerId());
-    const norma = crearNormaPublicada('n-7');
-
-    const resultado = politica.puedeAcceder({ usuario, suscripcion, norma });
-
-    expect(resultado).toBe(false);
-  });
-
-  it('deniega acceso cuando el usuario tiene rol EDITOR', () => {
-    const usuario = crearUsuarioEditor('u-8');
-    const suscripcion = crearSuscripcionActiva('s-8', usuario.obtenerId());
-    const norma = crearNormaPublicada('n-8');
-
-    const resultado = politica.puedeAcceder({ usuario, suscripcion, norma });
-
-    expect(resultado).toBe(false);
+    expect(
+      politica.puedeAcceder({ usuario, suscripcion, norma, fechaReferencia }),
+    ).toBe(false);
   });
 });

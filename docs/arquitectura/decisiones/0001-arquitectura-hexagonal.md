@@ -45,16 +45,29 @@ Esta decisión evita el patrón "carpetas por tipo técnico" que genera acoplami
 3. `infraestructura` depende de `aplicacion` (puertos) y `dominio` (tipos).
 4. Ningún paquete importa frameworks de infraestructura en su código de dominio.
 
+### Modelo de suscripción por cliente/cuenta
+
+- Una suscripción pertenece a un cliente/cuenta, no a un usuario. El cliente/cuenta puede ser una empresa, una organización o una cuenta monousuario.
+- En la fase 1, `Suscripcion` conserva únicamente `clienteId`; no se introducen todavía las entidades `Cliente`, `Cuenta` u `Organizacion`.
+- La suscripción habilita uno o varios usuarios mediante correos electrónicos normalizados y establece una `cantidadMaximaUsuarios`. El dueño de cuenta consume uno de esos cupos.
+- Todo usuario habilitado por correo puede acceder a todas las normas publicadas cuando la suscripción está activa y vigente.
+- El correo electrónico es el identificador global de un usuario. No pueden existir dos usuarios con el mismo correo y un correo no puede estar habilitado en más de una suscripción.
+- La entidad `Suscripcion` protege sus invariantes locales: exige al menos un correo, normaliza los correos, rechaza duplicados internos y evita superar `cantidadMaximaUsuarios`.
+- La unicidad global del correo de usuario y la exclusividad de un correo entre suscripciones requieren consultar estado externo al agregado. Por ello se implementarán posteriormente en aplicación y persistencia, no dentro de la entidad de dominio de fase 1.
+- Solo `SUPERADMINISTRADOR` o `ADMINISTRADOR` podrán crear cuentas y suscripciones, además de definir `cantidadMaximaUsuarios`. `EDITOR` queda excluido de esa capacidad.
+- Dueño de cuenta y miembros son conceptos del cliente/cuenta, no roles administrativos globales. Ninguno puede crear la cuenta inicial ni la suscripción inicial.
+- En esta fase no se implementan `Cliente`, `Cuenta`, `Organizacion`, `RolEnCuenta`, invitaciones, cupos dinámicos, estados por miembro ni una política de creación de suscripciones.
+
 ### Acceso a normas
 
 La política `PoliticaAccesoNormaSuscriptor` implementa la regla de acceso exclusivamente para suscriptores:
 
 - El usuario debe tener rol `SUSCRIPTOR`.
-- La suscripción debe pertenecer al usuario. Esta validación se delega en `Suscripcion.perteneceAlUsuario(usuario)`, sin que la política compare `usuario.id` contra `suscripcion.usuarioId` directamente.
-- La suscripción debe estar activa (estado `ACTIVA` y no vencida por fecha), validado mediante `Suscripcion.estaActiva(fechaReferencia)`.
+- La suscripción debe habilitar el correo del usuario. Esta validación se delega en `Suscripcion.habilitaUsuario(usuario)` y en el comportamiento de comparación normalizada de `Usuario`.
+- La suscripción debe estar activa y vigente: estado `ACTIVA`, `fechaInicio` alcanzada y `fechaFin` no alcanzada. Esto se valida mediante `Suscripcion.estaActiva(fechaReferencia)` con el rango temporal `[fechaInicio, fechaFin)`.
 - La norma debe estar `PUBLICADA`, validado mediante `Norma.estaPublicada()`.
 
-Las políticas de dominio dependen de comportamiento de entidades, no de comparación directa de identificadores primitivos. Los identificadores de las entidades (`Usuario.id`, `Suscripcion.usuarioId`) son privados y solo se accede a ellos mediante métodos de comportamiento (`usuario.tieneId()`, `usuario.obtenerId()`, `suscripcion.perteneceAlUsuario()`). Esta regla se aplica a todas las entidades y políticas del dominio.
+Las políticas de dominio dependen del comportamiento de las entidades, no de comparaciones primitivas duplicadas. `Usuario` normaliza su correo y expone `tieneCorreo()`; `Suscripcion` delega en ese método desde `habilitaUsuario()`. La política de acceso consume esos comportamientos sin conocer cómo se almacenan o normalizan los correos.
 
 **Separación explícita de acceso por rol:**
 

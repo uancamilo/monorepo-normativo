@@ -11,7 +11,6 @@ export interface ContextoAccesoNormaSuscriptor {
 }
 
 export class PoliticaAccesoNormaSuscriptor {
-
   puedeAcceder(contexto: ContextoAccesoNormaSuscriptor): boolean {
     const { usuario, suscripcion, norma, fechaReferencia } = contexto;
 
@@ -21,7 +20,7 @@ export class PoliticaAccesoNormaSuscriptor {
     if (!norma.estaPublicada()) {
       return false;
     }
-    if (!suscripcion.perteneceAlUsuario(usuario)) {
+    if (!suscripcion.habilitaUsuario(usuario)) {
       return false;
     }
     if (!suscripcion.estaActiva(fechaReferencia)) {
