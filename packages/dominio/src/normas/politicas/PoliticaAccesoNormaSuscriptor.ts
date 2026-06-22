@@ -3,16 +3,16 @@ import { Suscripcion } from '../../suscripciones/entidades/Suscripcion';
 import { Norma } from '../entidades/Norma';
 import { RolUsuario } from '../../usuarios/enums/RolUsuario';
 
-export interface ContextoAcceso {
+export interface ContextoAccesoNormaSuscriptor {
   usuario: Usuario;
   suscripcion: Suscripcion;
   norma: Norma;
   fechaReferencia?: Date;
 }
 
-export class PoliticaAccesoNorma {
+export class PoliticaAccesoNormaSuscriptor {
 
-  puedeAcceder(contexto: ContextoAcceso): boolean {
+  puedeAcceder(contexto: ContextoAccesoNormaSuscriptor): boolean {
     const { usuario, suscripcion, norma, fechaReferencia } = contexto;
 
     if (!usuario.tieneRol(RolUsuario.SUSCRIPTOR)) {

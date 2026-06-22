@@ -47,7 +47,7 @@ Esta decisión evita el patrón "carpetas por tipo técnico" que genera acoplami
 
 ### Acceso a normas
 
-La política `PoliticaAccesoNorma` implementa la regla de acceso para suscriptores:
+La política `PoliticaAccesoNormaSuscriptor` implementa la regla de acceso exclusivamente para suscriptores:
 
 - El usuario debe tener rol `SUSCRIPTOR`.
 - La suscripción debe pertenecer al usuario. Esta validación se delega en `Suscripcion.perteneceAlUsuario(usuario)`, sin que la política compare `usuario.id` contra `suscripcion.usuarioId` directamente.
@@ -56,7 +56,11 @@ La política `PoliticaAccesoNorma` implementa la regla de acceso para suscriptor
 
 Las políticas de dominio dependen de comportamiento de entidades, no de comparación directa de identificadores primitivos. Los identificadores de las entidades (`Usuario.id`, `Suscripcion.usuarioId`) son privados y solo se accede a ellos mediante métodos de comportamiento (`usuario.tieneId()`, `usuario.obtenerId()`, `suscripcion.perteneceAlUsuario()`). Esta regla se aplica a todas las entidades y políticas del dominio.
 
-El acceso para roles administrativos (`SUPERADMINISTRADOR`, `ADMINISTRADOR`, `EDITOR`) no está implementado en esta política. Deberá resolverse en una fase posterior con permisos explícitos o una política separada.
+**Separación explícita de acceso por rol:**
+
+- `PoliticaAccesoNormaSuscriptor` es exclusiva para usuarios con rol `SUSCRIPTOR`. Deniega explícitamente el acceso a `SUPERADMINISTRADOR`, `ADMINISTRADOR` y `EDITOR`.
+- `SUPERADMINISTRADOR` tendrá privilegios máximos en el sistema. Su acceso se implementará en una fase posterior mediante permisos explícitos o una política separada.
+- El acceso administrativo (`ADMINISTRADOR`, `EDITOR`) también se modelará después, sin mezclarlo con la política de suscriptor.
 
 ## Consecuencias
 

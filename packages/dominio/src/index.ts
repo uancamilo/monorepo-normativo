@@ -11,5 +11,5 @@ export type { SuscripcionProps } from './suscripciones/entidades/Suscripcion';
 export { Norma } from './normas/entidades/Norma';
 export type { NormaProps } from './normas/entidades/Norma';
 
-export { PoliticaAccesoNorma } from './normas/politicas/PoliticaAccesoNorma';
-export type { ContextoAcceso } from './normas/politicas/PoliticaAccesoNorma';
+export { PoliticaAccesoNormaSuscriptor } from './normas/politicas/PoliticaAccesoNormaSuscriptor';
+export type { ContextoAccesoNormaSuscriptor } from './normas/politicas/PoliticaAccesoNormaSuscriptor';

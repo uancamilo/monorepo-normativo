@@ -1,5 +1,5 @@
 import { describe, it, expect } from '@jest/globals';
-import { PoliticaAccesoNorma } from '../politicas/PoliticaAccesoNorma';
+import { PoliticaAccesoNormaSuscriptor } from '../politicas/PoliticaAccesoNormaSuscriptor';
 import { Usuario } from '../../usuarios/entidades/Usuario';
 import { Suscripcion } from '../../suscripciones/entidades/Suscripcion';
 import { Norma } from '../entidades/Norma';
@@ -16,12 +16,30 @@ function crearUsuarioSuscriptor(id: string): Usuario {
   });
 }
 
+function crearUsuarioSuperAdministrador(id: string): Usuario {
+  return new Usuario({
+    id,
+    nombre: 'SuperAdmin ' + id,
+    correo: id + '@superadmin.test.com',
+    rol: RolUsuario.SUPERADMINISTRADOR,
+  });
+}
+
 function crearUsuarioAdministrador(id: string): Usuario {
   return new Usuario({
     id,
     nombre: 'Admin ' + id,
     correo: id + '@admin.test.com',
     rol: RolUsuario.ADMINISTRADOR,
+  });
+}
+
+function crearUsuarioEditor(id: string): Usuario {
+  return new Usuario({
+    id,
+    nombre: 'Editor ' + id,
+    correo: id + '@editor.test.com',
+    rol: RolUsuario.EDITOR,
   });
 }
 
@@ -75,8 +93,8 @@ function crearNormaBorrador(id: string): Norma {
   });
 }
 
-describe('PoliticaAccesoNorma', () => {
-  const politica = new PoliticaAccesoNorma();
+describe('PoliticaAccesoNormaSuscriptor', () => {
+  const politica = new PoliticaAccesoNormaSuscriptor();
 
   it('permite acceso a una norma publicada cuando el usuario tiene suscripción activa', () => {
     const usuario = crearUsuarioSuscriptor('u-1');
@@ -129,10 +147,30 @@ describe('PoliticaAccesoNorma', () => {
     expect(resultado).toBe(false);
   });
 
-  it('deniega acceso cuando el usuario no tiene rol SUSCRIPTOR', () => {
-    const usuario = crearUsuarioAdministrador('u-6');
+  it('deniega acceso cuando el usuario tiene rol SUPERADMINISTRADOR', () => {
+    const usuario = crearUsuarioSuperAdministrador('u-6');
     const suscripcion = crearSuscripcionActiva('s-6', usuario.obtenerId());
     const norma = crearNormaPublicada('n-6');
+
+    const resultado = politica.puedeAcceder({ usuario, suscripcion, norma });
+
+    expect(resultado).toBe(false);
+  });
+
+  it('deniega acceso cuando el usuario tiene rol ADMINISTRADOR', () => {
+    const usuario = crearUsuarioAdministrador('u-7');
+    const suscripcion = crearSuscripcionActiva('s-7', usuario.obtenerId());
+    const norma = crearNormaPublicada('n-7');
+
+    const resultado = politica.puedeAcceder({ usuario, suscripcion, norma });
+
+    expect(resultado).toBe(false);
+  });
+
+  it('deniega acceso cuando el usuario tiene rol EDITOR', () => {
+    const usuario = crearUsuarioEditor('u-8');
+    const suscripcion = crearSuscripcionActiva('s-8', usuario.obtenerId());
+    const norma = crearNormaPublicada('n-8');
 
     const resultado = politica.puedeAcceder({ usuario, suscripcion, norma });
 

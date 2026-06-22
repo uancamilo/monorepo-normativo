@@ -27,6 +27,11 @@ Estructura:
 ```
 src/
 ├── index.ts
+├── compartido/
+│   └── validaciones/
+│       ├── texto.ts
+│       └── __tests__/
+│           └── texto.test.ts
 ├── usuarios/
 │   ├── entidades/Usuario.ts
 │   ├── enums/RolUsuario.ts
@@ -38,8 +43,10 @@ src/
 └── normas/
     ├── entidades/Norma.ts
     ├── enums/EstadoNorma.ts
-    ├── politicas/PoliticaAccesoNorma.ts
-    └── __tests__/PoliticaAccesoNorma.test.ts
+    ├── politicas/PoliticaAccesoNormaSuscriptor.ts
+    └── __tests__/
+        ├── Norma.test.ts
+        └── PoliticaAccesoNormaSuscriptor.test.ts
 ```
 
 ### Aplicación (futuro `packages/aplicacion`)
