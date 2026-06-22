@@ -21,9 +21,11 @@ Se adopta Arquitectura Hexagonal (Puertos y Adaptadores) con una interpretación
 ```
 packages/
 ├── dominio/        # Entidades, enums, políticas — sin dependencias externas
-├── aplicacion/     # (futuro) Casos de uso, puertos
+├── aplicacion/     # Casos de uso y puertos — paquete iniciado, aún sin implementaciones
 └── infraestructura/ # (futuro) Adaptadores HTTP, BD, Redis
 ```
+
+En el paso 2.2 se inicia `packages/aplicacion` como paquete TypeScript puro. Por ahora contiene únicamente configuración y un punto de entrada vacío: todavía no se implementan casos de uso ni puertos. `packages/infraestructura` aún no existe.
 
 ### Organización del dominio por módulos de negocio
 
@@ -44,6 +46,8 @@ Esta decisión evita el patrón "carpetas por tipo técnico" que genera acoplami
 2. `aplicacion` depende solo de `dominio`.
 3. `infraestructura` depende de `aplicacion` (puertos) y `dominio` (tipos).
 4. Ningún paquete importa frameworks de infraestructura en su código de dominio.
+
+El paquete `aplicacion` está preparado para contener la orquestación de casos de uso y la definición de puertos. Su única dependencia interna es `dominio`; no depende de infraestructura.
 
 ### Modelo de suscripción por cliente/cuenta
 

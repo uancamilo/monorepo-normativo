@@ -61,13 +61,17 @@ src/
         └── PoliticaAccesoNormaSuscriptor.test.ts
 ```
 
-### Aplicación (futuro `packages/aplicacion`)
+### Aplicación (`packages/aplicacion`)
 
-Casos de uso que orquestan el dominio. Define puertos (interfaces) para infraestructura.
+Paquete TypeScript puro iniciado en la fase 2. Contendrá los casos de uso que orquestan el dominio y los puertos que serán implementados posteriormente por infraestructura.
+
+- Depende de `packages/dominio`.
+- No depende de infraestructura.
+- En el paso 2.2 contiene únicamente la configuración y el punto de entrada del paquete; todavía no implementa casos de uso ni puertos.
 
 ### Infraestructura (futuro `packages/infraestructura`)
 
-Adaptadores concretos: controladores HTTP, repositorios Prisma, clientes Redis, etc.
+Todavía no existe. En fases posteriores contendrá adaptadores concretos como controladores HTTP, repositorios Prisma y clientes Redis.
 
 ## Decisiones Clave
 
@@ -75,11 +79,11 @@ Ver [decisiones/](./decisiones/) para el registro de decisiones de arquitectura 
 
 ## Tecnologías
 
-| Capa          | Tecnología (fase 1) | Tecnología (prevista) |
+| Capa          | Tecnología (fase 2) | Tecnología (prevista) |
 |---------------|---------------------|-----------------------|
 | Dominio       | TypeScript puro     | —                     |
 | Pruebas       | Jest + ts-jest      | —                     |
-| Aplicación    | —                   | TypeScript puro       |
+| Aplicación    | TypeScript puro     | —                     |
 | API           | —                   | NestJS                |
 | Persistencia  | —                   | Prisma + PostgreSQL   |
 | Cache         | —                   | Redis                 |
