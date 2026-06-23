@@ -31,8 +31,8 @@ Contiene entidades, enums y políticas de negocio organizados por módulo funcio
 - Todos los usuarios habilitados por una suscripción activa y vigente acceden completamente a todas las normas publicadas.
 - El correo electrónico identifica globalmente a un usuario. No pueden existir dos usuarios con el mismo correo y un correo no puede estar habilitado en más de una suscripción.
 - `Suscripcion` valida únicamente correos duplicados dentro de su propia lista, después de normalizarlos. La unicidad global de usuarios por correo y la pertenencia exclusiva del correo a una suscripción se aplicarán en una fase posterior desde aplicación y persistencia.
-- Solo `SUPERADMINISTRADOR` o `ADMINISTRADOR` podrán crear cuentas y suscripciones, y definir `cantidadMaximaUsuarios`. `EDITOR` no podrá realizar esas operaciones.
-- Dueño de cuenta y miembros son conceptos internos del cliente/cuenta, no roles administrativos globales. No pueden crear la cuenta inicial ni la suscripción inicial.
+- Solo `SUPERADMINISTRADOR` o `ADMINISTRADOR` podrán crear o modificar cuentas/clientes y suscripciones, y definir o modificar `cantidadMaximaUsuarios`. `EDITOR` no podrá realizar esas operaciones.
+- Dueño de cuenta y miembros son conceptos internos del cliente/cuenta, no roles administrativos globales. El dueño no puede crear la cuenta inicial, crear la suscripción inicial ni modificar la suscripción. Los miembros no pueden crear ni modificar cuentas/clientes ni suscripciones. Una eventual gestión de miembros por el dueño de cuenta sería una regla separada.
 - En la fase 1 no se implementan `Cliente`, `Cuenta`, `Organizacion`, `RolEnCuenta`, invitaciones, cupos dinámicos, estados por miembro ni una política de creación de suscripciones.
 
 Estructura:

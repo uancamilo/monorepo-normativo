@@ -9,6 +9,7 @@ describe('Usuario', () => {
         new Usuario({
           id: '',
           nombre: 'Juan',
+          apellido: 'Pérez',
           correo: 'juan@test.com',
           rol: RolUsuario.SUSCRIPTOR,
         });
@@ -20,6 +21,7 @@ describe('Usuario', () => {
         new Usuario({
           id: '   ',
           nombre: 'Juan',
+          apellido: 'Pérez',
           correo: 'juan@test.com',
           rol: RolUsuario.SUSCRIPTOR,
         });
@@ -31,6 +33,7 @@ describe('Usuario', () => {
         new Usuario({
           id: 'u-1',
           nombre: '',
+          apellido: 'Pérez',
           correo: 'juan@test.com',
           rol: RolUsuario.SUSCRIPTOR,
         });
@@ -42,10 +45,35 @@ describe('Usuario', () => {
         new Usuario({
           id: 'u-1',
           nombre: '   ',
+          apellido: 'Pérez',
           correo: 'juan@test.com',
           rol: RolUsuario.SUSCRIPTOR,
         });
       }).toThrow('El nombre del usuario no puede estar vacío');
+    });
+
+    it('lanza error cuando el apellido está vacío', () => {
+      expect(() => {
+        new Usuario({
+          id: 'u-1',
+          nombre: 'Juan',
+          apellido: '',
+          correo: 'juan@test.com',
+          rol: RolUsuario.SUSCRIPTOR,
+        });
+      }).toThrow('El apellido del usuario no puede estar vacío');
+    });
+
+    it('lanza error cuando el apellido contiene solo espacios', () => {
+      expect(() => {
+        new Usuario({
+          id: 'u-1',
+          nombre: 'Juan',
+          apellido: '   ',
+          correo: 'juan@test.com',
+          rol: RolUsuario.SUSCRIPTOR,
+        });
+      }).toThrow('El apellido del usuario no puede estar vacío');
     });
 
     it('lanza error cuando el correo está vacío', () => {
@@ -53,6 +81,7 @@ describe('Usuario', () => {
         new Usuario({
           id: 'u-1',
           nombre: 'Juan',
+          apellido: 'Pérez',
           correo: '',
           rol: RolUsuario.SUSCRIPTOR,
         });
@@ -64,6 +93,7 @@ describe('Usuario', () => {
         new Usuario({
           id: 'u-1',
           nombre: 'Juan',
+          apellido: 'Pérez',
           correo: '   ',
           rol: RolUsuario.SUSCRIPTOR,
         });
@@ -76,6 +106,7 @@ describe('Usuario', () => {
       const usuario = new Usuario({
         id: 'u-1',
         nombre: 'Juan',
+        apellido: 'Pérez',
         correo: 'juan@test.com',
         rol: RolUsuario.SUSCRIPTOR,
       });
@@ -87,6 +118,7 @@ describe('Usuario', () => {
       const usuario = new Usuario({
         id: 'u-1',
         nombre: 'Juan',
+        apellido: 'Pérez',
         correo: 'juan@test.com',
         rol: RolUsuario.SUSCRIPTOR,
       });
@@ -100,6 +132,7 @@ describe('Usuario', () => {
       const usuario = new Usuario({
         id: '  u-1  ',
         nombre: 'Juan',
+        apellido: 'Pérez',
         correo: 'juan@test.com',
         rol: RolUsuario.SUSCRIPTOR,
       });
@@ -112,6 +145,7 @@ describe('Usuario', () => {
       const usuario = new Usuario({
         id: 'u-1',
         nombre: '  Juan Pérez  ',
+        apellido: 'Pérez',
         correo: 'juan@test.com',
         rol: RolUsuario.SUSCRIPTOR,
       });
@@ -119,10 +153,23 @@ describe('Usuario', () => {
       expect(usuario.nombre).toBe('Juan Pérez');
     });
 
+    it('normaliza espacios laterales en apellido', () => {
+      const usuario = new Usuario({
+        id: 'u-1',
+        nombre: 'Juan',
+        apellido: '  Pérez Gómez  ',
+        correo: 'juan@test.com',
+        rol: RolUsuario.SUSCRIPTOR,
+      });
+
+      expect(usuario.apellido).toBe('Pérez Gómez');
+    });
+
     it('normaliza espacios laterales y mayúsculas en correo', () => {
       const usuario = new Usuario({
         id: 'u-1',
         nombre: 'Juan',
+        apellido: 'Pérez',
         correo: '  JUAN@Test.COM  ',
         rol: RolUsuario.SUSCRIPTOR,
       });
@@ -136,6 +183,7 @@ describe('Usuario', () => {
       const usuario = new Usuario({
         id: 'u-1',
         nombre: 'Juan',
+        apellido: 'Pérez',
         correo: 'juan@test.com',
         rol: RolUsuario.SUSCRIPTOR,
       });
@@ -147,6 +195,7 @@ describe('Usuario', () => {
       const usuario = new Usuario({
         id: 'u-1',
         nombre: 'Juan',
+        apellido: 'Pérez',
         correo: 'juan@test.com',
         rol: RolUsuario.SUSCRIPTOR,
       });
@@ -160,6 +209,7 @@ describe('Usuario', () => {
       const usuario = new Usuario({
         id: 'u-1',
         nombre: 'Juan',
+        apellido: 'Pérez',
         correo: '  JUAN@Test.COM  ',
         rol: RolUsuario.SUSCRIPTOR,
       });
@@ -173,6 +223,7 @@ describe('Usuario', () => {
       const usuario = new Usuario({
         id: 'u-1',
         nombre: 'Juan',
+        apellido: 'Pérez',
         correo: 'juan@test.com',
         rol: RolUsuario.ADMINISTRADOR,
       });
@@ -184,11 +235,26 @@ describe('Usuario', () => {
       const usuario = new Usuario({
         id: 'u-1',
         nombre: 'Juan',
+        apellido: 'Pérez',
         correo: 'juan@test.com',
         rol: RolUsuario.SUSCRIPTOR,
       });
 
       expect(usuario.tieneRol(RolUsuario.ADMINISTRADOR)).toBe(false);
+    });
+  });
+
+  describe('obtenerRol', () => {
+    it('devuelve el rol del usuario', () => {
+      const usuario = new Usuario({
+        id: 'u-1',
+        nombre: 'Juan',
+        apellido: 'Pérez',
+        correo: 'juan@test.com',
+        rol: RolUsuario.EDITOR,
+      });
+
+      expect(usuario.obtenerRol()).toBe(RolUsuario.EDITOR);
     });
   });
 });

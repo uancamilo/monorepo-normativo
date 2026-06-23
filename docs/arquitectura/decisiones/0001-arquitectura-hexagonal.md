@@ -58,8 +58,8 @@ El paquete `aplicacion` está preparado para contener la orquestación de casos 
 - El correo electrónico es el identificador global de un usuario. No pueden existir dos usuarios con el mismo correo y un correo no puede estar habilitado en más de una suscripción.
 - La entidad `Suscripcion` protege sus invariantes locales: exige al menos un correo, normaliza los correos, rechaza duplicados internos y evita superar `cantidadMaximaUsuarios`.
 - La unicidad global del correo de usuario y la exclusividad de un correo entre suscripciones requieren consultar estado externo al agregado. Por ello se implementarán posteriormente en aplicación y persistencia, no dentro de la entidad de dominio de fase 1.
-- Solo `SUPERADMINISTRADOR` o `ADMINISTRADOR` podrán crear cuentas y suscripciones, además de definir `cantidadMaximaUsuarios`. `EDITOR` queda excluido de esa capacidad.
-- Dueño de cuenta y miembros son conceptos del cliente/cuenta, no roles administrativos globales. Ninguno puede crear la cuenta inicial ni la suscripción inicial.
+- Solo `SUPERADMINISTRADOR` o `ADMINISTRADOR` podrán crear o modificar cuentas/clientes y suscripciones, además de definir o modificar `cantidadMaximaUsuarios`. `EDITOR` queda excluido de esas capacidades.
+- Dueño de cuenta y miembros son conceptos del cliente/cuenta, no roles administrativos globales. El dueño no puede crear la cuenta inicial, crear la suscripción inicial ni modificar la suscripción. Los miembros no pueden crear ni modificar cuentas/clientes ni suscripciones. Una eventual gestión de miembros por el dueño de cuenta sería una regla separada.
 - En esta fase no se implementan `Cliente`, `Cuenta`, `Organizacion`, `RolEnCuenta`, invitaciones, cupos dinámicos, estados por miembro ni una política de creación de suscripciones.
 
 ### Acceso a normas

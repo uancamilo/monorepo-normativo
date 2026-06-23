@@ -8,6 +8,7 @@ import {
 export interface UsuarioProps {
   id: string;
   nombre: string;
+  apellido: string;
   correo: string;
   rol: RolUsuario;
 }
@@ -15,6 +16,7 @@ export interface UsuarioProps {
 export class Usuario {
   private readonly _id: string;
   readonly nombre: string;
+  readonly apellido: string;
   readonly correo: string;
   readonly rol: RolUsuario;
 
@@ -25,12 +27,16 @@ export class Usuario {
     if (estaTextoVacio(props.nombre)) {
       throw new Error('El nombre del usuario no puede estar vacío');
     }
+    if (estaTextoVacio(props.apellido)) {
+      throw new Error('El apellido del usuario no puede estar vacío');
+    }
     if (estaTextoVacio(props.correo)) {
       throw new Error('El correo del usuario no puede estar vacío');
     }
 
     this._id = normalizarTexto(props.id);
     this.nombre = normalizarTexto(props.nombre);
+    this.apellido = normalizarTexto(props.apellido);
     this.correo = normalizarCorreo(props.correo);
     this.rol = props.rol;
   }
@@ -49,6 +55,10 @@ export class Usuario {
 
   obtenerCorreo(): string {
     return this.correo;
+  }
+
+  obtenerRol(): RolUsuario {
+    return this.rol;
   }
 
   tieneRol(rol: RolUsuario): boolean {

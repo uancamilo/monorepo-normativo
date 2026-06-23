@@ -11,6 +11,7 @@ function crearUsuario(id: string, rol: RolUsuario, correo = `${id}@test.com`): U
   return new Usuario({
     id,
     nombre: `Usuario ${id}`,
+    apellido: 'Suscriptor',
     correo,
     rol,
   });

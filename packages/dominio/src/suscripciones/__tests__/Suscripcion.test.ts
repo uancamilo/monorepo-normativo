@@ -21,6 +21,7 @@ function crearUsuario(correo: string): Usuario {
   return new Usuario({
     id: 'u-1',
     nombre: 'Usuario',
+    apellido: 'Suscriptor',
     correo,
     rol: RolUsuario.SUSCRIPTOR,
   });
