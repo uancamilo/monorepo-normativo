@@ -28,12 +28,24 @@ Contiene entidades, enums y políticas de negocio organizados por módulo funcio
 - Una suscripción pertenece a un cliente/cuenta, no a un usuario individual. El cliente/cuenta puede corresponder a una empresa, una organización o una cuenta monousuario.
 - En esta fase, `Suscripcion` representa la relación mediante `clienteId`; todavía no se implementan las entidades `Cliente`, `Cuenta` u `Organizacion`.
 - Una suscripción habilita uno o varios usuarios por correo electrónico y define `cantidadMaximaUsuarios`. El dueño de cuenta está incluido en esa cantidad máxima.
-- Todos los usuarios habilitados por una suscripción activa y vigente acceden completamente a todas las normas publicadas.
+- Todos los usuarios habilitados por una suscripción activa y vigente acceden completamente a todas las normas publicadas editorialmente, sin que el estado jurídico `VIGENTE`, `REFORMADA` o `DEROGADA` bloquee por sí mismo la consulta.
 - El correo electrónico identifica globalmente a un usuario. No pueden existir dos usuarios con el mismo correo y un correo no puede estar habilitado en más de una suscripción.
 - `Suscripcion` valida únicamente correos duplicados dentro de su propia lista, después de normalizarlos. La unicidad global de usuarios por correo y la pertenencia exclusiva del correo a una suscripción se aplicarán en una fase posterior desde aplicación y persistencia.
 - Solo `SUPERADMINISTRADOR` o `ADMINISTRADOR` podrán crear o modificar cuentas/clientes y suscripciones, y definir o modificar `cantidadMaximaUsuarios`. `EDITOR` no podrá realizar esas operaciones.
 - Dueño de cuenta y miembros son conceptos internos del cliente/cuenta, no roles administrativos globales. El dueño no puede crear la cuenta inicial, crear la suscripción inicial ni modificar la suscripción. Los miembros no pueden crear ni modificar cuentas/clientes ni suscripciones. Una eventual gestión de miembros por el dueño de cuenta sería una regla separada.
 - En la fase 1 no se implementan `Cliente`, `Cuenta`, `Organizacion`, `RolEnCuenta`, invitaciones, cupos dinámicos, estados por miembro ni una política de creación de suscripciones.
+
+#### Modelo de Norma
+
+- `EstadoNorma` representa únicamente estado jurídico: `VIGENTE`, `REFORMADA` o `DEROGADA`. `ARCHIVADA` no existe como estado jurídico.
+- `EstadoEditorialNorma` representa el flujo editorial interno: `BORRADOR`, `EN_REVISION` o `PUBLICADA`.
+- Una norma se vuelve visible para suscriptores cuando su flujo editorial llega a `PUBLICADA`.
+- Una norma no se reforma ni se deroga por voluntad editorial. Reforma y derogatoria requieren sustento normativo; la trazabilidad profunda queda diferida.
+- `tipoNorma` e `institucionExpide` son strings obligatorios por ahora.
+- `numero` es opcional.
+- `fuente` es una URL obligatoria y no es única: un mismo PDF o URL puede contener varias normas.
+- `fechaExpedicion` y `fechaPublicacionOficial` son metadata normativa distinta. `fechaPublicacionEnSistema` es una fecha interna del flujo editorial.
+- `SUSCRIPTOR` no modifica normas. `EDITOR` y `SUPERADMINISTRADOR` pueden modificar contenido y metadata, pero no inventar reforma o derogatoria sin sustento jurídico.
 
 Estructura:
 ```
@@ -55,6 +67,7 @@ src/
 └── normas/
     ├── entidades/Norma.ts
     ├── enums/EstadoNorma.ts
+    ├── enums/EstadoEditorialNorma.ts
     ├── politicas/PoliticaAccesoNormaSuscriptor.ts
     └── __tests__/
         ├── Norma.test.ts

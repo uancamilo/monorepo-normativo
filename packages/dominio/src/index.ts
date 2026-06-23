@@ -1,6 +1,7 @@
 export { RolUsuario } from './usuarios/enums/RolUsuario';
 export { EstadoSuscripcion } from './suscripciones/enums/EstadoSuscripcion';
 export { EstadoNorma } from './normas/enums/EstadoNorma';
+export { EstadoEditorialNorma } from './normas/enums/EstadoEditorialNorma';
 
 export { Usuario } from './usuarios/entidades/Usuario';
 export type { UsuarioProps } from './usuarios/entidades/Usuario';

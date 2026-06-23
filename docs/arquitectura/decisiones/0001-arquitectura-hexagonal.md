@@ -35,7 +35,7 @@ El paquete `dominio` se organiza por capacidades de negocio, no por tipos técni
 packages/dominio/src/
 ├── usuarios/         # Entidad Usuario, enum RolUsuario
 ├── suscripciones/    # Entidad Suscripcion, enum EstadoSuscripcion
-└── normas/           # Entidad Norma, enum EstadoNorma, política, tests
+└── normas/           # Entidad Norma, enums EstadoNorma y EstadoEditorialNorma, política, tests
 ```
 
 Esta decisión evita el patrón "carpetas por tipo técnico" que genera acoplamiento transversal y dificulta la localización del código relacionado a una capacidad de negocio.
@@ -54,13 +54,25 @@ El paquete `aplicacion` está preparado para contener la orquestación de casos 
 - Una suscripción pertenece a un cliente/cuenta, no a un usuario. El cliente/cuenta puede ser una empresa, una organización o una cuenta monousuario.
 - En la fase 1, `Suscripcion` conserva únicamente `clienteId`; no se introducen todavía las entidades `Cliente`, `Cuenta` u `Organizacion`.
 - La suscripción habilita uno o varios usuarios mediante correos electrónicos normalizados y establece una `cantidadMaximaUsuarios`. El dueño de cuenta consume uno de esos cupos.
-- Todo usuario habilitado por correo puede acceder a todas las normas publicadas cuando la suscripción está activa y vigente.
+- Todo usuario habilitado por correo puede acceder a todas las normas publicadas editorialmente cuando la suscripción está activa y vigente. El estado jurídico `VIGENTE`, `REFORMADA` o `DEROGADA` no bloquea por sí mismo la consulta.
 - El correo electrónico es el identificador global de un usuario. No pueden existir dos usuarios con el mismo correo y un correo no puede estar habilitado en más de una suscripción.
 - La entidad `Suscripcion` protege sus invariantes locales: exige al menos un correo, normaliza los correos, rechaza duplicados internos y evita superar `cantidadMaximaUsuarios`.
 - La unicidad global del correo de usuario y la exclusividad de un correo entre suscripciones requieren consultar estado externo al agregado. Por ello se implementarán posteriormente en aplicación y persistencia, no dentro de la entidad de dominio de fase 1.
 - Solo `SUPERADMINISTRADOR` o `ADMINISTRADOR` podrán crear o modificar cuentas/clientes y suscripciones, además de definir o modificar `cantidadMaximaUsuarios`. `EDITOR` queda excluido de esas capacidades.
 - Dueño de cuenta y miembros son conceptos del cliente/cuenta, no roles administrativos globales. El dueño no puede crear la cuenta inicial, crear la suscripción inicial ni modificar la suscripción. Los miembros no pueden crear ni modificar cuentas/clientes ni suscripciones. Una eventual gestión de miembros por el dueño de cuenta sería una regla separada.
 - En esta fase no se implementan `Cliente`, `Cuenta`, `Organizacion`, `RolEnCuenta`, invitaciones, cupos dinámicos, estados por miembro ni una política de creación de suscripciones.
+
+### Modelo de Norma
+
+- `EstadoNorma` representa únicamente el estado jurídico: `VIGENTE`, `REFORMADA` o `DEROGADA`. `ARCHIVADA` no existe como estado jurídico.
+- `EstadoEditorialNorma` representa el flujo editorial interno: `BORRADOR`, `EN_REVISION` o `PUBLICADA`.
+- Una norma se vuelve visible para suscriptores cuando su flujo editorial llega a `PUBLICADA`.
+- Una norma no se reforma ni se deroga por voluntad de un editor o superadministrador. Reforma y derogatoria requieren sustento normativo; la trazabilidad profunda queda diferida.
+- `tipoNorma` e `institucionExpide` son strings obligatorios por ahora.
+- `numero` es opcional.
+- `fuente` es una URL obligatoria y no es única, porque un mismo PDF o URL puede contener varias normas.
+- `fechaExpedicion` y `fechaPublicacionOficial` son metadata normativa distinta. `fechaPublicacionEnSistema` es una fecha interna del flujo editorial.
+- `SUSCRIPTOR` no modifica normas. `EDITOR` y `SUPERADMINISTRADOR` pueden modificar contenido y metadata, pero no inventar reforma o derogatoria sin sustento jurídico.
 
 ### Acceso a normas
 
@@ -69,9 +81,9 @@ La política `PoliticaAccesoNormaSuscriptor` implementa la regla de acceso exclu
 - El usuario debe tener rol `SUSCRIPTOR`.
 - La suscripción debe habilitar el correo del usuario. Esta validación se delega en `Suscripcion.habilitaUsuario(usuario)` y en el comportamiento de comparación normalizada de `Usuario`.
 - La suscripción debe estar activa y vigente: estado `ACTIVA`, `fechaInicio` alcanzada y `fechaFin` no alcanzada. Esto se valida mediante `Suscripcion.estaActiva(fechaReferencia)` con el rango temporal `[fechaInicio, fechaFin)`.
-- La norma debe estar `PUBLICADA`, validado mediante `Norma.estaPublicada()`.
+- La norma debe estar visible para suscriptores, validado mediante `Norma.estaVisibleParaSuscriptores()`, lo que depende del flujo editorial `PUBLICADA` y no del estado jurídico.
 
-Las políticas de dominio dependen del comportamiento de las entidades, no de comparaciones primitivas duplicadas. `Usuario` normaliza su correo y expone `tieneCorreo()`; `Suscripcion` delega en ese método desde `habilitaUsuario()`. La política de acceso consume esos comportamientos sin conocer cómo se almacenan o normalizan los correos.
+Las políticas de dominio dependen del comportamiento de las entidades, no de comparaciones primitivas duplicadas. `Usuario` normaliza su correo y expone `tieneCorreo()`; `Suscripcion` delega en ese método desde `habilitaUsuario()`; `Norma` expone su visibilidad editorial mediante `estaVisibleParaSuscriptores()`. La política de acceso consume esos comportamientos sin conocer cómo se almacenan o normalizan los correos ni cómo se decide la visibilidad interna.
 
 **Separación explícita de acceso por rol:**
 

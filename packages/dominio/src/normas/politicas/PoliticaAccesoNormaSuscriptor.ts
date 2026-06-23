@@ -17,13 +17,13 @@ export class PoliticaAccesoNormaSuscriptor {
     if (!usuario.tieneRol(RolUsuario.SUSCRIPTOR)) {
       return false;
     }
-    if (!norma.estaPublicada()) {
-      return false;
-    }
     if (!suscripcion.habilitaUsuario(usuario)) {
       return false;
     }
     if (!suscripcion.estaActiva(fechaReferencia)) {
+      return false;
+    }
+    if (!norma.estaVisibleParaSuscriptores()) {
       return false;
     }
 

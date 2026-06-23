@@ -46,7 +46,7 @@ Reglas confirmadas:
 - `SUPERADMINISTRADOR` tendrá los privilegios máximos del sistema.
 - `ADMINISTRADOR` podrá crear y modificar cuentas/clientes y suscripciones en fases futuras.
 - `EDITOR` no puede crear ni modificar cuentas/clientes ni suscripciones.
-- `SUSCRIPTOR` puede consultar normas publicadas cuando su correo está habilitado por una suscripción activa y vigente.
+- `SUSCRIPTOR` puede consultar normas editorialmente publicadas cuando su correo está habilitado por una suscripción activa y vigente. El estado jurídico `VIGENTE`, `REFORMADA` o `DEROGADA` no bloquea por sí mismo la consulta.
 - Dueño de cuenta y miembro no son roles globales del sistema.
 - Dueño de cuenta y miembro son conceptos internos futuros del cliente/cuenta.
 - Los privilegios administrativos completos todavía no están implementados.
@@ -96,38 +96,99 @@ Estados actuales:
 
 ### Reglas vigentes
 
-- Una norma tiene `id`, `titulo`, `contenido`, `estado` y `fechaPublicacion`.
+- Una norma tiene `id`, `numero`, `titulo`, `contenido`, `tipoNorma`, `institucionExpide`, `fuente`, `estadoJuridico`, `estadoEditorial`, `fechaExpedicion`, `fechaPublicacionOficial` y `fechaPublicacionEnSistema`.
 - `id` no puede estar vacío ni contener únicamente espacios.
 - `titulo` no puede estar vacío ni contener únicamente espacios.
-- `id` y `titulo` se normalizan mediante `trim()`.
-- Una norma `PUBLICADA` debe tener `fechaPublicacion`.
-- Si una norma no está `PUBLICADA`, `fechaPublicacion` queda en `null`, aunque se hubiera proporcionado otro valor al construirla.
-- Solo una norma `PUBLICADA` se considera consultable por suscriptores.
+- `tipoNorma` no puede estar vacío ni contener únicamente espacios.
+- `institucionExpide` no puede estar vacía ni contener únicamente espacios.
+- `fuente` no puede estar vacía ni contener únicamente espacios.
+- `fuente` debe ser una URL válida.
+- `id`, `titulo`, `tipoNorma`, `institucionExpide` y `fuente` se normalizan mediante `trim()`.
+- `numero` es opcional.
+- Si `numero` viene vacío o contiene únicamente espacios, se guarda como `null`.
+- Si `numero` viene informado, se normaliza mediante `trim()`.
 - `contenido` sigue siendo un `string` libre en el modelo actual y no tiene validaciones de dominio adicionales.
+- `fechaExpedicion` debe ser una fecha válida.
+- `fechaPublicacionOficial` debe ser una fecha válida.
+- `fechaPublicacionOficial` puede ser igual o posterior a `fechaExpedicion`.
+- `fechaPublicacionOficial` no puede ser anterior a `fechaExpedicion`.
+- `fechaPublicacionEnSistema` debe ser una fecha válida cuando exista.
+- Si `estadoEditorial` es `PUBLICADA`, debe existir `fechaPublicacionEnSistema`.
+- Si `estadoEditorial` no es `PUBLICADA`, `fechaPublicacionEnSistema` queda en `null`, aunque se proporcione otro valor al construir la entidad.
+- `estaVisibleParaSuscriptores()` devuelve `true` cuando `estadoEditorial` es `PUBLICADA`.
+- `estaPublicada()` se mantiene como alias interno de compatibilidad y también depende del flujo editorial, no del estado jurídico.
 
-Estados actuales:
+Estado jurídico actual (`EstadoNorma`):
+
+- `VIGENTE`.
+- `REFORMADA`.
+- `DEROGADA`.
+
+`ARCHIVADA` no existe como estado jurídico de una norma.
+
+Flujo editorial actual (`EstadoEditorialNorma`):
 
 - `BORRADOR`.
 - `EN_REVISION`.
 - `PUBLICADA`.
-- `ARCHIVADA`.
 
-Todavía no se modelan artículos, capítulos, secciones, entidad emisora, jurisdicción, vigencia normativa ni derogatorias.
+Reglas de visibilidad:
+
+- Cuando el flujo editorial llega a `PUBLICADA`, la norma se vuelve visible para suscriptores.
+- Una norma en `BORRADOR` no es visible para suscriptores.
+- Una norma en `EN_REVISION` no es visible para suscriptores.
+- Una norma en `PUBLICADA` sí es visible para suscriptores, siempre que el suscriptor tenga acceso por suscripción activa.
+- El estado jurídico `VIGENTE`, `REFORMADA` o `DEROGADA` no bloquea por sí mismo el acceso de suscriptores.
+
+Reglas de fuente:
+
+- `fuente` es obligatoria y debe ser una URL válida.
+- `fuente` no identifica de forma única a una norma.
+- Un mismo PDF o URL del Registro Oficial puede contener varias normas.
+- Varias normas pueden compartir la misma `fuente`.
+- No se implementa deduplicación por `fuente`.
+
+Reglas de tipo de norma:
+
+- `tipoNorma` es obligatorio y se normaliza mediante `trim()`.
+- `tipoNorma` queda como `string` porque el catálogo normativo ecuatoriano se cerrará en una fase posterior.
+- Más adelante puede evolucionar a enum, catálogo o entidad.
+
+Reglas jurídicas confirmadas:
+
+- Si se registra una norma nueva ordinaria y no hay fuente normativa que indique reforma o derogatoria, su estado jurídico debe ser `VIGENTE`.
+- Una norma puede registrarse como `REFORMADA` o `DEROGADA` cuando existe sustento normativo en la fuente o metadata de carga.
+- La entidad `Norma` no impide construir normas `REFORMADA` o `DEROGADA`, porque el sistema puede cargar normas históricas que ya ingresan con ese estado jurídico.
+- Una norma no se deroga ni se reforma por voluntad de un editor o superadministrador.
+- Registrar que una norma está `REFORMADA` o `DEROGADA` debe basarse en una norma, fuente o sustento jurídico.
+- La validación profunda del sustento normativo para reforma o derogatoria queda diferida a casos de uso o reglas futuras.
+- Todavía no se modelan norma reformatoria, norma derogatoria, trazabilidad jurídica ni relaciones entre normas.
+
+### Reglas editoriales confirmadas pero diferidas
+
+- `SUSCRIPTOR` no puede crear, modificar, reformar, derogar ni publicar normas.
+- `EDITOR` puede modificar contenido y metadata de normas.
+- `SUPERADMINISTRADOR` tiene la misma capacidad editorial que `EDITOR` y además capacidades administrativas.
+- `EDITOR` y `SUPERADMINISTRADOR` pueden corregir errores de ingreso sin que eso implique reforma jurídica.
+- `EDITOR` y `SUPERADMINISTRADOR` no pueden cambiar arbitrariamente una norma a `DEROGADA` o `REFORMADA` sin sustento normativo.
+- La trazabilidad profunda de reformas y derogatorias queda diferida.
 
 ## 6. Acceso a normas para suscriptores
 
 La política vigente `PoliticaAccesoNormaSuscriptor` permite consultar una norma solo cuando se cumplen simultáneamente todas estas condiciones:
 
 - El usuario tiene rol `SUSCRIPTOR`.
-- La norma está `PUBLICADA`.
 - La suscripción habilita el correo normalizado del usuario.
 - La suscripción está `ACTIVA` y vigente en la fecha de referencia.
+- La norma está visible para suscriptores, es decir, su `estadoEditorial` es `PUBLICADA`.
+- Un suscriptor puede consultar normas jurídicamente `VIGENTE`, `REFORMADA` y `DEROGADA`, siempre que estén publicadas en el flujo editorial del sistema y tenga suscripción activa.
 
 Límites de esta política:
 
 - `SUPERADMINISTRADOR`, `ADMINISTRADOR` y `EDITOR` no acceden mediante esta política específica de suscriptor.
 - Esto no significa que esos roles no tendrán acceso al sistema.
 - Su acceso administrativo se implementará después mediante permisos explícitos o políticas separadas.
+- La política no valida sustento jurídico de reformas o derogatorias.
 - La política no consulta bases de datos, no busca entidades, no usa HTTP y no depende de infraestructura.
 - La política decide únicamente con entidades de dominio ya construidas que recibe como contexto.
 
@@ -157,6 +218,7 @@ Las siguientes reglas requieren consultar el estado global del sistema:
 - No pueden existir dos usuarios con el mismo correo normalizado.
 - Un correo no puede estar habilitado en más de una suscripción.
 - Solo los roles autorizados pueden crear o modificar cuentas/clientes y suscripciones, y definir o modificar `cantidadMaximaUsuarios`.
+- La validación profunda del sustento jurídico de reformas y derogatorias requiere consultar normas, fuentes o metadata externa al agregado.
 
 Estas reglas no pueden garantizarse correctamente dentro de una entidad aislada. Se implementarán mediante casos de uso, puertos de repositorio y persistencia. Las entidades seguirán protegiendo únicamente sus invariantes locales.
 
@@ -174,10 +236,12 @@ Todavía no existen en el modelo:
 - Cupos dinámicos.
 - Planes de suscripción.
 - Categorías de normas por plan.
-- Vigencia normativa real.
-- Entidad emisora.
+- Catálogo normativo para `tipoNorma`.
+- Entidad `Institucion`.
+- Entidad `Fuente`.
+- Vigencia normativa con trazabilidad jurídica completa.
 - Jurisdicción.
-- Derogatorias.
+- Relaciones de reforma o derogatoria entre normas.
 - Auditoría funcional del sistema.
 - Autenticación.
 - Autorización administrativa completa.
