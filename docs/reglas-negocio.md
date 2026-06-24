@@ -43,10 +43,18 @@ Los roles globales actuales son:
 
 Reglas confirmadas:
 
-- `SUPERADMINISTRADOR` tendrá los privilegios máximos del sistema.
-- `ADMINISTRADOR` podrá crear y modificar cuentas/clientes y suscripciones en fases futuras.
-- `EDITOR` no puede crear ni modificar cuentas/clientes ni suscripciones.
-- `SUSCRIPTOR` puede consultar normas editorialmente publicadas cuando su correo está habilitado por una suscripción activa y vigente. El estado jurídico `VIGENTE`, `REFORMADA` o `DEROGADA` no bloquea por sí mismo la consulta.
+- `SUPERADMINISTRADOR` puede operar funciones administrativas globales y editoriales.
+- `ADMINISTRADOR` puede operar funciones comerciales: cuentas, clientes, usuarios vinculados a cuentas, suscripciones y cupos.
+- `ADMINISTRADOR` no puede acceder al flujo editorial de normas.
+- `ADMINISTRADOR` no puede crear, modificar, publicar ni gestionar normas.
+- `ADMINISTRADOR` no puede crear, leer, modificar ni borrar usuarios desde administración fuera del contexto comercial de la cuenta.
+- `EDITOR` puede operar el flujo editorial de normas.
+- `EDITOR` puede crear y modificar contenido y metadata normativa.
+- `EDITOR` no puede crear, leer, modificar ni borrar cuentas/clientes.
+- `EDITOR` no puede crear, leer, modificar ni borrar usuarios desde administración.
+- `EDITOR` no puede crear, leer, modificar ni borrar suscripciones.
+- `SUSCRIPTOR` no puede modificar normas, cuentas, usuarios ni suscripciones.
+- `SUPERADMINISTRADOR`, `ADMINISTRADOR`, `EDITOR` y `SUSCRIPTOR` pueden leer su propia información mínima de sesión/perfil.
 - Dueño de cuenta y miembro no son roles globales del sistema.
 - Dueño de cuenta y miembro son conceptos internos futuros del cliente/cuenta.
 - Los privilegios administrativos completos todavía no están implementados.
@@ -134,11 +142,12 @@ Flujo editorial actual (`EstadoEditorialNorma`):
 
 Reglas de visibilidad:
 
-- Cuando el flujo editorial llega a `PUBLICADA`, la norma se vuelve visible para suscriptores.
-- Una norma en `BORRADOR` no es visible para suscriptores.
-- Una norma en `EN_REVISION` no es visible para suscriptores.
-- Una norma en `PUBLICADA` sí es visible para suscriptores, siempre que el suscriptor tenga acceso por suscripción activa.
-- El estado jurídico `VIGENTE`, `REFORMADA` o `DEROGADA` no bloquea por sí mismo el acceso de suscriptores.
+- Cuando el flujo editorial llega a `PUBLICADA`, la norma queda disponible para usuarios con acceso por suscripción activa y vigente que habilita su correo normalizado.
+- Una norma en `BORRADOR` no queda disponible para usuarios con acceso por suscripción activa y vigente que habilita su correo normalizado.
+- Una norma en `EN_REVISION` no queda disponible para usuarios con acceso por suscripción activa y vigente que habilita su correo normalizado.
+- `estaVisibleParaSuscriptores()` se mantiene como nombre técnico del código actual y devuelve `true` cuando la norma queda disponible para usuarios con acceso por suscripción activa y vigente que habilita su correo normalizado.
+- Una norma en `PUBLICADA` puede consultarse como contenido completo solo si el usuario autenticado tiene una suscripción activa y vigente que habilita su correo normalizado.
+- El estado jurídico `VIGENTE`, `REFORMADA` o `DEROGADA` no bloquea por sí mismo el acceso de usuarios con acceso por suscripción activa y vigente que habilita su correo normalizado.
 
 Reglas de fuente:
 
@@ -173,21 +182,25 @@ Reglas jurídicas confirmadas:
 - `EDITOR` y `SUPERADMINISTRADOR` no pueden cambiar arbitrariamente una norma a `DEROGADA` o `REFORMADA` sin sustento normativo.
 - La trazabilidad profunda de reformas y derogatorias queda diferida.
 
-## 6. Acceso a normas para suscriptores
+## 6. Acceso al contenido completo
 
-La política vigente `PoliticaAccesoNormaSuscriptor` permite consultar una norma solo cuando se cumplen simultáneamente todas estas condiciones:
+La política actual `PoliticaAccesoNormaSuscriptor` es un nombre conceptual heredado y debe evolucionar a `PoliticaAccesoContenidoNorma`.
 
-- El usuario tiene rol `SUSCRIPTOR`.
-- La suscripción habilita el correo normalizado del usuario.
-- La suscripción está `ACTIVA` y vigente en la fecha de referencia.
-- La norma está visible para suscriptores, es decir, su `estadoEditorial` es `PUBLICADA`.
-- Un suscriptor puede consultar normas jurídicamente `VIGENTE`, `REFORMADA` y `DEROGADA`, siempre que estén publicadas en el flujo editorial del sistema y tenga suscripción activa.
+- Ningún rol global obtiene acceso automático al contenido completo de normas.
+- `SUPERADMINISTRADOR`, `ADMINISTRADOR`, `EDITOR` y `SUSCRIPTOR` solo pueden consultar contenido completo como lectores si están autenticados y tienen una suscripción activa y vigente que habilita su correo normalizado.
+- El acceso al contenido completo depende de la suscripción activa por correo, no del rol global `SUSCRIPTOR`.
+- El rol administrativo o editorial no concede acceso automático al contenido completo.
+- La consulta de contenido completo debe modelarse como el caso de uso futuro `ConsultarContenidoNorma`, no como `ConsultarContenidoNormaComoSuscriptor`.
+- El estado jurídico `VIGENTE`, `REFORMADA` o `DEROGADA` no bloquea por sí mismo la consulta.
+- Una búsqueda pública no concede acceso al contenido completo.
+- Al hacer clic en una norma, si el visitante no está autenticado, el sistema debe redirigirlo a login.
+- El sistema debe conservar la intención de navegación para volver al detalle solicitado después del login.
+- Después del login, el sistema debe validar acceso antes de mostrar el contenido completo.
+- Si el usuario está autenticado pero no tiene una suscripción activa y vigente que habilite su correo normalizado, debe mostrarse una pantalla de acceso restringido.
 
 Límites de esta política:
 
-- `SUPERADMINISTRADOR`, `ADMINISTRADOR` y `EDITOR` no acceden mediante esta política específica de suscriptor.
-- Esto no significa que esos roles no tendrán acceso al sistema.
-- Su acceso administrativo se implementará después mediante permisos explícitos o políticas separadas.
+- La consulta del contenido completo seguirá siendo un caso de uso privado, separado de la búsqueda pública.
 - La política no valida sustento jurídico de reformas o derogatorias.
 - La política no consulta bases de datos, no busca entidades, no usa HTTP y no depende de infraestructura.
 - La política decide únicamente con entidades de dominio ya construidas que recibe como contexto.
@@ -207,6 +220,8 @@ Límites de esta política:
 - Las normas en `BORRADOR` o `EN_REVISION` no aparecen en búsqueda pública.
 - La búsqueda pública puede mostrar normas con estado jurídico `VIGENTE`, `REFORMADA` o `DEROGADA`.
 - Las normas `REFORMADA` y `DEROGADA` deben mostrarse con una etiqueta visual especial en la interfaz futura.
+- Autocomplete e InstantSearch pueden implementarse directamente en frontend con librerías de Algolia.
+- La aplicación/backend no necesita duplicar la búsqueda pública como caso de uso tradicional si Algolia resuelve esa experiencia en frontend.
 
 ### Autocomplete en home
 
@@ -229,15 +244,14 @@ Límites de esta política:
 - `/busqueda` no será indexable por Google en la primera versión.
 - Los filtros en `/busqueda` quedan diferidos para una fase posterior.
 
-### Acceso al contenido completo
+### Acceso al contenido completo desde resultados de búsqueda
 
 - Hacer una búsqueda no concede acceso al contenido completo.
-- Al hacer clic en una norma, si el visitante no está autenticado, el sistema debe redirigirlo a login.
+- Al hacer clic en una norma, aplica la regla de acceso al contenido completo definida en la sección 6.
+- Si el visitante no está autenticado, el sistema debe redirigirlo a login.
 - El sistema debe conservar la intención de navegación para volver al detalle solicitado después del login.
 - Después del login, el sistema debe validar acceso antes de mostrar el contenido completo.
-- Solo un usuario con suscripción activa y vigente puede ver el contenido completo.
-- Si el usuario está autenticado pero no tiene suscripción activa, debe mostrarse una pantalla de acceso restringido.
-- La consulta del contenido completo seguirá siendo un caso de uso privado, separado de la búsqueda pública.
+- Si el usuario está autenticado pero no tiene una suscripción activa y vigente que habilite su correo normalizado, debe mostrarse una pantalla de acceso restringido.
 
 ### Algolia como índice derivado
 
@@ -250,6 +264,7 @@ Límites de esta política:
 - Algolia puede indexar el contenido completo de las normas para permitir búsqueda textual.
 - El contenido completo indexado no debe ser recuperable públicamente como respuesta de búsqueda.
 - El índice público debe devolver únicamente los campos aprobados para autocomplete o `/busqueda`.
+- El backend no debe exponer el contenido completo como atributo recuperable del índice público.
 - La forma técnica de evitar exposición del contenido completo se definirá cuando se implemente el adaptador de Algolia.
 
 ### Sincronización con Algolia
@@ -273,17 +288,19 @@ Límites de esta política:
 - `ADMINISTRADOR` queda limitado a funciones comerciales: cuentas, clientes, suscripciones y cupos.
 - La búsqueda editorial interna se implementará como caso de uso separado en una fase posterior.
 
-## 8. Creación y modificación de cuentas y suscripciones
+## 8. Gestión de cuentas, usuarios y suscripciones
 
 Las siguientes reglas están confirmadas, pero todavía no están implementadas:
 
 - Solo `SUPERADMINISTRADOR` o `ADMINISTRADOR` pueden crear cuentas/clientes.
 - Solo `SUPERADMINISTRADOR` o `ADMINISTRADOR` pueden modificar cuentas/clientes.
+- Solo `SUPERADMINISTRADOR` o `ADMINISTRADOR` pueden crear, modificar y administrar usuarios vinculados a cuentas.
 - Solo `SUPERADMINISTRADOR` o `ADMINISTRADOR` pueden crear suscripciones.
 - Solo `SUPERADMINISTRADOR` o `ADMINISTRADOR` pueden modificar suscripciones.
 - Solo `SUPERADMINISTRADOR` o `ADMINISTRADOR` pueden definir o modificar `cantidadMaximaUsuarios`.
-- `EDITOR` no puede crear ni modificar cuentas/clientes.
-- `EDITOR` no puede crear ni modificar suscripciones.
+- `EDITOR` no puede crear, leer, modificar ni borrar cuentas/clientes.
+- `EDITOR` no puede crear, leer, modificar ni borrar usuarios desde administración.
+- `EDITOR` no puede crear, leer, modificar ni borrar suscripciones.
 - El dueño de cuenta no puede crear la cuenta inicial.
 - El dueño de cuenta no puede crear la suscripción inicial.
 - El dueño de cuenta no puede modificar la suscripción.
@@ -336,6 +353,8 @@ Todavía no existen en el modelo:
 | Normas | `docs/reglas-negocio.md` | `packages/dominio/src/normas/__tests__/Norma.test.ts` | `packages/dominio/src/normas/entidades/Norma.ts` |
 | Acceso a normas | `docs/reglas-negocio.md` | `packages/dominio/src/normas/__tests__/PoliticaAccesoNormaSuscriptor.test.ts` | `packages/dominio/src/normas/politicas/PoliticaAccesoNormaSuscriptor.ts` |
 | Validaciones compartidas | `docs/reglas-negocio.md` | `packages/dominio/src/compartido/validaciones/__tests__/texto.test.ts` | `packages/dominio/src/compartido/validaciones/texto.ts` |
+
+Nota: `PoliticaAccesoNormaSuscriptor` y sus tests representan el nombre e implementación heredados. La regla actualizada exige evolucionar esa política a `PoliticaAccesoContenidoNorma`, eliminando la dependencia del rol global `SUSCRIPTOR` y basando el acceso en usuario autenticado, correo habilitado y suscripción activa y vigente.
 
 ## 12. Procedimiento para cambiar una regla
 

@@ -28,7 +28,7 @@ Contiene entidades, enums y políticas de negocio organizados por módulo funcio
 - Una suscripción pertenece a un cliente/cuenta, no a un usuario individual. El cliente/cuenta puede corresponder a una empresa, una organización o una cuenta monousuario.
 - En esta fase, `Suscripcion` representa la relación mediante `clienteId`; todavía no se implementan las entidades `Cliente`, `Cuenta` u `Organizacion`.
 - Una suscripción habilita uno o varios usuarios por correo electrónico y define `cantidadMaximaUsuarios`. El dueño de cuenta está incluido en esa cantidad máxima.
-- Todos los usuarios habilitados por una suscripción activa y vigente acceden completamente a todas las normas publicadas editorialmente, sin que el estado jurídico `VIGENTE`, `REFORMADA` o `DEROGADA` bloquee por sí mismo la consulta.
+- Las normas con flujo editorial `PUBLICADA` pueden aparecer en búsqueda pública y solo pueden consultarse como contenido completo por usuarios autenticados con acceso por suscripción activa y vigente que habilite su correo normalizado.
 - El correo electrónico identifica globalmente a un usuario. No pueden existir dos usuarios con el mismo correo y un correo no puede estar habilitado en más de una suscripción.
 - `Suscripcion` valida únicamente correos duplicados dentro de su propia lista, después de normalizarlos. La unicidad global de usuarios por correo y la pertenencia exclusiva del correo a una suscripción se aplicarán en una fase posterior desde aplicación y persistencia.
 - Solo `SUPERADMINISTRADOR` o `ADMINISTRADOR` podrán crear o modificar cuentas/clientes y suscripciones, y definir o modificar `cantidadMaximaUsuarios`. `EDITOR` no podrá realizar esas operaciones.
@@ -39,7 +39,7 @@ Contiene entidades, enums y políticas de negocio organizados por módulo funcio
 
 - `EstadoNorma` representa únicamente estado jurídico: `VIGENTE`, `REFORMADA` o `DEROGADA`. `ARCHIVADA` no existe como estado jurídico.
 - `EstadoEditorialNorma` representa el flujo editorial interno: `BORRADOR`, `EN_REVISION` o `PUBLICADA`.
-- Una norma se vuelve visible para suscriptores cuando su flujo editorial llega a `PUBLICADA`.
+- `Norma.estaVisibleParaSuscriptores()` se mantiene solo como nombre técnico heredado del método existente; la regla de negocio depende de `estadoEditorial = PUBLICADA`.
 - Una norma no se reforma ni se deroga por voluntad editorial. Reforma y derogatoria requieren sustento normativo; la trazabilidad profunda queda diferida.
 - `tipoNorma` e `institucionExpide` son strings obligatorios por ahora.
 - `numero` es opcional.
@@ -87,6 +87,10 @@ Paquete TypeScript puro iniciado en la fase 2. Contendrá los casos de uso que o
 Todavía no existe. En fases posteriores contendrá adaptadores concretos como controladores HTTP, repositorios Prisma y clientes Redis.
 
 El modelo de búsqueda futura separará búsqueda pública y búsqueda editorial interna. Algolia será infraestructura futura para la búsqueda pública como índice derivado; la base de datos seguirá siendo la fuente de verdad y el dominio no dependerá de Algolia.
+
+Autocomplete e InstantSearch podrán implementarse directamente en frontend con librerías de Algolia. Por eso, la aplicación/backend no necesita duplicar la experiencia pública como un caso de uso tradicional si esa interacción queda resuelta en frontend.
+
+La aplicación/backend sí debe controlar la publicación, actualización y retiro de normas del índice público mediante eventos, cola o un mecanismo equivalente futuro. El índice público no debe exponer el contenido completo como atributo recuperable.
 
 La búsqueda editorial interna será un caso separado, no usará Algolia y se resolverá por un flujo propio de aplicación e infraestructura.
 
