@@ -86,6 +86,10 @@ Paquete TypeScript puro iniciado en la fase 2. Contendrá los casos de uso que o
 
 Todavía no existe. En fases posteriores contendrá adaptadores concretos como controladores HTTP, repositorios Prisma y clientes Redis.
 
+El modelo de búsqueda futura separará búsqueda pública y búsqueda editorial interna. Algolia será infraestructura futura para la búsqueda pública como índice derivado; la base de datos seguirá siendo la fuente de verdad y el dominio no dependerá de Algolia.
+
+La búsqueda editorial interna será un caso separado, no usará Algolia y se resolverá por un flujo propio de aplicación e infraestructura.
+
 ## Decisiones Clave
 
 Ver [decisiones/](./decisiones/) para el registro de decisiones de arquitectura (ADR).

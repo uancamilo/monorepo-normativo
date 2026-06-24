@@ -192,7 +192,88 @@ Límites de esta política:
 - La política no consulta bases de datos, no busca entidades, no usa HTTP y no depende de infraestructura.
 - La política decide únicamente con entidades de dominio ya construidas que recibe como contexto.
 
-## 7. Creación y modificación de cuentas y suscripciones
+## 7. Búsqueda pública, acceso completo y búsqueda editorial
+
+### Búsqueda pública de normas
+
+- La búsqueda de normas es pública.
+- La búsqueda pública no requiere autenticación.
+- Está disponible desde la home mediante autocomplete.
+- Está disponible desde la ruta `/busqueda` mediante lista de resultados.
+- La búsqueda pública puede buscar dentro del contenido completo de las normas.
+- El contenido completo de la norma no se entrega públicamente.
+- Los resultados públicos solo muestran información resumida.
+- La búsqueda pública solo incluye normas con `estadoEditorial` igual a `PUBLICADA`.
+- Las normas en `BORRADOR` o `EN_REVISION` no aparecen en búsqueda pública.
+- La búsqueda pública puede mostrar normas con estado jurídico `VIGENTE`, `REFORMADA` o `DEROGADA`.
+- Las normas `REFORMADA` y `DEROGADA` deben mostrarse con una etiqueta visual especial en la interfaz futura.
+
+### Autocomplete en home
+
+- La home tendrá búsqueda tipo autocomplete.
+- El autocomplete es público.
+- El autocomplete muestra máximo 5 resultados.
+- Cada resultado del autocomplete muestra solo el título de la norma.
+- El autocomplete no entrega contenido completo.
+- El autocomplete no muestra metadata extensa.
+
+### Ruta `/busqueda`
+
+- La ruta `/busqueda` es pública.
+- Muestra resultados en lista.
+- Usa paginación de 10 resultados por página.
+- Cada resultado muestra título, estado jurídico y un fragmento breve.
+- El fragmento breve debe estar entre 150 y 250 caracteres.
+- El fragmento puede provenir de coincidencias dentro del contenido completo.
+- El fragmento no debe permitir reconstruir ni acceder al contenido completo de la norma.
+- `/busqueda` no será indexable por Google en la primera versión.
+- Los filtros en `/busqueda` quedan diferidos para una fase posterior.
+
+### Acceso al contenido completo
+
+- Hacer una búsqueda no concede acceso al contenido completo.
+- Al hacer clic en una norma, si el visitante no está autenticado, el sistema debe redirigirlo a login.
+- El sistema debe conservar la intención de navegación para volver al detalle solicitado después del login.
+- Después del login, el sistema debe validar acceso antes de mostrar el contenido completo.
+- Solo un usuario con suscripción activa y vigente puede ver el contenido completo.
+- Si el usuario está autenticado pero no tiene suscripción activa, debe mostrarse una pantalla de acceso restringido.
+- La consulta del contenido completo seguirá siendo un caso de uso privado, separado de la búsqueda pública.
+
+### Algolia como índice derivado
+
+- Algolia será el motor especializado de búsqueda pública.
+- Algolia pertenece a infraestructura.
+- El dominio no depende de Algolia.
+- La aplicación no debe depender directamente del SDK de Algolia.
+- La base de datos será la fuente de verdad.
+- Algolia será un índice derivado.
+- Algolia puede indexar el contenido completo de las normas para permitir búsqueda textual.
+- El contenido completo indexado no debe ser recuperable públicamente como respuesta de búsqueda.
+- El índice público debe devolver únicamente los campos aprobados para autocomplete o `/busqueda`.
+- La forma técnica de evitar exposición del contenido completo se definirá cuando se implemente el adaptador de Algolia.
+
+### Sincronización con Algolia
+
+- La sincronización con Algolia debe ser por cola/evento.
+- No debe ser una llamada directa bloqueante desde el dominio.
+- Publicar una norma genera sincronización hacia el índice público.
+- Actualizar una norma publicada genera actualización del índice público.
+- Si una norma deja de tener `estadoEditorial` `PUBLICADA`, debe retirarse del índice público.
+- Normas en `BORRADOR` o `EN_REVISION` no deben estar disponibles en el índice público.
+- La indexación debe ser derivada, reintentable y auditable en fases futuras.
+- La implementación concreta de cola/eventos queda diferida.
+
+### Búsqueda editorial interna
+
+- Existirá una búsqueda editorial interna separada.
+- La búsqueda editorial interna no usa Algolia.
+- La búsqueda editorial interna requiere rol `EDITOR` o `SUPERADMINISTRADOR`.
+- La búsqueda editorial interna puede incluir normas en `BORRADOR`, `EN_REVISION` o `PUBLICADA`.
+- `ADMINISTRADOR` no tiene búsqueda interna de normas.
+- `ADMINISTRADOR` queda limitado a funciones comerciales: cuentas, clientes, suscripciones y cupos.
+- La búsqueda editorial interna se implementará como caso de uso separado en una fase posterior.
+
+## 8. Creación y modificación de cuentas y suscripciones
 
 Las siguientes reglas están confirmadas, pero todavía no están implementadas:
 
@@ -211,7 +292,7 @@ Las siguientes reglas están confirmadas, pero todavía no están implementadas:
 - Estas reglas se implementarán en la Fase 2 o en una fase posterior mediante casos de uso y, cuando corresponda, políticas de aplicación o dominio.
 - La posibilidad futura de que el dueño de cuenta gestione miembros de su cuenta, si se aprueba, será una regla separada y no equivale a modificar la suscripción.
 
-## 8. Reglas globales diferidas
+## 9. Reglas globales diferidas
 
 Las siguientes reglas requieren consultar el estado global del sistema:
 
@@ -222,7 +303,7 @@ Las siguientes reglas requieren consultar el estado global del sistema:
 
 Estas reglas no pueden garantizarse correctamente dentro de una entidad aislada. Se implementarán mediante casos de uso, puertos de repositorio y persistencia. Las entidades seguirán protegiendo únicamente sus invariantes locales.
 
-## 9. Límites explícitos del modelo actual
+## 10. Límites explícitos del modelo actual
 
 Todavía no existen en el modelo:
 
@@ -246,7 +327,7 @@ Todavía no existen en el modelo:
 - Autenticación.
 - Autorización administrativa completa.
 
-## 10. Relación entre reglas, tests y código
+## 11. Relación entre reglas, tests y código
 
 | Área | Documento humano | Tests ejecutables | Código que aplica la regla |
 |---|---|---|---|
@@ -256,7 +337,7 @@ Todavía no existen en el modelo:
 | Acceso a normas | `docs/reglas-negocio.md` | `packages/dominio/src/normas/__tests__/PoliticaAccesoNormaSuscriptor.test.ts` | `packages/dominio/src/normas/politicas/PoliticaAccesoNormaSuscriptor.ts` |
 | Validaciones compartidas | `docs/reglas-negocio.md` | `packages/dominio/src/compartido/validaciones/__tests__/texto.test.ts` | `packages/dominio/src/compartido/validaciones/texto.ts` |
 
-## 11. Procedimiento para cambiar una regla
+## 12. Procedimiento para cambiar una regla
 
 1. Actualizar `docs/reglas-negocio.md`.
 2. Actualizar o crear el test que exprese la nueva regla.

@@ -91,6 +91,14 @@ Las políticas de dominio dependen del comportamiento de las entidades, no de co
 - `SUPERADMINISTRADOR` tendrá privilegios máximos en el sistema. Su acceso se implementará en una fase posterior mediante permisos explícitos o una política separada.
 - El acceso administrativo (`ADMINISTRADOR`, `EDITOR`) también se modelará después, sin mezclarlo con la política de suscriptor.
 
+### Búsqueda y Algolia
+
+- Algolia se tratará como adaptador de infraestructura para la búsqueda pública.
+- La aplicación deberá depender de puertos, no del SDK concreto de Algolia.
+- La sincronización del índice público se realizará por cola/evento, no por llamada bloqueante desde el dominio.
+- La búsqueda pública y la consulta privada del contenido completo son casos distintos.
+- La búsqueda editorial interna será separada y no usará Algolia.
+
 ## Consecuencias
 
 - **Positivas**: el dominio es testeable sin mocks de infraestructura; los adaptadores son intercambiables; la organización modular facilita encontrar código por capacidad de negocio.
