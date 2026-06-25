@@ -184,7 +184,7 @@ Reglas jurídicas confirmadas:
 
 ## 6. Acceso al contenido completo
 
-La política actual `PoliticaAccesoNormaSuscriptor` es un nombre conceptual heredado y debe evolucionar a `PoliticaAccesoContenidoNorma`.
+La política vigente de dominio para decidir el acceso al contenido completo de una norma es `PoliticaAccesoContenidoNorma`. La política `PoliticaAccesoNormaSuscriptor` queda como política heredada marcada con `@deprecated`; conserva la semántica anterior basada en el rol global `SUSCRIPTOR` y delega en `PoliticaAccesoContenidoNorma` después de verificar ese rol.
 
 - Ningún rol global obtiene acceso automático al contenido completo de normas.
 - `SUPERADMINISTRADOR`, `ADMINISTRADOR`, `EDITOR` y `SUSCRIPTOR` solo pueden consultar contenido completo como lectores si están autenticados y tienen una suscripción activa y vigente que habilita su correo normalizado.
@@ -351,10 +351,11 @@ Todavía no existen en el modelo:
 | Usuarios | `docs/reglas-negocio.md` | `packages/dominio/src/usuarios/__tests__/Usuario.test.ts` | `packages/dominio/src/usuarios/entidades/Usuario.ts` |
 | Suscripciones | `docs/reglas-negocio.md` | `packages/dominio/src/suscripciones/__tests__/Suscripcion.test.ts` | `packages/dominio/src/suscripciones/entidades/Suscripcion.ts` |
 | Normas | `docs/reglas-negocio.md` | `packages/dominio/src/normas/__tests__/Norma.test.ts` | `packages/dominio/src/normas/entidades/Norma.ts` |
-| Acceso a normas | `docs/reglas-negocio.md` | `packages/dominio/src/normas/__tests__/PoliticaAccesoNormaSuscriptor.test.ts` | `packages/dominio/src/normas/politicas/PoliticaAccesoNormaSuscriptor.ts` |
+| Acceso a normas (vigente) | `docs/reglas-negocio.md` | `packages/dominio/src/normas/__tests__/PoliticaAccesoContenidoNorma.test.ts` | `packages/dominio/src/normas/politicas/PoliticaAccesoContenidoNorma.ts` |
+| Acceso a normas (heredado) | `docs/reglas-negocio.md` | `packages/dominio/src/normas/__tests__/PoliticaAccesoNormaSuscriptor.test.ts` | `packages/dominio/src/normas/politicas/PoliticaAccesoNormaSuscriptor.ts` |
 | Validaciones compartidas | `docs/reglas-negocio.md` | `packages/dominio/src/compartido/validaciones/__tests__/texto.test.ts` | `packages/dominio/src/compartido/validaciones/texto.ts` |
 
-Nota: `PoliticaAccesoNormaSuscriptor` y sus tests representan el nombre e implementación heredados. La regla actualizada exige evolucionar esa política a `PoliticaAccesoContenidoNorma`, eliminando la dependencia del rol global `SUSCRIPTOR` y basando el acceso en usuario autenticado, correo habilitado y suscripción activa y vigente.
+Nota: `PoliticaAccesoContenidoNorma` y sus tests representan la regla vigente de acceso al contenido completo. `PoliticaAccesoNormaSuscriptor` se conserva como política heredada (`@deprecated`) por compatibilidad; mantiene la semántica anterior basada en el rol global `SUSCRIPTOR` y delega en `PoliticaAccesoContenidoNorma`. La evolución a la regla independiente del rol `SUSCRIPTOR` ya ocurrió en dominio: el acceso se basa en usuario autenticado, correo habilitado y suscripción activa y vigente.
 
 ## 12. Procedimiento para cambiar una regla
 

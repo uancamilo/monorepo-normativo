@@ -76,20 +76,23 @@ El paquete `aplicacion` está preparado para contener la orquestación de casos 
 
 ### Acceso a normas
 
-La política `PoliticaAccesoNormaSuscriptor` implementa el nombre heredado de la regla de acceso al contenido completo:
+El acceso al contenido completo de una norma se decide con la política `PoliticaAccesoContenidoNorma`:
 
 - El usuario debe estar autenticado.
 - La suscripción debe habilitar el correo del usuario. Esta validación se delega en `Suscripcion.habilitaUsuario(usuario)` y en el comportamiento de comparación normalizada de `Usuario`.
 - La suscripción debe estar activa y vigente: estado `ACTIVA`, `fechaInicio` alcanzada y `fechaFin` no alcanzada. Esto se valida mediante `Suscripcion.estaActiva(fechaReferencia)` con el rango temporal `[fechaInicio, fechaFin)`.
 - La norma debe estar publicada, validado mediante `Norma.estaVisibleParaSuscriptores()`, nombre técnico heredado que depende de `estadoEditorial = PUBLICADA` y no del estado jurídico.
 
+La política heredada `PoliticaAccesoNormaSuscriptor` se conserva temporalmente por compatibilidad y mantiene la restricción del rol global `SUSCRIPTOR`: solo permite el acceso si el usuario tiene ese rol y, además, cumple las condiciones delegadas en `PoliticaAccesoContenidoNorma`. Para nueva lógica debe usarse `PoliticaAccesoContenidoNorma` directamente.
+
 Las políticas de dominio dependen del comportamiento de las entidades, no de comparaciones primitivas duplicadas. `Usuario` normaliza su correo y expone `tieneCorreo()`; `Suscripcion` delega en ese método desde `habilitaUsuario()`; `Norma` expone su visibilidad editorial mediante `estaVisibleParaSuscriptores()`, nombre técnico heredado. La política de acceso consume esos comportamientos sin conocer cómo se almacenan o normalizan los correos ni cómo se decide la visibilidad interna.
 
 **Separación explícita de acceso por rol:**
 
+- La regla actual de acceso al contenido completo no depende del rol global `SUSCRIPTOR`.
 - `PoliticaAccesoNormaSuscriptor` y su implementación heredada no deben interpretarse como acceso por rol global `SUSCRIPTOR`.
-- `SUPERADMINISTRADOR`, `ADMINISTRADOR` y `EDITOR` no obtienen acceso automático al contenido completo por su rol.
-- El acceso al contenido completo depende de autenticación, correo habilitado y suscripción activa y vigente.
+- `SUPERADMINISTRADOR`, `ADMINISTRADOR`, `EDITOR` y `SUSCRIPTOR` no obtienen acceso automático al contenido completo por su rol.
+- El acceso al contenido completo depende de usuario autenticado, suscripción activa y vigente que habilite el correo normalizado del usuario, y norma publicada.
 
 ### Búsqueda y Algolia
 

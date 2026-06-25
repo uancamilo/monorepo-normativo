@@ -46,6 +46,8 @@ Contiene entidades, enums y políticas de negocio organizados por módulo funcio
 - `fuente` es una URL obligatoria y no es única: un mismo PDF o URL puede contener varias normas.
 - `fechaExpedicion` y `fechaPublicacionOficial` son metadata normativa distinta. `fechaPublicacionEnSistema` es una fecha interna del flujo editorial.
 - `SUSCRIPTOR` no modifica normas. `EDITOR` y `SUPERADMINISTRADOR` pueden modificar contenido y metadata, pero no inventar reforma o derogatoria sin sustento jurídico.
+- La política canónica actual para decidir el acceso al contenido completo de una norma es `PoliticaAccesoContenidoNorma`.
+- `PoliticaAccesoNormaSuscriptor` queda como política heredada (`@deprecated`) que conserva la semántica basada en el rol global `SUSCRIPTOR`; debe usarse solo para compatibilidad y delega en `PoliticaAccesoContenidoNorma`.
 
 Estructura:
 ```
@@ -68,9 +70,12 @@ src/
     ├── entidades/Norma.ts
     ├── enums/EstadoNorma.ts
     ├── enums/EstadoEditorialNorma.ts
-    ├── politicas/PoliticaAccesoNormaSuscriptor.ts
+    ├── politicas/
+    │   ├── PoliticaAccesoContenidoNorma.ts
+    │   └── PoliticaAccesoNormaSuscriptor.ts
     └── __tests__/
         ├── Norma.test.ts
+        ├── PoliticaAccesoContenidoNorma.test.ts
         └── PoliticaAccesoNormaSuscriptor.test.ts
 ```
 
