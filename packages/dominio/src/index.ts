@@ -14,3 +14,5 @@ export type { NormaProps } from './normas/entidades/Norma';
 
 export { PoliticaAccesoNormaSuscriptor } from './normas/politicas/PoliticaAccesoNormaSuscriptor';
 export type { ContextoAccesoNormaSuscriptor } from './normas/politicas/PoliticaAccesoNormaSuscriptor';
+export { PoliticaAccesoContenidoNorma } from './normas/politicas/PoliticaAccesoContenidoNorma';
+export type { ContextoAccesoContenidoNorma } from './normas/politicas/PoliticaAccesoContenidoNorma';
