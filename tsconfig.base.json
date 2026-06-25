@@ -11,10 +11,9 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "baseUrl": ".",
     "paths": {
-      "@normativo/dominio": ["packages/dominio/src/index.ts"],
-      "@normativo/aplicacion": ["packages/aplicacion/src/index.ts"]
+      "@normativo/dominio": ["./packages/dominio/src/index.ts"],
+      "@normativo/aplicacion": ["./packages/aplicacion/src/index.ts"]
     }
   }
 }

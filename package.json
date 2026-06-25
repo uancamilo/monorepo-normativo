@@ -13,6 +13,7 @@
     "typecheck:aplicacion": "npm run typecheck --workspace=@normativo/aplicacion",
     "build": "npm run build:dominio && npm run build:aplicacion",
     "build:dominio": "npm run build --workspace=@normativo/dominio",
-    "build:aplicacion": "npm run build --workspace=@normativo/aplicacion"
+    "build:aplicacion": "npm run build --workspace=@normativo/aplicacion",
+    "clean": "npm run clean --workspaces"
   }
 }
