@@ -196,6 +196,20 @@ Reglas jurídicas confirmadas:
 - Una norma puede pasar a `PUBLICADA` con metadata aprobada aunque todavía no tenga contenido completo. Esa publicación corresponde a la ficha normativa o metadata aprobada, no a la disponibilidad del texto completo.
 - La entidad `Norma` actual permite `contenido` como `string` libre sin validación de no vacío. Esto se mantiene como decisión deliberada para permitir representar normas con metadata aprobada aunque todavía no tengan contenido completo.
 
+### Publicación de normas (caso de uso `PublicarNorma`)
+
+- `PublicarNorma` existe como caso de uso de aplicación (en `packages/aplicacion`).
+- `EDITOR` y `SUPERADMINISTRADOR` pueden publicar normas.
+- `ADMINISTRADOR` y `SUSCRIPTOR` no pueden publicar normas; reciben `ACCESO_DENEGADO`.
+- La autorización se resuelve con la política de aplicación `PoliticaGestionEditorialNorma`, que depende solo de dominio (`Usuario`, `RolUsuario`).
+- Publicar no exige contenido completo: una norma con `contenido` vacío o solo espacios puede publicarse.
+- Publicar asigna `fechaPublicacionEnSistema`. Si la solicitud no la entrega, el caso de uso usa la fecha actual.
+- Publicar cambia únicamente el estado editorial a `PUBLICADA`; no cambia el estado jurídico.
+- La publicación es idempotente respecto a normas ya publicadas: una norma ya `PUBLICADA` retorna `NORMA_YA_PUBLICADA`.
+- Al publicar, el caso de uso guarda la norma con `RepositorioNormas.guardar` y luego dispara un evento mediante el puerto de aplicación `PublicadorEventosNormas.publicarNormaPublicada`.
+- Ese evento representa la señal automática de que una norma fue publicada y habilita la sincronización futura del índice público (Algolia). En este hito solo existe el puerto/evento de aplicación; no se implementa Algolia real, SDK ni adaptador.
+- El método de dominio `Norma.publicar(fechaPublicacionEnSistema)` es inmutable: devuelve una nueva instancia `PUBLICADA` conservando id, metadata, fuente, contenido y estado jurídico, sin lógica de autorización.
+
 ## 6. Acceso al contenido completo
 
 La política vigente de dominio para decidir el acceso al contenido completo de una norma es `PoliticaAccesoContenidoNorma`. La política `PoliticaAccesoNormaSuscriptor` queda como política heredada marcada con `@deprecated`; conserva la semántica anterior basada en el rol global `SUSCRIPTOR` y delega en `PoliticaAccesoContenidoNorma` después de verificar ese rol.

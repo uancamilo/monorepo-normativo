@@ -103,6 +103,23 @@ export class Norma {
   estaPublicada(): boolean {
     return this.estaVisibleParaSuscriptores();
   }
+
+  publicar(fechaPublicacionEnSistema: Date): Norma {
+    return new Norma({
+      id: this.id,
+      numero: this.numero,
+      titulo: this.titulo,
+      contenido: this.contenido,
+      tipoNorma: this.tipoNorma,
+      institucionExpide: this.institucionExpide,
+      fuente: this.fuente,
+      estadoJuridico: this.estadoJuridico,
+      estadoEditorial: EstadoEditorialNorma.PUBLICADA,
+      fechaExpedicion: this.fechaExpedicion,
+      fechaPublicacionOficial: this.fechaPublicacionOficial,
+      fechaPublicacionEnSistema,
+    });
+  }
 }
 
 function normalizarNumero(numero: string | null): string | null {

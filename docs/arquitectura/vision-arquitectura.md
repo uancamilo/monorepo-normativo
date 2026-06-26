@@ -88,6 +88,8 @@ Paquete TypeScript puro iniciado en la fase 2. Contiene los casos de uso que orq
 - No depende de infraestructura.
 - Define al menos los puertos de repositorio `RepositorioUsuarios`, `RepositorioNormas` y `RepositorioSuscripciones`.
 - Implementa el caso de uso `ConsultarContenidoNorma`, que orquesta esos puertos y la política de dominio `PoliticaAccesoContenidoNorma`.
+- Implementa el caso de uso `PublicarNorma`, que orquesta `RepositorioUsuarios`, `RepositorioNormas`, la política de aplicación `PoliticaGestionEditorialNorma` y el puerto `PublicadorEventosNormas`.
+- La sincronización futura del índice público (Algolia) queda detrás del puerto de aplicación `PublicadorEventosNormas`: `PublicarNorma` emite un evento al publicar una norma. No existe adaptador real ni SDK de Algolia en este hito.
 
 ### Infraestructura (futuro `packages/infraestructura`)
 

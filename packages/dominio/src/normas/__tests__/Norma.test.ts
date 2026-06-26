@@ -297,6 +297,110 @@ describe('Norma', () => {
     );
   });
 
+  describe('publicar', () => {
+    it.each([EstadoEditorialNorma.BORRADOR, EstadoEditorialNorma.EN_REVISION])(
+      'publica una norma %s y devuelve una norma PUBLICADA',
+      (estadoEditorial) => {
+        const norma = new Norma(
+          crearProps({
+            estadoEditorial,
+            fechaPublicacionEnSistema: null,
+          }),
+        );
+
+        const publicada = norma.publicar(new Date('2025-02-01'));
+
+        expect(publicada.estadoEditorial).toBe(EstadoEditorialNorma.PUBLICADA);
+        expect(publicada.estaPublicada()).toBe(true);
+        expect(publicada.estaVisibleParaSuscriptores()).toBe(true);
+      },
+    );
+
+    it('conserva metadata, fuente, estado jurídico y contenido', () => {
+      const norma = new Norma(
+        crearProps({
+          estadoEditorial: EstadoEditorialNorma.BORRADOR,
+          estadoJuridico: EstadoNorma.REFORMADA,
+          contenido: 'Contenido original',
+          fechaPublicacionEnSistema: null,
+        }),
+      );
+
+      const publicada = norma.publicar(new Date('2025-02-01'));
+
+      expect(publicada.id).toBe(norma.id);
+      expect(publicada.numero).toBe(norma.numero);
+      expect(publicada.titulo).toBe(norma.titulo);
+      expect(publicada.contenido).toBe('Contenido original');
+      expect(publicada.tipoNorma).toBe(norma.tipoNorma);
+      expect(publicada.institucionExpide).toBe(norma.institucionExpide);
+      expect(publicada.fuente).toBe(norma.fuente);
+      expect(publicada.estadoJuridico).toBe(EstadoNorma.REFORMADA);
+      expect(publicada.fechaExpedicion).toBe(norma.fechaExpedicion);
+      expect(publicada.fechaPublicacionOficial).toBe(norma.fechaPublicacionOficial);
+    });
+
+    it.each(['', '   '])(
+      'permite publicar con contenido "%s"',
+      (contenido) => {
+        const norma = new Norma(
+          crearProps({
+            contenido,
+            estadoEditorial: EstadoEditorialNorma.BORRADOR,
+            fechaPublicacionEnSistema: null,
+          }),
+        );
+
+        const publicada = norma.publicar(new Date('2025-02-01'));
+
+        expect(publicada.contenido).toBe(contenido);
+        expect(publicada.estadoEditorial).toBe(EstadoEditorialNorma.PUBLICADA);
+      },
+    );
+
+    it('asigna fechaPublicacionEnSistema', () => {
+      const norma = new Norma(
+        crearProps({
+          estadoEditorial: EstadoEditorialNorma.BORRADOR,
+          fechaPublicacionEnSistema: null,
+        }),
+      );
+      const fecha = new Date('2025-02-01');
+
+      const publicada = norma.publicar(fecha);
+
+      expect(publicada.fechaPublicacionEnSistema).toBe(fecha);
+    });
+
+    it('no muta la instancia original (enfoque inmutable)', () => {
+      const norma = new Norma(
+        crearProps({
+          estadoEditorial: EstadoEditorialNorma.BORRADOR,
+          fechaPublicacionEnSistema: null,
+        }),
+      );
+
+      const publicada = norma.publicar(new Date('2025-02-01'));
+
+      expect(publicada).not.toBe(norma);
+      expect(norma.estadoEditorial).toBe(EstadoEditorialNorma.BORRADOR);
+      expect(norma.fechaPublicacionEnSistema).toBeNull();
+    });
+
+    it('lanza error si la fecha de publicación es inválida', () => {
+      const norma = new Norma(
+        crearProps({
+          estadoEditorial: EstadoEditorialNorma.BORRADOR,
+          fechaPublicacionEnSistema: null,
+        }),
+      );
+
+      expect(() => norma.publicar(new Date('fecha-inválida'))).toThrow(
+        'fechaPublicacionEnSistema debe ser una fecha válida',
+      );
+    });
+  });
+
   describe('estado jurídico', () => {
     it.each([
       EstadoNorma.VIGENTE,
