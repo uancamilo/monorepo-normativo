@@ -31,6 +31,8 @@ Los tests del dominio siguen siendo la especificación ejecutable del comportami
 - El correo electrónico identifica globalmente al usuario.
 - No pueden existir dos usuarios con el mismo correo normalizado.
 - La unicidad global del correo no se garantiza dentro de una entidad `Usuario` aislada. Se implementará en aplicación y persistencia, donde será posible consultar el conjunto de usuarios del sistema.
+- Cuando exista persistencia Prisma/PostgreSQL, `usuarios.correo_normalizado` debe tener una restricción `UNIQUE` desde el primer schema.
+- La aplicación podrá validar antes de guardar y traducir errores de constraint a errores de negocio, pero la garantía fuerte de unicidad global debe estar en la base de datos.
 
 ## 3. Roles del sistema
 
@@ -111,6 +113,10 @@ Estados actuales:
 
 - Un correo no puede estar habilitado en más de una suscripción.
 - La exclusividad global de un correo entre suscripciones no se garantiza dentro de una entidad `Suscripcion` aislada. Se implementará en aplicación y persistencia, donde será posible consultar todas las suscripciones relevantes.
+- Cuando exista persistencia Prisma/PostgreSQL, `suscripcion_correos_habilitados.correo_normalizado` debe tener una restricción `UNIQUE` desde el primer schema.
+- Esta decisión soporta la firma del puerto `RepositorioSuscripciones.buscarPorCorreoHabilitado(correo): Promise<Suscripcion | null>`, que presupone que un correo habilitado resuelve a cero o una sola suscripción.
+- La unicidad global del correo habilitado no puede depender solo del dominio, porque una entidad `Suscripcion` no ve todas las suscripciones del sistema al mismo tiempo.
+- La aplicación podrá validar antes de guardar y traducir errores de constraint a errores de negocio, pero la garantía fuerte de exclusividad global debe estar en la base de datos.
 
 ## 5. Normas
 
@@ -208,6 +214,12 @@ Reglas jurídicas confirmadas:
 - La publicación es idempotente respecto a normas ya publicadas: una norma ya `PUBLICADA` retorna `NORMA_YA_PUBLICADA`.
 - Al publicar, el caso de uso guarda la norma con `RepositorioNormas.guardar` y luego dispara un evento mediante el puerto de aplicación `PublicadorEventosNormas.publicarNormaPublicada`.
 - Ese evento representa la señal automática de que una norma fue publicada y habilita la sincronización futura del índice público (Algolia). En este hito solo existe el puerto/evento de aplicación; no se implementa Algolia real, SDK ni adaptador.
+- En la implementación actual de aplicación pura, si `RepositorioNormas.guardar` funciona pero `PublicadorEventosNormas.publicarNormaPublicada` falla después, el error se propaga al caller y la norma ya puede haber quedado guardada como `PUBLICADA`.
+- Ese comportamiento actual no simula rollback ni oculta el error con un `try/catch` best-effort silencioso. Se conserva explícitamente para exponer el riesgo de consistencia antes de integrar infraestructura real.
+- En infraestructura real, la sincronización con Algolia no debe depender de una llamada directa a Algolia después de guardar la norma.
+- La solución aprobada para producción será un patrón outbox transaccional: guardar la norma `PUBLICADA` y registrar el evento pendiente en una outbox dentro de la misma transacción.
+- La entrega posterior a Algolia, cola u otro consumidor debe ser asíncrona, reintentable, observable y ejecutada por infraestructura/adaptadores.
+- El dominio no debe conocer outbox, colas ni Algolia. La aplicación debe seguir dependiendo de puertos.
 - El método de dominio `Norma.publicar(fechaPublicacionEnSistema)` es inmutable: devuelve una nueva instancia `PUBLICADA` conservando id, metadata, fuente, contenido y estado jurídico, sin lógica de autorización.
 
 ## 6. Acceso al contenido completo
@@ -312,6 +324,8 @@ Límites de esta política:
 - Las normas en `BORRADOR` o `EN_REVISION` no están disponibles en el índice público.
 - Una norma publicada sin contenido completo sí puede aparecer en búsqueda pública porque las normas también se buscan por metadata.
 - Si no existe contenido completo, el snippet de búsqueda debe basarse en metadata.
+- La sincronización futura con Algolia debe resolverse mediante eventos de aplicación y outbox transaccional o un mecanismo equivalente con garantía transaccional, no mediante acoplamiento directo entre publicación y SDK de Algolia.
+- La publicación de una norma no debe quedar acoplada al estado operativo de Algolia. Si Algolia, una cola o un worker fallan, la recuperación debe ocurrir mediante reintentos observables sobre eventos pendientes.
 
 ### Búsqueda editorial interna
 
@@ -354,6 +368,13 @@ Las siguientes reglas requieren consultar el estado global del sistema:
 - La validación profunda del sustento jurídico de reformas y derogatorias requiere consultar normas, fuentes o metadata externa al agregado.
 
 Estas reglas no pueden garantizarse correctamente dentro de una entidad aislada. Se implementarán mediante casos de uso, puertos de repositorio y persistencia. Las entidades seguirán protegiendo únicamente sus invariantes locales.
+
+Para la persistencia futura, la unicidad global de correos debe quedar impuesta desde el primer schema Prisma/PostgreSQL:
+
+- `usuarios.correo_normalizado` debe ser `UNIQUE`.
+- `suscripcion_correos_habilitados.correo_normalizado` debe ser `UNIQUE`.
+
+Estas restricciones evitan estados ambiguos que la aplicación no podría resolver de forma confiable después de ocurridos. En particular, soportan que `RepositorioSuscripciones.buscarPorCorreoHabilitado(correo)` retorne `Promise<Suscripcion | null>` y no una lista de suscripciones.
 
 ## 10. Límites explícitos del modelo actual
 

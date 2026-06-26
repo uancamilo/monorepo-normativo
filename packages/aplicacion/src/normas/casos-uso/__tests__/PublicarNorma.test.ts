@@ -52,6 +52,16 @@ class PublicadorEventosEnMemoria implements PublicadorEventosNormas {
   }
 }
 
+class PublicadorEventosFallido implements PublicadorEventosNormas {
+  eventos: EventoNormaPublicada[] = [];
+  readonly error = new Error('Fallo al publicar evento de norma publicada');
+
+  async publicarNormaPublicada(evento: EventoNormaPublicada): Promise<void> {
+    this.eventos.push(evento);
+    throw this.error;
+  }
+}
+
 interface OpcionesUsuario {
   id?: string;
   rol?: RolUsuario;
@@ -356,5 +366,45 @@ describe('PublicarNorma', () => {
 
     expect(contexto.publicador.eventos).toHaveLength(1);
     expect(contexto.publicador.eventos[0].tieneContenidoCompleto).toBe(false);
+  });
+
+  it('propaga el error si falla la emisión del evento después de guardar la norma publicada', async () => {
+    const repositorioUsuarios = new RepositorioUsuariosEnMemoria();
+    const repositorioNormas = new RepositorioNormasEnMemoria();
+    const publicador = new PublicadorEventosFallido();
+    const casoUso = new PublicarNorma({
+      repositorioUsuarios,
+      repositorioNormas,
+      publicadorEventosNormas: publicador,
+    });
+    const usuario = crearUsuario();
+    const norma = crearNorma({ contenido: 'Texto completo' });
+    repositorioUsuarios.agregar(usuario);
+    repositorioNormas.agregar(norma);
+
+    await expect(
+      casoUso.ejecutar({
+        usuarioAutenticadoId: usuario.obtenerId(),
+        normaId: norma.id,
+        fechaPublicacionEnSistema: fechaPublicacion,
+      }),
+    ).rejects.toBe(publicador.error);
+
+    expect(repositorioNormas.guardadas).toHaveLength(1);
+    expect(repositorioNormas.guardadas[0].estadoEditorial).toBe(
+      EstadoEditorialNorma.PUBLICADA,
+    );
+    const normaPersistida = await repositorioNormas.buscarPorId(norma.id);
+    expect(normaPersistida?.estadoEditorial).toBe(
+      EstadoEditorialNorma.PUBLICADA,
+    );
+    // No se simula rollback: este comportamiento actual expone la necesidad
+    // de outbox transaccional cuando exista infraestructura real.
+    expect(publicador.eventos).toHaveLength(1);
+    expect(publicador.eventos[0]).toEqual({
+      normaId: norma.id,
+      fechaPublicacionEnSistema: fechaPublicacion,
+      tieneContenidoCompleto: true,
+    });
   });
 });

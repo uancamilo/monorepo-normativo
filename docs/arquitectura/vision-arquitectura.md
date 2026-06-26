@@ -31,6 +31,7 @@ Contiene entidades, enums y políticas de negocio organizados por módulo funcio
 - Las normas con flujo editorial `PUBLICADA` pueden aparecer en búsqueda pública y solo pueden consultarse como contenido completo por usuarios autenticados con acceso por suscripción activa y vigente que habilite su correo normalizado.
 - El correo electrónico identifica globalmente a un usuario. No pueden existir dos usuarios con el mismo correo y un correo no puede estar habilitado en más de una suscripción.
 - `Suscripcion` valida únicamente correos duplicados dentro de su propia lista, después de normalizarlos. La unicidad global de usuarios por correo y la pertenencia exclusiva del correo a una suscripción se aplicarán en una fase posterior desde aplicación y persistencia.
+- Cuando exista Prisma/PostgreSQL, `usuarios.correo_normalizado` y `suscripcion_correos_habilitados.correo_normalizado` deben tener constraints `UNIQUE` desde el primer schema. Esto evita que puertos como `RepositorioSuscripciones.buscarPorCorreoHabilitado(correo)` tengan resultados ambiguos.
 - Solo `SUPERADMINISTRADOR` o `ADMINISTRADOR` podrán crear o modificar cuentas/clientes y suscripciones, y definir o modificar `cantidadMaximaUsuarios`. `EDITOR` no podrá realizar esas operaciones.
 - Dueño de cuenta y miembros son conceptos internos del cliente/cuenta, no roles administrativos globales. El dueño no puede crear la cuenta inicial, crear la suscripción inicial ni modificar la suscripción. Los miembros no pueden crear ni modificar cuentas/clientes ni suscripciones. Una eventual gestión de miembros por el dueño de cuenta sería una regla separada.
 - En la fase 1 no se implementan `Cliente`, `Cuenta`, `Organizacion`, `RolEnCuenta`, invitaciones, cupos dinámicos, estados por miembro ni una política de creación de suscripciones.
@@ -90,16 +91,19 @@ Paquete TypeScript puro iniciado en la fase 2. Contiene los casos de uso que orq
 - Implementa el caso de uso `ConsultarContenidoNorma`, que orquesta esos puertos y la política de dominio `PoliticaAccesoContenidoNorma`.
 - Implementa el caso de uso `PublicarNorma`, que orquesta `RepositorioUsuarios`, `RepositorioNormas`, la política de aplicación `PoliticaGestionEditorialNorma` y el puerto `PublicadorEventosNormas`.
 - La sincronización futura del índice público (Algolia) queda detrás del puerto de aplicación `PublicadorEventosNormas`: `PublicarNorma` emite un evento al publicar una norma. No existe adaptador real ni SDK de Algolia en este hito.
+- `PublicadorEventosNormas` no implica una llamada directa a Algolia. En infraestructura real, el adaptador debe usar outbox transaccional o un mecanismo equivalente con garantía transaccional para que la publicación de la norma no quede acoplada al estado operativo de Algolia.
 
 ### Infraestructura (futuro `packages/infraestructura`)
 
 Todavía no existe. En fases posteriores contendrá adaptadores concretos como controladores HTTP, repositorios Prisma y clientes Redis.
 
+En la primera implementación de persistencia, Prisma/PostgreSQL debe imponer `UNIQUE` para el correo normalizado de usuario y para el correo normalizado habilitado en suscripciones. La aplicación podrá traducir errores de constraint a errores de negocio, pero la garantía fuerte debe vivir en la base de datos.
+
 El modelo de búsqueda futura separará búsqueda pública y búsqueda editorial interna. Algolia será infraestructura futura para la búsqueda pública como índice derivado; la base de datos seguirá siendo la fuente de verdad y el dominio no dependerá de Algolia.
 
 Autocomplete e InstantSearch podrán implementarse directamente en frontend con librerías de Algolia. Por eso, la aplicación/backend no necesita duplicar la experiencia pública como un caso de uso tradicional si esa interacción queda resuelta en frontend.
 
-La aplicación/backend sí debe controlar la publicación, actualización y retiro de normas del índice público mediante eventos, cola o un mecanismo equivalente futuro. El índice público no debe exponer el contenido completo como atributo recuperable.
+La aplicación/backend sí debe controlar la publicación, actualización y retiro de normas del índice público mediante eventos, cola o un mecanismo equivalente futuro. Para efectos externos reintentables, como sincronizar Algolia, el mecanismo previsto es outbox transaccional: persistir la norma y el evento pendiente en la misma transacción, y entregar el evento después mediante infraestructura observable y con reintentos. El índice público no debe exponer el contenido completo como atributo recuperable.
 
 La búsqueda editorial interna será un caso separado, no usará Algolia y se resolverá por un flujo propio de aplicación e infraestructura.
 
