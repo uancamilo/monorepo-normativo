@@ -59,6 +59,18 @@ Reglas confirmadas:
 - Dueño de cuenta y miembro son conceptos internos futuros del cliente/cuenta.
 - Los privilegios administrativos completos todavía no están implementados.
 
+### Permisos de scraping
+
+- El scraping es una función crítica.
+- En la etapa inicial, ejecutar o gestionar procesos de scraping es una función exclusiva del `SUPERADMINISTRADOR`.
+- `SUPERADMINISTRADOR` puede habilitar globalmente a un `EDITOR` para ejecutar o gestionar procesos de scraping.
+- Un `EDITOR` no queda habilitado para scraping por el solo hecho de tener el rol global `EDITOR`; requiere habilitación explícita.
+- Un `EDITOR` sin habilitación explícita no puede ejecutar ni gestionar scraping.
+- El `EDITOR` participa en revisión, corrección, completado editorial y publicación de normas.
+- El `EDITOR` puede publicar normas.
+- `ADMINISTRADOR` no puede importar, hacer scraping, revisar, enriquecer, publicar ni gestionar normas, porque no participa en el flujo editorial.
+- `SUSCRIPTOR` no puede importar, hacer scraping ni modificar normas.
+
 ## 4. Suscripciones
 
 ### Reglas vigentes
@@ -181,6 +193,8 @@ Reglas jurídicas confirmadas:
 - `EDITOR` y `SUPERADMINISTRADOR` pueden corregir errores de ingreso sin que eso implique reforma jurídica.
 - `EDITOR` y `SUPERADMINISTRADOR` no pueden cambiar arbitrariamente una norma a `DEROGADA` o `REFORMADA` sin sustento normativo.
 - La trazabilidad profunda de reformas y derogatorias queda diferida.
+- Una norma puede pasar a `PUBLICADA` con metadata aprobada aunque todavía no tenga contenido completo. Esa publicación corresponde a la ficha normativa o metadata aprobada, no a la disponibilidad del texto completo.
+- La entidad `Norma` actual permite `contenido` como `string` libre sin validación de no vacío. Esto se mantiene como decisión deliberada para permitir representar normas con metadata aprobada aunque todavía no tengan contenido completo.
 
 ## 6. Acceso al contenido completo
 
@@ -269,14 +283,13 @@ Límites de esta política:
 
 ### Sincronización con Algolia
 
-- La sincronización con Algolia debe ser por cola/evento.
-- No debe ser una llamada directa bloqueante desde el dominio.
-- Publicar una norma genera sincronización hacia el índice público.
-- Actualizar una norma publicada genera actualización del índice público.
-- Si una norma deja de tener `estadoEditorial` `PUBLICADA`, debe retirarse del índice público.
-- Normas en `BORRADOR` o `EN_REVISION` no deben estar disponibles en el índice público.
-- La indexación debe ser derivada, reintentable y auditable en fases futuras.
-- La implementación concreta de cola/eventos queda diferida.
+- Las normas `PUBLICADA` se sincronizan automáticamente con Algolia.
+- La indexación en Algolia ocurre automáticamente cuando una norma cambia a estado editorial `PUBLICADA`.
+- Solo las normas `PUBLICADA` deben aparecer en la búsqueda pública.
+- Una norma en `BORRADOR` no aparece en búsqueda pública ni se sincroniza con Algolia.
+- Las normas en `BORRADOR` o `EN_REVISION` no están disponibles en el índice público.
+- Una norma publicada sin contenido completo sí puede aparecer en búsqueda pública porque las normas también se buscan por metadata.
+- Si no existe contenido completo, el snippet de búsqueda debe basarse en metadata.
 
 ### Búsqueda editorial interna
 
@@ -368,3 +381,65 @@ Nota: `PoliticaAccesoContenidoNorma` y sus tests representan la regla vigente de
 7. Limpiar los artefactos con `rm -rf packages/dominio/dist packages/aplicacion/dist`.
 8. Verificar la ausencia de `dist` y `coverage` con el comando acordado para el monorepo.
 9. Hacer un commit pequeño y descriptivo.
+
+## 13. Pipeline de ingesta normativa (Fase 1)
+
+Esta sección documenta únicamente la Fase 1 del pipeline de ingesta normativa: el poblamiento inicial de la base de datos a partir del resumen mensual del Registro Oficial. Nada de lo descrito aquí está implementado todavía en dominio o aplicación.
+
+### Resumen mensual como fuente inicial de poblamiento
+
+- El flujo inicial de poblamiento normativo puede iniciar con una URL de PDF del resumen mensual del Registro Oficial.
+- El resumen mensual sirve para empezar a poblar la base de datos.
+- El resumen mensual contiene títulos, metadata y referencias a la publicación oficial donde se encuentra cada norma.
+- El resumen mensual no contiene el texto completo de cada norma.
+- La importación desde el resumen mensual crea registros iniciales de normas.
+- Los registros iniciales se crean en estado editorial `BORRADOR`.
+
+### Fuente oficial específica
+
+- El scraping del resumen mensual detecta y asigna la fuente oficial específica de cada norma.
+- La fuente oficial específica puede ser Registro Oficial, suplemento, edición especial u otra publicación oficial.
+- La `fuente` de la norma debe ser la fuente oficial específica detectada desde el resumen mensual.
+- Un mismo resumen mensual puede originar varias normas.
+- Un mismo PDF fuente oficial puede contener varias normas.
+- Por tanto, `fuente` no debe asumirse única.
+
+### Publicación de metadata sin contenido completo
+
+- Una norma detectada por scraping puede pasar a `PUBLICADA` aunque todavía no tenga contenido completo.
+- Esta publicación corresponde a la ficha normativa o metadata aprobada.
+- La publicación sin contenido completo permite que el suscriptor abra el detalle y vea la metadata publicada.
+- Si la norma publicada aún no tiene contenido completo, el sistema debe mostrar el PDF incrustado de la fuente oficial detectada.
+- El sistema no debe inventar ni simular contenido completo.
+- La regla relevante en esta fase es operativa: puede existir metadata publicada antes de enriquecer el contenido.
+
+### Búsqueda pública y Algolia
+
+- Las normas `PUBLICADA` se sincronizan automáticamente con Algolia.
+- La indexación en Algolia ocurre automáticamente cuando una norma cambia a estado editorial `PUBLICADA`.
+- Solo las normas `PUBLICADA` deben aparecer en la búsqueda pública.
+- Una norma en `BORRADOR` no aparece en búsqueda pública ni se sincroniza con Algolia.
+- Una norma publicada sin contenido completo sí puede aparecer en búsqueda pública porque las normas también se buscan por metadata.
+- Si no existe contenido completo, el snippet de búsqueda debe basarse en metadata.
+
+### Roles y permisos
+
+- El scraping es una función crítica.
+- Inicialmente, solo `SUPERADMINISTRADOR` puede ejecutar o gestionar scraping.
+- El `SUPERADMINISTRADOR` puede habilitar globalmente a un `EDITOR` para ejecutar o gestionar scraping.
+- Un `EDITOR` no queda habilitado para scraping solo por tener rol global `EDITOR`; requiere habilitación explícita.
+- El `EDITOR` participa en revisión, corrección, completado editorial y publicación.
+- El `EDITOR` puede publicar normas.
+- `ADMINISTRADOR` no puede importar, hacer scraping, revisar, enriquecer, publicar ni gestionar normas.
+- `SUSCRIPTOR` no puede importar, hacer scraping ni modificar normas.
+
+### Relación con el modelo actual
+
+- La entidad `Norma` actual permite `contenido` como `string` libre.
+- Esto permite representar normas con metadata aprobada aunque todavía no tengan contenido completo.
+- No se agregan nuevos estados editoriales en esta fase. Se mantienen `BORRADOR`, `EN_REVISION` y `PUBLICADA`.
+- La diferencia importante para esta fase no es un nuevo estado de contenido, sino la separación operativa entre:
+  - el scraping del resumen mensual para metadata y fuente oficial;
+  - el enriquecimiento posterior del contenido desde la fuente oficial.
+
+El enriquecimiento del contenido completo desde la fuente oficial específica corresponde a una fase posterior y no se documenta en detalle en este hito.

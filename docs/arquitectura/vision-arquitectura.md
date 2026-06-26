@@ -48,6 +48,7 @@ Contiene entidades, enums y políticas de negocio organizados por módulo funcio
 - `SUSCRIPTOR` no modifica normas. `EDITOR` y `SUPERADMINISTRADOR` pueden modificar contenido y metadata, pero no inventar reforma o derogatoria sin sustento jurídico.
 - La política canónica actual para decidir el acceso al contenido completo de una norma es `PoliticaAccesoContenidoNorma`.
 - `PoliticaAccesoNormaSuscriptor` queda como política heredada (`@deprecated`) que conserva la semántica basada en el rol global `SUSCRIPTOR`; debe usarse solo para compatibilidad y delega en `PoliticaAccesoContenidoNorma`.
+- Una norma puede pasar a `PUBLICADA` con metadata aprobada aunque todavía no tenga contenido completo. `Norma` permite `contenido` libre sin validar no vacío para soportar el poblamiento inicial descrito en la sección de pipeline de ingesta normativa.
 
 Estructura:
 ```
@@ -98,6 +99,19 @@ Autocomplete e InstantSearch podrán implementarse directamente en frontend con 
 La aplicación/backend sí debe controlar la publicación, actualización y retiro de normas del índice público mediante eventos, cola o un mecanismo equivalente futuro. El índice público no debe exponer el contenido completo como atributo recuperable.
 
 La búsqueda editorial interna será un caso separado, no usará Algolia y se resolverá por un flujo propio de aplicación e infraestructura.
+
+### Pipeline de ingesta normativa (Fase 1)
+
+La Fase 1 del pipeline puebla la base de datos a partir del resumen mensual del Registro Oficial:
+
+- El resumen mensual es un PDF que contiene títulos, metadata y referencias a la publicación oficial de cada norma, pero no el texto completo.
+- El scraping del resumen mensual crea registros iniciales de normas y detecta la fuente oficial específica (Registro Oficial, suplemento, edición especial u otra publicación oficial) de cada una. La `fuente` de la norma es esa fuente oficial detectada y no es única.
+- Los registros iniciales se crean en estado editorial `BORRADOR`.
+- Una norma puede publicarse con metadata aprobada aunque todavía no tenga contenido completo.
+- Si una norma publicada no tiene contenido completo, el detalle muestra el PDF de la fuente oficial detectada incrustado; el sistema no inventa contenido.
+- Las normas se sincronizan automáticamente con Algolia al pasar a `PUBLICADA`, y la búsqueda pública opera sobre metadata.
+- El scraping es una función crítica restringida inicialmente al `SUPERADMINISTRADOR`; un `EDITOR` solo puede ejecutarlo si el `SUPERADMINISTRADOR` lo habilita globalmente.
+- El detalle de las reglas de esta fase está documentado en `docs/reglas-negocio.md`, sección 13.
 
 ## Decisiones Clave
 
