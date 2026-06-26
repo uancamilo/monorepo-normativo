@@ -204,13 +204,21 @@ La política vigente de dominio para decidir el acceso al contenido completo de 
 - `SUPERADMINISTRADOR`, `ADMINISTRADOR`, `EDITOR` y `SUSCRIPTOR` solo pueden consultar contenido completo como lectores si están autenticados y tienen una suscripción activa y vigente que habilita su correo normalizado.
 - El acceso al contenido completo depende de la suscripción activa por correo, no del rol global `SUSCRIPTOR`.
 - El rol administrativo o editorial no concede acceso automático al contenido completo.
-- La consulta de contenido completo debe modelarse como el caso de uso futuro `ConsultarContenidoNorma`, no como `ConsultarContenidoNormaComoSuscriptor`.
+- La consulta de contenido completo ya existe como el caso de uso de aplicación `ConsultarContenidoNorma` (en `packages/aplicacion`), no como `ConsultarContenidoNormaComoSuscriptor`.
 - El estado jurídico `VIGENTE`, `REFORMADA` o `DEROGADA` no bloquea por sí mismo la consulta.
 - Una búsqueda pública no concede acceso al contenido completo.
 - Al hacer clic en una norma, si el visitante no está autenticado, el sistema debe redirigirlo a login.
 - El sistema debe conservar la intención de navegación para volver al detalle solicitado después del login.
 - Después del login, el sistema debe validar acceso antes de mostrar el contenido completo.
 - Si el usuario está autenticado pero no tiene una suscripción activa y vigente que habilite su correo normalizado, debe mostrarse una pantalla de acceso restringido.
+
+Salida de `ConsultarContenidoNorma`:
+
+- La salida exitosa de `ConsultarContenidoNorma` incluye un indicador `tieneContenidoCompleto: boolean`.
+- Si `contenido.trim().length > 0`, entonces `tieneContenidoCompleto = true`.
+- Si `contenido.trim().length === 0`, entonces `tieneContenidoCompleto = false`.
+- Cuando `tieneContenidoCompleto = false`, el cliente debe usar la metadata y la URL `fuente` para mostrar el PDF de la fuente oficial incrustado. El sistema no inventa ni simula contenido completo.
+- Este indicador no crea un nuevo estado editorial ni un nuevo estado de contenido. `PUBLICADA` significa visibilidad editorial, no necesariamente texto completo enriquecido. Una norma `PUBLICADA` puede tener `contenido` vacío.
 
 Límites de esta política:
 

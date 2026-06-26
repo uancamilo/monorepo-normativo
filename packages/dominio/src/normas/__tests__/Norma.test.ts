@@ -256,6 +256,45 @@ describe('Norma', () => {
         expect(norma.estaVisibleParaSuscriptores()).toBe(false);
       },
     );
+
+    it.each(['', '   '])(
+      'permite construir una norma PUBLICADA con contenido "%s" y la mantiene visible para suscriptores',
+      (contenido) => {
+        const norma = new Norma(
+          crearProps({
+            contenido,
+            estadoEditorial: EstadoEditorialNorma.PUBLICADA,
+          }),
+        );
+
+        expect(norma.contenido).toBe(contenido);
+        expect(norma.estaVisibleParaSuscriptores()).toBe(true);
+      },
+    );
+  });
+
+  describe('estaPublicada', () => {
+    it('devuelve true si estadoEditorial es PUBLICADA', () => {
+      const norma = new Norma(
+        crearProps({ estadoEditorial: EstadoEditorialNorma.PUBLICADA }),
+      );
+
+      expect(norma.estaPublicada()).toBe(true);
+    });
+
+    it.each([EstadoEditorialNorma.BORRADOR, EstadoEditorialNorma.EN_REVISION])(
+      'devuelve false si estadoEditorial es %s',
+      (estadoEditorial) => {
+        const norma = new Norma(
+          crearProps({
+            estadoEditorial,
+            fechaPublicacionEnSistema: null,
+          }),
+        );
+
+        expect(norma.estaPublicada()).toBe(false);
+      },
+    );
   });
 
   describe('estado jurídico', () => {

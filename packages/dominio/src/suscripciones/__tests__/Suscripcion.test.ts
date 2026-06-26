@@ -173,6 +173,20 @@ describe('Suscripcion', () => {
     });
   });
 
+  describe('correosUsuariosHabilitados', () => {
+    it('devuelve una copia defensiva que no altera el estado interno al mutarse', () => {
+      const suscripcion = new Suscripcion(
+        crearProps({ correosUsuariosHabilitados: ['usuario@test.com'] }),
+      );
+
+      const correos = suscripcion.correosUsuariosHabilitados;
+      correos.push('intruso@test.com');
+      correos[0] = 'modificado@test.com';
+
+      expect(suscripcion.correosUsuariosHabilitados).toEqual(['usuario@test.com']);
+    });
+  });
+
   describe('habilitaUsuario', () => {
     it('devuelve true cuando el correo del usuario está habilitado', () => {
       const usuario = crearUsuario('  USUARIO@Test.COM  ');

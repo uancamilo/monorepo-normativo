@@ -17,6 +17,7 @@ export type ContenidoNormaConsultado = {
   numero: string | null;
   titulo: string;
   contenido: string;
+  tieneContenidoCompleto: boolean;
   tipoNorma: string;
   institucionExpide: string;
   fuente: string;
@@ -112,6 +113,7 @@ export class ConsultarContenidoNorma {
         numero: norma.numero,
         titulo: norma.titulo,
         contenido: norma.contenido,
+        tieneContenidoCompleto: norma.contenido.trim().length > 0,
         tipoNorma: norma.tipoNorma,
         institucionExpide: norma.institucionExpide,
         fuente: norma.fuente,

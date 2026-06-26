@@ -95,6 +95,7 @@ interface OpcionesNorma {
   id?: string;
   estadoJuridico?: EstadoNorma;
   estadoEditorial?: EstadoEditorialNorma;
+  contenido?: string;
 }
 
 function crearNorma(opciones: OpcionesNorma = {}): Norma {
@@ -105,7 +106,7 @@ function crearNorma(opciones: OpcionesNorma = {}): Norma {
     id,
     numero: `RO-${id}`,
     titulo: `Norma ${id}`,
-    contenido: `Contenido de la norma ${id}`,
+    contenido: opciones.contenido ?? `Contenido de la norma ${id}`,
     tipoNorma: 'Ley',
     institucionExpide: 'Asamblea Nacional',
     fuente: `https://www.registroficial.gob.ec/${id}.pdf`,
@@ -439,6 +440,7 @@ describe('ConsultarContenidoNorma', () => {
         numero: norma.numero,
         titulo: norma.titulo,
         contenido: norma.contenido,
+        tieneContenidoCompleto: true,
         tipoNorma: norma.tipoNorma,
         institucionExpide: norma.institucionExpide,
         fuente: norma.fuente,
@@ -473,4 +475,57 @@ describe('ConsultarContenidoNorma', () => {
       expect(Object.keys(resultado.contenido)).not.toContain('estadoEditorial');
     }
   });
+
+  it('marca tieneContenidoCompleto en true cuando la norma tiene contenido', async () => {
+    const contexto = crearContexto();
+    const usuario = crearUsuario();
+    const suscripcion = crearSuscripcion({
+      correoHabilitado: usuario.obtenerCorreo(),
+    });
+    const norma = crearNorma({ contenido: 'Texto completo de la norma' });
+
+    contexto.repositorioUsuarios.agregar(usuario);
+    contexto.repositorioNormas.agregar(norma);
+    contexto.repositorioSuscripciones.agregar(suscripcion);
+
+    const resultado = await contexto.casoUso.ejecutar({
+      usuarioAutenticadoId: usuario.obtenerId(),
+      normaId: norma.id,
+      fechaReferencia,
+    });
+
+    expect(resultado.exitoso).toBe(true);
+    if (resultado.exitoso) {
+      expect(resultado.contenido.tieneContenidoCompleto).toBe(true);
+    }
+  });
+
+  it.each(['', '   '])(
+    'marca tieneContenidoCompleto en false cuando una norma PUBLICADA tiene contenido "%s"',
+    async (contenido) => {
+      const contexto = crearContexto();
+      const usuario = crearUsuario();
+      const suscripcion = crearSuscripcion({
+        correoHabilitado: usuario.obtenerCorreo(),
+      });
+      const norma = crearNorma({ contenido });
+
+      contexto.repositorioUsuarios.agregar(usuario);
+      contexto.repositorioNormas.agregar(norma);
+      contexto.repositorioSuscripciones.agregar(suscripcion);
+
+      const resultado = await contexto.casoUso.ejecutar({
+        usuarioAutenticadoId: usuario.obtenerId(),
+        normaId: norma.id,
+        fechaReferencia,
+      });
+
+      expect(resultado.exitoso).toBe(true);
+      if (resultado.exitoso) {
+        expect(resultado.contenido.tieneContenidoCompleto).toBe(false);
+        expect(resultado.contenido.contenido).toBe(contenido);
+        expect(resultado.contenido.fuente).toBe(norma.fuente);
+      }
+    },
+  );
 });

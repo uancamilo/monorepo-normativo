@@ -82,11 +82,12 @@ src/
 
 ### Aplicación (`packages/aplicacion`)
 
-Paquete TypeScript puro iniciado en la fase 2. Contendrá los casos de uso que orquestan el dominio y los puertos que serán implementados posteriormente por infraestructura.
+Paquete TypeScript puro iniciado en la fase 2. Contiene los casos de uso que orquestan el dominio y los puertos que serán implementados posteriormente por infraestructura.
 
 - Depende de `packages/dominio`.
 - No depende de infraestructura.
-- En el paso 2.2 contiene únicamente la configuración y el punto de entrada del paquete; todavía no implementa casos de uso ni puertos.
+- Define al menos los puertos de repositorio `RepositorioUsuarios`, `RepositorioNormas` y `RepositorioSuscripciones`.
+- Implementa el caso de uso `ConsultarContenidoNorma`, que orquesta esos puertos y la política de dominio `PoliticaAccesoContenidoNorma`.
 
 ### Infraestructura (futuro `packages/infraestructura`)
 
