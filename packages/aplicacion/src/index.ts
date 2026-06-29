@@ -5,6 +5,7 @@ export type {
   EventoNormaPublicada,
   PublicadorEventosNormas,
 } from './normas/puertos/PublicadorEventosNormas';
+export type { GeneradorIds } from './normas/puertos/GeneradorIds';
 
 export { PoliticaGestionEditorialNorma } from './normas/politicas/PoliticaGestionEditorialNorma';
 
@@ -24,3 +25,11 @@ export type {
   ResultadoPublicarNorma,
   SolicitudPublicarNorma,
 } from './normas/casos-uso/PublicarNorma';
+
+export { RegistrarNorma } from './normas/casos-uso/RegistrarNorma';
+export type {
+  DependenciasRegistrarNorma,
+  RazonRegistrarNormaFallido,
+  ResultadoRegistrarNorma,
+  SolicitudRegistrarNorma,
+} from './normas/casos-uso/RegistrarNorma';

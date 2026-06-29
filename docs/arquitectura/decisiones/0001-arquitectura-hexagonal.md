@@ -21,11 +21,11 @@ Se adopta Arquitectura Hexagonal (Puertos y Adaptadores) con una interpretación
 ```
 packages/
 ├── dominio/        # Entidades, enums, políticas — sin dependencias externas
-├── aplicacion/     # Casos de uso y puertos — incluye ConsultarContenidoNorma, PublicarNorma y puertos de repositorio/eventos
+├── aplicacion/     # Casos de uso y puertos — incluye RegistrarNorma, ConsultarContenidoNorma, PublicarNorma y puertos de repositorio/eventos/ids
 └── infraestructura/ # (futuro) Adaptadores HTTP, BD, Redis
 ```
 
-`packages/aplicacion` es un paquete TypeScript puro iniciado en la fase 2. Ya contiene los puertos de repositorio (`RepositorioUsuarios`, `RepositorioNormas`, `RepositorioSuscripciones`), el puerto de eventos `PublicadorEventosNormas` y los casos de uso `ConsultarContenidoNorma` y `PublicarNorma`, que serán conectados posteriormente por infraestructura. El puerto `PublicadorEventosNormas` deja la sincronización futura del índice público (Algolia) detrás de un puerto de aplicación, sin SDK ni adaptador real. Cuando un evento de aplicación derive en efectos externos reintentables dentro de infraestructura persistente, como sincronizar Algolia, debe resolverse con outbox transaccional o un mecanismo equivalente con garantía transaccional. `packages/infraestructura` aún no existe.
+`packages/aplicacion` es un paquete TypeScript puro iniciado en la fase 2. Ya contiene los puertos de repositorio (`RepositorioUsuarios`, `RepositorioNormas`, `RepositorioSuscripciones`), el puerto de eventos `PublicadorEventosNormas`, el puerto `GeneradorIds` y los casos de uso `RegistrarNorma`, `ConsultarContenidoNorma` y `PublicarNorma`, que serán conectados posteriormente por infraestructura. El puerto `GeneradorIds` permite que `RegistrarNorma` genere identificadores sin acoplar la aplicación a `crypto`, UUID ni a la base de datos. El puerto `PublicadorEventosNormas` deja la sincronización futura del índice público (Algolia) detrás de un puerto de aplicación, sin SDK ni adaptador real. Cuando un evento de aplicación derive en efectos externos reintentables dentro de infraestructura persistente, como sincronizar Algolia, debe resolverse con outbox transaccional o un mecanismo equivalente con garantía transaccional. `packages/infraestructura` aún no existe.
 
 ### Organización del dominio por módulos de negocio
 

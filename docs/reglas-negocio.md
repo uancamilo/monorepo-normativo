@@ -202,6 +202,22 @@ Reglas jurídicas confirmadas:
 - Una norma puede pasar a `PUBLICADA` con metadata aprobada aunque todavía no tenga contenido completo. Esa publicación corresponde a la ficha normativa o metadata aprobada, no a la disponibilidad del texto completo.
 - La entidad `Norma` actual permite `contenido` como `string` libre sin validación de no vacío. Esto se mantiene como decisión deliberada para permitir representar normas con metadata aprobada aunque todavía no tengan contenido completo.
 
+### Registro de normas (caso de uso `RegistrarNorma`)
+
+- `RegistrarNorma` existe como caso de uso de aplicación (en `packages/aplicacion`).
+- `RegistrarNorma` registra una norma inicial en estado editorial `BORRADOR`.
+- `EDITOR` y `SUPERADMINISTRADOR` pueden registrar normas.
+- `ADMINISTRADOR` y `SUSCRIPTOR` no pueden registrar normas; reciben `ACCESO_DENEGADO`.
+- La autorización se resuelve con la política de aplicación `PoliticaGestionEditorialNorma.puedeRegistrarNormas`, que depende solo de dominio (`Usuario`, `RolUsuario`).
+- Registrar permite contenido vacío: una norma con `contenido` vacío o solo espacios puede registrarse.
+- Si no se informa `estadoJuridico`, la norma se registra como `VIGENTE`. Si se informa `REFORMADA` o `DEROGADA`, se conserva ese valor.
+- Registrar asigna `estadoEditorial = BORRADOR` y deja `fechaPublicacionEnSistema` en `null`.
+- Registrar no publica la norma, no cambia el estado editorial a `PUBLICADA` y no emite el evento `PublicadorEventosNormas`.
+- Registrar no sincroniza Algolia ni indexa la norma en la búsqueda pública.
+- El id de la norma se genera mediante el puerto de aplicación `GeneradorIds`, que evita acoplar la aplicación a `crypto`, UUID o base de datos. No existe adaptador real en este hito; los tests usan un fake determinístico.
+- Si la solicitud es inválida (campos mínimos vacíos, fechas inválidas, `fuente` no es URL válida o `fechaPublicacionOficial` anterior a `fechaExpedicion`), retorna `SOLICITUD_INVALIDA` y no guarda nada.
+- `RegistrarNorma`, `PublicarNorma` y `ConsultarContenidoNorma` conforman el flujo mínimo actual de aplicación: `RegistrarNorma -> PublicarNorma -> ConsultarContenidoNorma`.
+
 ### Publicación de normas (caso de uso `PublicarNorma`)
 
 - `PublicarNorma` existe como caso de uso de aplicación (en `packages/aplicacion`).
