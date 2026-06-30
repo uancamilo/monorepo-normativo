@@ -90,14 +90,24 @@ Paquete TypeScript puro iniciado en la fase 2. Contiene los casos de uso que orq
 - Define al menos los puertos de repositorio `RepositorioUsuarios`, `RepositorioNormas` y `RepositorioSuscripciones`, además del puerto `GeneradorIds`.
 - Incluye los casos de uso `RegistrarNorma`, `PublicarNorma` y `ConsultarContenidoNorma`, que cierran el flujo mínimo de aplicación `RegistrarNorma -> PublicarNorma -> ConsultarContenidoNorma`.
 - Implementa el caso de uso `ConsultarContenidoNorma`, que orquesta esos puertos y la política de dominio `PoliticaAccesoContenidoNorma`.
+- La metadata interna/editorial como `fechaPublicacionEnSistema` queda fuera de la consulta de contenido del suscriptor (`ConsultarContenidoNorma` no la devuelve). Si se necesita exponerla, requerirá un caso de uso editorial separado en el futuro (por ejemplo `ConsultarNormaEditorial`); `PublicarNorma`, como acción editorial, sí puede devolverla.
 - Implementa el caso de uso `PublicarNorma`, que orquesta `RepositorioUsuarios`, `RepositorioNormas`, la política de aplicación `PoliticaGestionEditorialNorma` y el puerto `PublicadorEventosNormas`.
 - Implementa el caso de uso `RegistrarNorma`, que registra una norma inicial en estado editorial `BORRADOR`. Orquesta `RepositorioUsuarios`, `RepositorioNormas`, la política de aplicación `PoliticaGestionEditorialNorma` y el puerto `GeneradorIds`. `RegistrarNorma` usa `GeneradorIds` como puerto para evitar acoplar la aplicación a infraestructura (`crypto`, UUID o base de datos). Registrar no publica la norma, no emite evento y no sincroniza el índice público.
-- La sincronización futura del índice público (Algolia) queda detrás del puerto de aplicación `PublicadorEventosNormas`: `PublicarNorma` emite un evento al publicar una norma. No existe adaptador real ni SDK de Algolia en este hito.
+- La sincronización futura del índice público (Algolia) queda detrás del puerto de aplicación `PublicadorEventosNormas`: `PublicarNorma` emite un evento al publicar una norma. No existe adaptador real de Algolia ni SDK de Algolia en este hito.
 - `PublicadorEventosNormas` no implica una llamada directa a Algolia. En infraestructura real, el adaptador debe usar outbox transaccional o un mecanismo equivalente con garantía transaccional para que la publicación de la norma no quede acoplada al estado operativo de Algolia.
 
-### Infraestructura (futuro `packages/infraestructura`)
+### Infraestructura (`packages/infraestructura`)
 
-Todavía no existe. En fases posteriores contendrá adaptadores concretos como controladores HTTP, repositorios Prisma y clientes Redis.
+Paquete iniciado en la Fase 3A. Contiene una primera capa HTTP con NestJS mínimo que expone el flujo de aplicación `RegistrarNorma -> PublicarNorma -> ConsultarContenidoNorma` y adaptadores en memoria de los puertos de aplicación (`RepositorioUsuariosEnMemoria`, `RepositorioNormasEnMemoria`, `RepositorioSuscripcionesEnMemoria`, `GeneradorIdsSecuencial`, `PublicadorEventosNormasEnMemoria`).
+
+- Depende de `packages/aplicacion` y `packages/dominio`. Dominio y aplicación no dependen de infraestructura.
+- Los casos de uso se componen por inyección de dependencias de NestJS recibiendo implementaciones de puertos; la aplicación no conoce NestJS.
+- La identidad se simula con el header HTTP `x-usuario-id`. Es un placeholder temporal e inseguro de la Fase 3A; **no es autenticación real**. Si falta, los endpoints responden `401`.
+- Endpoints: `POST /normas` (registrar), `POST /normas/:id/publicar` (publicar), `GET /normas/:id/contenido` (consultar). Las razones de fallo de los casos de uso se traducen a códigos HTTP en infraestructura (`mapeo-http`), no en aplicación.
+- Datos semilla en memoria (usuarios por rol y una suscripción activa) habilitan pruebas e2e con `@nestjs/testing` y `supertest`.
+- En la Fase 3A todavía **no** hay Prisma, PostgreSQL, Redis, Docker, scraping, Algolia ni frontend. La persistencia real, la unicidad de correos por `UNIQUE`, el outbox transaccional y la autenticación real corresponden a fases posteriores.
+
+En fases posteriores este paquete contendrá adaptadores concretos como repositorios Prisma y clientes Redis.
 
 En la primera implementación de persistencia, Prisma/PostgreSQL debe imponer `UNIQUE` para el correo normalizado de usuario y para el correo normalizado habilitado en suscripciones. La aplicación podrá traducir errores de constraint a errores de negocio, pero la garantía fuerte debe vivir en la base de datos.
 

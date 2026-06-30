@@ -5,15 +5,18 @@
     "packages/*"
   ],
   "scripts": {
-    "test": "npm run test:dominio && npm run test:aplicacion",
+    "test": "npm run test:dominio && npm run test:aplicacion && npm run test:infraestructura",
     "test:dominio": "npm run test --workspace=@normativo/dominio",
     "test:aplicacion": "npm run test --workspace=@normativo/aplicacion",
-    "typecheck": "npm run typecheck:dominio && npm run typecheck:aplicacion",
+    "test:infraestructura": "npm run test --workspace=@normativo/infraestructura",
+    "typecheck": "npm run typecheck:dominio && npm run typecheck:aplicacion && npm run typecheck:infraestructura",
     "typecheck:dominio": "npm run typecheck --workspace=@normativo/dominio",
     "typecheck:aplicacion": "npm run typecheck --workspace=@normativo/aplicacion",
-    "build": "npm run build:dominio && npm run build:aplicacion",
+    "typecheck:infraestructura": "npm run typecheck --workspace=@normativo/infraestructura",
+    "build": "npm run build:dominio && npm run build:aplicacion && npm run build:infraestructura",
     "build:dominio": "npm run build --workspace=@normativo/dominio",
     "build:aplicacion": "npm run build --workspace=@normativo/aplicacion",
+    "build:infraestructura": "npm run build --workspace=@normativo/infraestructura",
     "clean": "npm run clean --workspaces"
   }
 }

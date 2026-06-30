@@ -1,0 +1,227 @@
+import 'reflect-metadata';
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+} from '@jest/globals';
+import { INestApplication } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+import request from 'supertest';
+import { AppModule } from '../app.module';
+import { TOKEN_PUBLICADOR_EVENTOS } from '../normas/normas.module';
+import { PublicadorEventosNormasEnMemoria } from '../memoria/PublicadorEventosNormasEnMemoria';
+
+const USUARIO_EDITOR = 'usuario-editor-1';
+const USUARIO_SUPERADMIN = 'usuario-superadmin-1';
+const USUARIO_ADMIN = 'usuario-admin-1';
+const USUARIO_SUSCRIPTOR = 'usuario-suscriptor-1';
+
+function cuerpoNormaValido(overrides: Record<string, unknown> = {}) {
+  return {
+    numero: '123',
+    titulo: 'Ley Orgánica de Prueba',
+    contenido: '',
+    tipoNorma: 'Ley',
+    institucionExpide: 'Asamblea Nacional',
+    fuente: 'https://www.registroficial.gob.ec/norma.pdf',
+    estadoJuridico: 'VIGENTE',
+    fechaExpedicion: '2025-01-01',
+    fechaPublicacionOficial: '2025-01-02',
+    ...overrides,
+  };
+}
+
+describe('Normas (e2e)', () => {
+  let app: INestApplication;
+
+  beforeEach(async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+
+    app = moduleRef.createNestApplication();
+    await app.init();
+  });
+
+  afterEach(async () => {
+    await app.close();
+  });
+
+  function servidor() {
+    return app.getHttpServer();
+  }
+
+  async function registrarComoEditor(overrides: Record<string, unknown> = {}) {
+    const respuesta = await request(servidor())
+      .post('/normas')
+      .set('x-usuario-id', USUARIO_EDITOR)
+      .send(cuerpoNormaValido(overrides));
+    return respuesta;
+  }
+
+  it('flujo feliz: registrar -> publicar -> consultar', async () => {
+    const registro = await registrarComoEditor();
+    expect(registro.status).toBe(201);
+    expect(registro.body.id).toBe('norma-1');
+    expect(registro.body.estadoEditorial).toBe('BORRADOR');
+    expect(registro.body.estadoJuridico).toBe('VIGENTE');
+    expect(registro.body.tieneContenidoCompleto).toBe(false);
+
+    const publicacion = await request(servidor())
+      .post('/normas/norma-1/publicar')
+      .set('x-usuario-id', USUARIO_EDITOR)
+      .send({ fechaPublicacionEnSistema: '2026-06-29T00:00:00.000Z' });
+    expect(publicacion.status).toBe(200);
+    expect(publicacion.body.id).toBe('norma-1');
+    expect(publicacion.body.estadoEditorial).toBe('PUBLICADA');
+    expect(publicacion.body.fechaPublicacionEnSistema).toBe(
+      '2026-06-29T00:00:00.000Z',
+    );
+    expect(publicacion.body.tieneContenidoCompleto).toBe(false);
+
+    const consulta = await request(servidor())
+      .get('/normas/norma-1/contenido')
+      .set('x-usuario-id', USUARIO_SUSCRIPTOR);
+    expect(consulta.status).toBe(200);
+    expect(consulta.body.id).toBe('norma-1');
+    expect(consulta.body.titulo).toBe('Ley Orgánica de Prueba');
+    expect(consulta.body.tieneContenidoCompleto).toBe(false);
+    expect(consulta.body.fuente).toBe(
+      'https://www.registroficial.gob.ec/norma.pdf',
+    );
+    expect(consulta.body).not.toHaveProperty('fechaPublicacionEnSistema');
+  });
+
+  it('SUPERADMINISTRADOR puede registrar', async () => {
+    const respuesta = await request(servidor())
+      .post('/normas')
+      .set('x-usuario-id', USUARIO_SUPERADMIN)
+      .send(cuerpoNormaValido());
+    expect(respuesta.status).toBe(201);
+    expect(respuesta.body.estadoEditorial).toBe('BORRADOR');
+  });
+
+  it('ADMINISTRADOR no puede registrar (403)', async () => {
+    const respuesta = await request(servidor())
+      .post('/normas')
+      .set('x-usuario-id', USUARIO_ADMIN)
+      .send(cuerpoNormaValido());
+    expect(respuesta.status).toBe(403);
+  });
+
+  it('SUSCRIPTOR no puede registrar (403)', async () => {
+    const respuesta = await request(servidor())
+      .post('/normas')
+      .set('x-usuario-id', USUARIO_SUSCRIPTOR)
+      .send(cuerpoNormaValido());
+    expect(respuesta.status).toBe(403);
+  });
+
+  it('ADMINISTRADOR no puede publicar (403)', async () => {
+    await registrarComoEditor();
+    const respuesta = await request(servidor())
+      .post('/normas/norma-1/publicar')
+      .set('x-usuario-id', USUARIO_ADMIN)
+      .send({});
+    expect(respuesta.status).toBe(403);
+  });
+
+  it('SUSCRIPTOR no puede publicar (403)', async () => {
+    await registrarComoEditor();
+    const respuesta = await request(servidor())
+      .post('/normas/norma-1/publicar')
+      .set('x-usuario-id', USUARIO_SUSCRIPTOR)
+      .send({});
+    expect(respuesta.status).toBe(403);
+  });
+
+  it('SUPERADMINISTRADOR puede publicar', async () => {
+    await registrarComoEditor();
+    const respuesta = await request(servidor())
+      .post('/normas/norma-1/publicar')
+      .set('x-usuario-id', USUARIO_SUPERADMIN)
+      .send({});
+    expect(respuesta.status).toBe(200);
+    expect(respuesta.body.estadoEditorial).toBe('PUBLICADA');
+  });
+
+  it('consulta sin suscripción habilitada devuelve 403 (acceso no depende del rol)', async () => {
+    await registrarComoEditor();
+    await request(servidor())
+      .post('/normas/norma-1/publicar')
+      .set('x-usuario-id', USUARIO_EDITOR)
+      .send({});
+
+    // editor@test.com no está habilitado en la suscripción semilla.
+    const consulta = await request(servidor())
+      .get('/normas/norma-1/contenido')
+      .set('x-usuario-id', USUARIO_EDITOR);
+    expect(consulta.status).toBe(403);
+  });
+
+  it('norma en BORRADOR no es consultable (403)', async () => {
+    await registrarComoEditor();
+    const consulta = await request(servidor())
+      .get('/normas/norma-1/contenido')
+      .set('x-usuario-id', USUARIO_SUSCRIPTOR);
+    expect(consulta.status).toBe(403);
+  });
+
+  it('falta header x-usuario-id devuelve 401', async () => {
+    const respuesta = await request(servidor())
+      .post('/normas')
+      .send(cuerpoNormaValido());
+    expect(respuesta.status).toBe(401);
+  });
+
+  it('solicitud inválida (título vacío) devuelve 400', async () => {
+    const respuesta = await request(servidor())
+      .post('/normas')
+      .set('x-usuario-id', USUARIO_EDITOR)
+      .send(cuerpoNormaValido({ titulo: '' }));
+    expect(respuesta.status).toBe(400);
+  });
+
+  it('publicar norma inexistente devuelve 404', async () => {
+    const respuesta = await request(servidor())
+      .post('/normas/norma-inexistente/publicar')
+      .set('x-usuario-id', USUARIO_EDITOR)
+      .send({});
+    expect(respuesta.status).toBe(404);
+  });
+
+  it('publicar dos veces la misma norma devuelve 409', async () => {
+    await registrarComoEditor();
+    await request(servidor())
+      .post('/normas/norma-1/publicar')
+      .set('x-usuario-id', USUARIO_EDITOR)
+      .send({});
+    const segunda = await request(servidor())
+      .post('/normas/norma-1/publicar')
+      .set('x-usuario-id', USUARIO_EDITOR)
+      .send({});
+    expect(segunda.status).toBe(409);
+  });
+
+  it('al publicar se registra exactamente un evento', async () => {
+    // Norma registrada con contenido vacío (cuerpoNormaValido usa contenido '').
+    await registrarComoEditor();
+    await request(servidor())
+      .post('/normas/norma-1/publicar')
+      .set('x-usuario-id', USUARIO_EDITOR)
+      .send({ fechaPublicacionEnSistema: '2026-06-29T00:00:00.000Z' });
+
+    const publicador = app.get<PublicadorEventosNormasEnMemoria>(
+      TOKEN_PUBLICADOR_EVENTOS,
+    );
+    expect(publicador.eventos).toHaveLength(1);
+    const evento = publicador.eventos[0];
+    expect(evento.normaId).toBe('norma-1');
+    expect(evento.fechaPublicacionEnSistema).toEqual(
+      new Date('2026-06-29T00:00:00.000Z'),
+    );
+    expect(evento.tieneContenidoCompleto).toBe(false);
+  });
+});

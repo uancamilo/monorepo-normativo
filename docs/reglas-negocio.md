@@ -214,9 +214,10 @@ Reglas jurídicas confirmadas:
 - Registrar asigna `estadoEditorial = BORRADOR` y deja `fechaPublicacionEnSistema` en `null`.
 - Registrar no publica la norma, no cambia el estado editorial a `PUBLICADA` y no emite el evento `PublicadorEventosNormas`.
 - Registrar no sincroniza Algolia ni indexa la norma en la búsqueda pública.
-- El id de la norma se genera mediante el puerto de aplicación `GeneradorIds`, que evita acoplar la aplicación a `crypto`, UUID o base de datos. No existe adaptador real en este hito; los tests usan un fake determinístico.
+- El id de la norma se genera mediante el puerto de aplicación `GeneradorIds`, que evita acoplar la aplicación a `crypto`, UUID o base de datos. En aplicación no existe adaptador real; en Fase 3A infraestructura provee `GeneradorIdsSecuencial` como adaptador en memoria. En tests de aplicación se usa un fake determinístico.
 - Si la solicitud es inválida (campos mínimos vacíos, fechas inválidas, `fuente` no es URL válida o `fechaPublicacionOficial` anterior a `fechaExpedicion`), retorna `SOLICITUD_INVALIDA` y no guarda nada.
 - `RegistrarNorma`, `PublicarNorma` y `ConsultarContenidoNorma` conforman el flujo mínimo actual de aplicación: `RegistrarNorma -> PublicarNorma -> ConsultarContenidoNorma`.
+- Nota técnica (Fase 3A): este flujo se expone por HTTP desde `packages/infraestructura` con NestJS mínimo y adaptadores en memoria. La identidad se simula con el header `x-usuario-id` y no es autenticación real; no cambia ninguna regla de negocio. Detalle en `docs/arquitectura/vision-arquitectura.md`.
 
 ### Publicación de normas (caso de uso `PublicarNorma`)
 
@@ -261,6 +262,10 @@ Salida de `ConsultarContenidoNorma`:
 - Si `contenido.trim().length === 0`, entonces `tieneContenidoCompleto = false`.
 - Cuando `tieneContenidoCompleto = false`, el cliente debe usar la metadata y la URL `fuente` para mostrar el PDF de la fuente oficial incrustado. El sistema no inventa ni simula contenido completo.
 - Este indicador no crea un nuevo estado editorial ni un nuevo estado de contenido. `PUBLICADA` significa visibilidad editorial, no necesariamente texto completo enriquecido. Una norma `PUBLICADA` puede tener `contenido` vacío.
+- `ConsultarContenidoNorma` representa la consulta de contenido visible para el suscriptor. Devuelve contenido y metadata normativa visible (`id`, `numero`, `titulo`, `contenido`, `tieneContenidoCompleto`, `tipoNorma`, `institucionExpide`, `fuente`, `estadoJuridico`, `fechaExpedicion`, `fechaPublicacionOficial`), pero no metadata interna/editorial.
+- `fuente` sí es visible para el suscriptor porque es la fuente normativa oficial.
+- `ConsultarContenidoNorma` no expone `fechaPublicacionEnSistema` al suscriptor, porque es metadata interna/editorial/auditoría. Si se necesita exponerla más adelante, será mediante un caso de uso editorial interno separado (por ejemplo `ConsultarNormaEditorial`), no en la consulta de contenido del suscriptor.
+- `estadoEditorial` tampoco se expone en la salida de `ConsultarContenidoNorma`.
 
 Límites de esta política:
 

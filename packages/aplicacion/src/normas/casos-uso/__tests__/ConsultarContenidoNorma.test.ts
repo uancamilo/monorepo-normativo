@@ -451,8 +451,35 @@ describe('ConsultarContenidoNorma', () => {
         estadoJuridico: norma.estadoJuridico,
         fechaExpedicion: norma.fechaExpedicion,
         fechaPublicacionOficial: norma.fechaPublicacionOficial,
-        fechaPublicacionEnSistema: norma.fechaPublicacionEnSistema,
       });
+      expect(resultado.contenido.fuente).toBe(norma.fuente);
+    }
+  });
+
+  it('no expone fechaPublicacionEnSistema en la salida exitosa', async () => {
+    const contexto = crearContexto();
+    const usuario = crearUsuario();
+    const suscripcion = crearSuscripcion({
+      correoHabilitado: usuario.obtenerCorreo(),
+    });
+    const norma = crearNorma();
+
+    contexto.repositorioUsuarios.agregar(usuario);
+    contexto.repositorioNormas.agregar(norma);
+    contexto.repositorioSuscripciones.agregar(suscripcion);
+
+    const resultado = await contexto.casoUso.ejecutar({
+      usuarioAutenticadoId: usuario.obtenerId(),
+      normaId: norma.id,
+      fechaReferencia,
+    });
+
+    expect(resultado.exitoso).toBe(true);
+    if (resultado.exitoso) {
+      expect(Object.keys(resultado.contenido)).not.toContain(
+        'fechaPublicacionEnSistema',
+      );
+      expect(resultado.contenido.fuente).toBe(norma.fuente);
     }
   });
 

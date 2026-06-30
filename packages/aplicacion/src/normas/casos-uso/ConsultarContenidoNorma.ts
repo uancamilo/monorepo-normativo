@@ -24,7 +24,6 @@ export type ContenidoNormaConsultado = {
   estadoJuridico: EstadoNorma;
   fechaExpedicion: Date;
   fechaPublicacionOficial: Date;
-  fechaPublicacionEnSistema: Date | null;
 };
 
 export type RazonConsultarContenidoNormaFallido =
@@ -120,7 +119,6 @@ export class ConsultarContenidoNorma {
         estadoJuridico: norma.estadoJuridico,
         fechaExpedicion: norma.fechaExpedicion,
         fechaPublicacionOficial: norma.fechaPublicacionOficial,
-        fechaPublicacionEnSistema: norma.fechaPublicacionEnSistema,
       },
     };
   }
