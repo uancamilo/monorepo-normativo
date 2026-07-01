@@ -108,7 +108,8 @@ Paquete iniciado en la Fase 3A. Contiene una primera capa HTTP con NestJS mínim
 - Los adaptadores Prisma se activan con `PERSISTENCIA=prisma`: `RepositorioUsuariosPrisma`, `RepositorioNormasPrisma`, `RepositorioSuscripcionesPrisma`, `GeneradorIdsUuid` y `PublicadorEventosNormasPrisma`.
 - Prisma/PostgreSQL impone `UNIQUE` para `usuarios.correo_normalizado` y `suscripcion_correos_habilitados.correo_normalizado` desde el schema inicial. La aplicación podrá traducir errores de constraint a errores de negocio, pero la garantía fuerte vive en la base de datos.
 - `PublicadorEventosNormasPrisma` persiste eventos en `eventos_normas_publicadas`. Esta tabla es almacenamiento simple del evento emitido; no es todavía outbox transaccional completo porque `PublicarNorma` aún guarda la norma y luego publica el evento como dos pasos separados.
-- La Fase 3B todavía **no** implementa Redis, scraping, Algolia, frontend ni autenticación real.
+- La Fase 3C consolida la persistencia: agrega un seed idempotente de desarrollo/test (`scripts/seed-prisma.js`, reutilizado por el e2e Prisma), scripts npm (`prisma:seed`, `test:prisma`, etc.) y un e2e HTTP contra Prisma/PostgreSQL. Los tests Prisma se saltan si no hay `TEST_DATABASE_URL`, de modo que `npm test` general sigue verde sin PostgreSQL. El flujo local está documentado en `docs/desarrollo/prisma-postgresql-local.md`.
+- Ni la Fase 3B ni la 3C implementan Redis, colas, scraping, Algolia, frontend, autenticación real ni outbox transaccional completo.
 
 El modelo de búsqueda futura separará búsqueda pública y búsqueda editorial interna. Algolia será infraestructura futura para la búsqueda pública como índice derivado; la base de datos seguirá siendo la fuente de verdad y el dominio no dependerá de Algolia.
 

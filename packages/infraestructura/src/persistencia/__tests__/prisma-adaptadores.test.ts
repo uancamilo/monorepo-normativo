@@ -27,26 +27,56 @@ if (
 
 const describirPrisma = testDatabaseUrl ? describe : describe.skip;
 
+// GeneradorIdsUuid no depende de PostgreSQL: se prueba siempre, aunque no haya
+// TEST_DATABASE_URL, para no ocultar regresiones detrás del gate de Prisma.
+describe('GeneradorIdsUuid (no requiere PostgreSQL)', () => {
+  it('genera strings no vacíos y distintos', () => {
+    const generador = new GeneradorIdsUuid();
+
+    const primero = generador.generar();
+    const segundo = generador.generar();
+
+    expect(primero.trim().length).toBeGreaterThan(0);
+    expect(segundo.trim().length).toBeGreaterThan(0);
+    expect(primero).not.toBe(segundo);
+  });
+});
+
 describirPrisma(
   'Adaptadores Prisma/PostgreSQL (requiere TEST_DATABASE_URL)',
   () => {
     let prisma: PrismaService;
+    let databaseUrlPrevia: string | undefined;
 
     beforeAll(async () => {
+      // TEST_DATABASE_URL tiene prioridad y se propaga a DATABASE_URL para que
+      // tanto el CLI de Prisma como PrismaService apunten a la base de test.
+      databaseUrlPrevia = process.env.DATABASE_URL;
       process.env.DATABASE_URL = testDatabaseUrl;
-      const prismaCli = require.resolve('prisma/build/index.js');
-      execFileSync(
-        process.execPath,
-        [prismaCli, 'db', 'push', '--force-reset'],
-        {
-          cwd: process.cwd(),
-          env: {
-            ...process.env,
-            DATABASE_URL: testDatabaseUrl,
+      // `db push` no destructivo: asegura el schema sin borrar la base (el aislamiento
+      // entre tests lo da el deleteMany del beforeEach). El reset destructivo es explícito
+      // y vive en el script `prisma:reset:test`, no en la suite de tests.
+      try {
+        const prismaCli = require.resolve('prisma/build/index.js');
+        execFileSync(
+          process.execPath,
+          [prismaCli, 'db', 'push'],
+          {
+            cwd: process.cwd(),
+            env: {
+              ...process.env,
+              DATABASE_URL: testDatabaseUrl,
+            },
+            stdio: 'pipe',
           },
-          stdio: 'pipe',
-        },
-      );
+        );
+      } catch (error) {
+        throw new Error(
+          'No se pudo aplicar el schema en la base de test. ¿Está PostgreSQL arriba? ' +
+            'Ejecuta: docker compose -f docker-compose.test.yml up -d. Detalle: ' +
+            (error instanceof Error ? error.message : String(error)),
+        );
+      }
 
       prisma = new PrismaService();
       await prisma.$connect();
@@ -62,6 +92,12 @@ describirPrisma(
 
     afterAll(async () => {
       await prisma?.$disconnect();
+      if (databaseUrlPrevia === undefined) {
+        delete process.env.DATABASE_URL;
+        return;
+      }
+
+      process.env.DATABASE_URL = databaseUrlPrevia;
     });
 
     it('RepositorioUsuariosPrisma busca usuario existente, reconstruye correo normalizado y retorna null si no existe', async () => {
@@ -168,17 +204,6 @@ describirPrisma(
           },
         }),
       ).rejects.toMatchObject({ code: 'P2002' });
-    });
-
-    it('GeneradorIdsUuid genera strings no vacíos y distintos', () => {
-      const generador = new GeneradorIdsUuid();
-
-      const primero = generador.generar();
-      const segundo = generador.generar();
-
-      expect(primero.trim().length).toBeGreaterThan(0);
-      expect(segundo.trim().length).toBeGreaterThan(0);
-      expect(primero).not.toBe(segundo);
     });
 
     it('PublicadorEventosNormasPrisma persiste evento sin llamar servicios externos', async () => {

@@ -8,8 +8,12 @@
     "clean": "rm -rf dist coverage",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
+    "prisma:migrate:deploy": "prisma migrate deploy",
+    "prisma:reset:test": "prisma db push --force-reset",
+    "prisma:seed": "node scripts/seed-prisma.js",
     "start": "node dist/main.js",
     "test": "jest --passWithNoTests",
+    "test:prisma": "jest --runInBand prisma",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

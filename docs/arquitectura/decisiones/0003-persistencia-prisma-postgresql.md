@@ -100,6 +100,18 @@ La solución definitiva para efectos externos reintentables seguirá siendo outb
 - ejecutar ambas operaciones en la misma transacción;
 - procesar el evento luego con worker/adaptador observable y con reintentos.
 
+## Seed y flujo local (Fase 3C)
+
+Para consolidar lo construido en Fase 3B sin introducir reglas de negocio nuevas, la Fase 3C agrega:
+
+- Seed idempotente en `packages/infraestructura/scripts/seed-prisma.js`. Es JavaScript CommonJS que usa Prisma Client directamente con el adaptador `@prisma/adapter-pg`, sin dependencias nuevas. Usa `upsert` por clave primaria, por lo que puede ejecutarse varias veces sin duplicar y respeta los `UNIQUE`. Solo inserta datos de prueba (`@test.com`) y **no** borra normas. Exporta `sembrar(prisma)`, reutilizada por el e2e Prisma (única fuente de verdad del seed).
+- Scripts npm en infraestructura: `prisma:generate`, `prisma:push`, `prisma:migrate:deploy`, `prisma:reset:test` (reset destructivo explícito de la base de test), `prisma:seed` y `test:prisma`.
+- E2E HTTP contra Prisma/PostgreSQL en `src/__tests__/normas-prisma.e2e.test.ts`, que valida el flujo completo desde HTTP (`@nestjs/testing` + `supertest`) y verifica en PostgreSQL que la norma quede `PUBLICADA` y que se persista el evento.
+
+Ambas familias de tests Prisma (adaptadores y e2e) se **saltan** si no está definido `TEST_DATABASE_URL`, y fallan si su valor no incluye `test`, para no escribir en una base equivocada. Por eso `npm test` general sigue verde sin PostgreSQL.
+
+El detalle operativo (levantar PostgreSQL, aplicar schema, sembrar, arrancar backend, correr tests) está en `docs/desarrollo/prisma-postgresql-local.md`. El `docker-compose.test.yml` es solo para PostgreSQL local/test, no para despliegue productivo.
+
 ## Consecuencias
 
 ### Positivas
