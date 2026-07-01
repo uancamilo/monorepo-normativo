@@ -1,0 +1,225 @@
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from '@jest/globals';
+import { execFileSync } from 'node:child_process';
+import {
+  EstadoEditorialNorma,
+  EstadoNorma,
+  EstadoSuscripcion,
+  Norma,
+  RolUsuario,
+} from '@normativo/dominio';
+import { PrismaService } from '../../prisma/prisma.service';
+import { RepositorioUsuariosPrisma } from '../RepositorioUsuariosPrisma';
+import { RepositorioNormasPrisma } from '../RepositorioNormasPrisma';
+import { RepositorioSuscripcionesPrisma } from '../RepositorioSuscripcionesPrisma';
+import { GeneradorIdsUuid } from '../GeneradorIdsUuid';
+import { PublicadorEventosNormasPrisma } from '../PublicadorEventosNormasPrisma';
+
+const testDatabaseUrl = process.env.TEST_DATABASE_URL;
+
+if (
+  testDatabaseUrl !== undefined &&
+  !testDatabaseUrl.toLowerCase().includes('test')
+) {
+  throw new Error(
+    'TEST_DATABASE_URL debe apuntar a una base de datos de test; el valor debe incluir "test"',
+  );
+}
+
+const describirPrisma = testDatabaseUrl ? describe : describe.skip;
+
+describirPrisma(
+  'Adaptadores Prisma/PostgreSQL (requiere TEST_DATABASE_URL)',
+  () => {
+    let prisma: PrismaService;
+
+    beforeAll(async () => {
+      process.env.DATABASE_URL = testDatabaseUrl;
+      const prismaCli = require.resolve('prisma/build/index.js');
+      execFileSync(
+        process.execPath,
+        [prismaCli, 'db', 'push', '--force-reset'],
+        {
+          cwd: process.cwd(),
+          env: {
+            ...process.env,
+            DATABASE_URL: testDatabaseUrl,
+          },
+          stdio: 'pipe',
+        },
+      );
+
+      prisma = new PrismaService();
+      await prisma.$connect();
+    });
+
+    beforeEach(async () => {
+      await prisma.eventoNormaPublicada.deleteMany();
+      await prisma.suscripcionCorreoHabilitado.deleteMany();
+      await prisma.suscripcion.deleteMany();
+      await prisma.norma.deleteMany();
+      await prisma.usuario.deleteMany();
+    });
+
+    afterAll(async () => {
+      await prisma?.$disconnect();
+    });
+
+    it('RepositorioUsuariosPrisma busca usuario existente, reconstruye correo normalizado y retorna null si no existe', async () => {
+      await prisma.usuario.create({
+        data: {
+          id: 'usuario-1',
+          nombre: 'Usuario',
+          apellido: 'Prueba',
+          correoNormalizado: 'USUARIO@TEST.COM',
+          rol: 'EDITOR',
+        },
+      });
+      const repositorio = new RepositorioUsuariosPrisma(prisma);
+
+      const usuario = await repositorio.buscarPorId('usuario-1');
+      const inexistente = await repositorio.buscarPorId('usuario-inexistente');
+
+      expect(usuario?.obtenerId()).toBe('usuario-1');
+      expect(usuario?.obtenerCorreo()).toBe('usuario@test.com');
+      expect(usuario?.tieneRol(RolUsuario.EDITOR)).toBe(true);
+      expect(inexistente).toBeNull();
+    });
+
+    it('RepositorioNormasPrisma guarda BORRADOR con contenido vacío, busca y actualiza a PUBLICADA', async () => {
+      const repositorio = new RepositorioNormasPrisma(prisma);
+      const fechaExpedicion = new Date('2025-01-01T00:00:00.000Z');
+      const fechaPublicacionOficial = new Date('2025-01-02T00:00:00.000Z');
+      const fechaPublicacionEnSistema = new Date('2025-06-01T00:00:00.000Z');
+      const norma = new Norma({
+        id: 'norma-1',
+        numero: null,
+        titulo: 'Norma de prueba',
+        contenido: '',
+        tipoNorma: 'Ley',
+        institucionExpide: 'Asamblea Nacional',
+        fuente: 'https://www.registroficial.gob.ec/norma-1.pdf',
+        estadoJuridico: EstadoNorma.REFORMADA,
+        estadoEditorial: EstadoEditorialNorma.BORRADOR,
+        fechaExpedicion,
+        fechaPublicacionOficial,
+        fechaPublicacionEnSistema: null,
+      });
+
+      await repositorio.guardar(norma);
+      const borrador = await repositorio.buscarPorId('norma-1');
+      await repositorio.guardar(norma.publicar(fechaPublicacionEnSistema));
+      const publicada = await repositorio.buscarPorId('norma-1');
+
+      expect(borrador?.estadoEditorial).toBe(EstadoEditorialNorma.BORRADOR);
+      expect(borrador?.contenido).toBe('');
+      expect(publicada?.estadoEditorial).toBe(EstadoEditorialNorma.PUBLICADA);
+      expect(publicada?.fechaPublicacionEnSistema).toEqual(
+        fechaPublicacionEnSistema,
+      );
+      expect(publicada?.fuente).toBe(
+        'https://www.registroficial.gob.ec/norma-1.pdf',
+      );
+      expect(publicada?.estadoJuridico).toBe(EstadoNorma.REFORMADA);
+    });
+
+    it('RepositorioSuscripcionesPrisma busca por correo normalizado y retorna null si no está habilitado', async () => {
+      await crearSuscripcion({
+        id: 'suscripcion-1',
+        correos: ['suscriptor@test.com'],
+      });
+      const repositorio = new RepositorioSuscripcionesPrisma(prisma);
+
+      const suscripcion = await repositorio.buscarPorCorreoHabilitado(
+        '  SUSCRIPTOR@Test.COM ',
+      );
+      const inexistente = await repositorio.buscarPorCorreoHabilitado(
+        'otro@test.com',
+      );
+
+      expect(suscripcion?.id).toBe('suscripcion-1');
+      expect(suscripcion?.correosUsuariosHabilitados).toEqual([
+        'suscriptor@test.com',
+      ]);
+      expect(inexistente).toBeNull();
+    });
+
+    it('PostgreSQL impide habilitar el mismo correo en dos suscripciones', async () => {
+      await crearSuscripcion({
+        id: 'suscripcion-1',
+        correos: ['suscriptor@test.com'],
+      });
+      await prisma.suscripcion.create({
+        data: {
+          id: 'suscripcion-2',
+          clienteId: 'cliente-2',
+          cantidadMaximaUsuarios: 1,
+          estado: 'ACTIVA',
+          fechaInicio: new Date('2025-01-01T00:00:00.000Z'),
+          fechaFin: new Date('2026-01-01T00:00:00.000Z'),
+        },
+      });
+
+      await expect(
+        prisma.suscripcionCorreoHabilitado.create({
+          data: {
+            id: 'correo-duplicado',
+            suscripcionId: 'suscripcion-2',
+            correoNormalizado: 'suscriptor@test.com',
+          },
+        }),
+      ).rejects.toMatchObject({ code: 'P2002' });
+    });
+
+    it('GeneradorIdsUuid genera strings no vacíos y distintos', () => {
+      const generador = new GeneradorIdsUuid();
+
+      const primero = generador.generar();
+      const segundo = generador.generar();
+
+      expect(primero.trim().length).toBeGreaterThan(0);
+      expect(segundo.trim().length).toBeGreaterThan(0);
+      expect(primero).not.toBe(segundo);
+    });
+
+    it('PublicadorEventosNormasPrisma persiste evento sin llamar servicios externos', async () => {
+      const publicador = new PublicadorEventosNormasPrisma(prisma);
+      const fechaPublicacionEnSistema = new Date('2025-06-01T00:00:00.000Z');
+
+      await publicador.publicarNormaPublicada({
+        normaId: 'norma-1',
+        fechaPublicacionEnSistema,
+        tieneContenidoCompleto: true,
+      });
+
+      const eventos = await prisma.eventoNormaPublicada.findMany();
+      expect(eventos).toHaveLength(1);
+      expect(eventos[0].normaId).toBe('norma-1');
+      expect(eventos[0].fechaPublicacionEnSistema).toEqual(
+        fechaPublicacionEnSistema,
+      );
+      expect(eventos[0].tieneContenidoCompleto).toBe(true);
+    });
+
+    async function crearSuscripcion(opciones: {
+      id: string;
+      correos: string[];
+    }): Promise<void> {
+      await prisma.suscripcion.create({
+        data: {
+          id: opciones.id,
+          clienteId: `cliente-${opciones.id}`,
+          cantidadMaximaUsuarios: opciones.correos.length,
+          estado: EstadoSuscripcion.ACTIVA,
+          fechaInicio: new Date('2025-01-01T00:00:00.000Z'),
+          fechaFin: new Date('2026-01-01T00:00:00.000Z'),
+          correosHabilitados: {
+            create: opciones.correos.map((correo, indice) => ({
+              id: `${opciones.id}-correo-${indice + 1}`,
+              correoNormalizado: correo.trim().toLowerCase(),
+            })),
+          },
+        },
+      });
+    }
+  },
+);

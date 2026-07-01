@@ -98,18 +98,17 @@ Paquete TypeScript puro iniciado en la fase 2. Contiene los casos de uso que orq
 
 ### Infraestructura (`packages/infraestructura`)
 
-Paquete iniciado en la Fase 3A. Contiene una primera capa HTTP con NestJS mínimo que expone el flujo de aplicación `RegistrarNorma -> PublicarNorma -> ConsultarContenidoNorma` y adaptadores en memoria de los puertos de aplicación (`RepositorioUsuariosEnMemoria`, `RepositorioNormasEnMemoria`, `RepositorioSuscripcionesEnMemoria`, `GeneradorIdsSecuencial`, `PublicadorEventosNormasEnMemoria`).
+Paquete iniciado en la Fase 3A. Contiene una primera capa HTTP con NestJS mínimo que expone el flujo de aplicación `RegistrarNorma -> PublicarNorma -> ConsultarContenidoNorma`. En Fase 3B incorpora persistencia Prisma/PostgreSQL como adaptadores de infraestructura para los puertos de aplicación.
 
 - Depende de `packages/aplicacion` y `packages/dominio`. Dominio y aplicación no dependen de infraestructura.
 - Los casos de uso se componen por inyección de dependencias de NestJS recibiendo implementaciones de puertos; la aplicación no conoce NestJS.
 - La identidad se simula con el header HTTP `x-usuario-id`. Es un placeholder temporal e inseguro de la Fase 3A; **no es autenticación real**. Si falta, los endpoints responden `401`.
 - Endpoints: `POST /normas` (registrar), `POST /normas/:id/publicar` (publicar), `GET /normas/:id/contenido` (consultar). Las razones de fallo de los casos de uso se traducen a códigos HTTP en infraestructura (`mapeo-http`), no en aplicación.
-- Datos semilla en memoria (usuarios por rol y una suscripción activa) habilitan pruebas e2e con `@nestjs/testing` y `supertest`.
-- En la Fase 3A todavía **no** hay Prisma, PostgreSQL, Redis, Docker, scraping, Algolia ni frontend. La persistencia real, la unicidad de correos por `UNIQUE`, el outbox transaccional y la autenticación real corresponden a fases posteriores.
-
-En fases posteriores este paquete contendrá adaptadores concretos como repositorios Prisma y clientes Redis.
-
-En la primera implementación de persistencia, Prisma/PostgreSQL debe imponer `UNIQUE` para el correo normalizado de usuario y para el correo normalizado habilitado en suscripciones. La aplicación podrá traducir errores de constraint a errores de negocio, pero la garantía fuerte debe vivir en la base de datos.
+- Los adaptadores en memoria siguen disponibles para pruebas e2e y arranque local simple (`PERSISTENCIA=memoria`, valor por defecto): `RepositorioUsuariosEnMemoria`, `RepositorioNormasEnMemoria`, `RepositorioSuscripcionesEnMemoria`, `GeneradorIdsSecuencial`, `PublicadorEventosNormasEnMemoria`.
+- Los adaptadores Prisma se activan con `PERSISTENCIA=prisma`: `RepositorioUsuariosPrisma`, `RepositorioNormasPrisma`, `RepositorioSuscripcionesPrisma`, `GeneradorIdsUuid` y `PublicadorEventosNormasPrisma`.
+- Prisma/PostgreSQL impone `UNIQUE` para `usuarios.correo_normalizado` y `suscripcion_correos_habilitados.correo_normalizado` desde el schema inicial. La aplicación podrá traducir errores de constraint a errores de negocio, pero la garantía fuerte vive en la base de datos.
+- `PublicadorEventosNormasPrisma` persiste eventos en `eventos_normas_publicadas`. Esta tabla es almacenamiento simple del evento emitido; no es todavía outbox transaccional completo porque `PublicarNorma` aún guarda la norma y luego publica el evento como dos pasos separados.
+- La Fase 3B todavía **no** implementa Redis, scraping, Algolia, frontend ni autenticación real.
 
 El modelo de búsqueda futura separará búsqueda pública y búsqueda editorial interna. Algolia será infraestructura futura para la búsqueda pública como índice derivado; la base de datos seguirá siendo la fuente de verdad y el dominio no dependerá de Algolia.
 

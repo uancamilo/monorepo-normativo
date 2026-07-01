@@ -31,7 +31,7 @@ Los tests del dominio siguen siendo la especificación ejecutable del comportami
 - El correo electrónico identifica globalmente al usuario.
 - No pueden existir dos usuarios con el mismo correo normalizado.
 - La unicidad global del correo no se garantiza dentro de una entidad `Usuario` aislada. Se implementará en aplicación y persistencia, donde será posible consultar el conjunto de usuarios del sistema.
-- Cuando exista persistencia Prisma/PostgreSQL, `usuarios.correo_normalizado` debe tener una restricción `UNIQUE` desde el primer schema.
+- En la persistencia Prisma/PostgreSQL inicial, `usuarios.correo_normalizado` tiene una restricción `UNIQUE`.
 - La aplicación podrá validar antes de guardar y traducir errores de constraint a errores de negocio, pero la garantía fuerte de unicidad global debe estar en la base de datos.
 
 ## 3. Roles del sistema
@@ -113,7 +113,7 @@ Estados actuales:
 
 - Un correo no puede estar habilitado en más de una suscripción.
 - La exclusividad global de un correo entre suscripciones no se garantiza dentro de una entidad `Suscripcion` aislada. Se implementará en aplicación y persistencia, donde será posible consultar todas las suscripciones relevantes.
-- Cuando exista persistencia Prisma/PostgreSQL, `suscripcion_correos_habilitados.correo_normalizado` debe tener una restricción `UNIQUE` desde el primer schema.
+- En la persistencia Prisma/PostgreSQL inicial, `suscripcion_correos_habilitados.correo_normalizado` tiene una restricción `UNIQUE`.
 - Esta decisión soporta la firma del puerto `RepositorioSuscripciones.buscarPorCorreoHabilitado(correo): Promise<Suscripcion | null>`, que presupone que un correo habilitado resuelve a cero o una sola suscripción.
 - La unicidad global del correo habilitado no puede depender solo del dominio, porque una entidad `Suscripcion` no ve todas las suscripciones del sistema al mismo tiempo.
 - La aplicación podrá validar antes de guardar y traducir errores de constraint a errores de negocio, pero la garantía fuerte de exclusividad global debe estar en la base de datos.
@@ -390,7 +390,7 @@ Las siguientes reglas requieren consultar el estado global del sistema:
 
 Estas reglas no pueden garantizarse correctamente dentro de una entidad aislada. Se implementarán mediante casos de uso, puertos de repositorio y persistencia. Las entidades seguirán protegiendo únicamente sus invariantes locales.
 
-Para la persistencia futura, la unicidad global de correos debe quedar impuesta desde el primer schema Prisma/PostgreSQL:
+En la persistencia Prisma/PostgreSQL inicial, la unicidad global de correos queda respaldada por constraints de base de datos:
 
 - `usuarios.correo_normalizado` debe ser `UNIQUE`.
 - `suscripcion_correos_habilitados.correo_normalizado` debe ser `UNIQUE`.

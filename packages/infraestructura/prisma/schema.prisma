@@ -1,0 +1,100 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum RolUsuarioPrisma {
+  SUPERADMINISTRADOR
+  ADMINISTRADOR
+  EDITOR
+  SUSCRIPTOR
+}
+
+enum EstadoSuscripcionPrisma {
+  ACTIVA
+  INACTIVA
+  VENCIDA
+  CANCELADA
+}
+
+enum EstadoNormaPrisma {
+  VIGENTE
+  REFORMADA
+  DEROGADA
+}
+
+enum EstadoEditorialNormaPrisma {
+  BORRADOR
+  EN_REVISION
+  PUBLICADA
+}
+
+model Usuario {
+  id                 String            @id
+  nombre             String
+  apellido           String
+  correoNormalizado  String            @unique @map("correo_normalizado")
+  rol                RolUsuarioPrisma
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @updatedAt @map("updated_at")
+
+  @@map("usuarios")
+}
+
+model Suscripcion {
+  id                     String                          @id
+  clienteId              String                          @map("cliente_id")
+  cantidadMaximaUsuarios Int                             @map("cantidad_maxima_usuarios")
+  estado                 EstadoSuscripcionPrisma
+  fechaInicio            DateTime                        @map("fecha_inicio")
+  fechaFin               DateTime                        @map("fecha_fin")
+  createdAt              DateTime                        @default(now()) @map("created_at")
+  updatedAt              DateTime                        @updatedAt @map("updated_at")
+  correosHabilitados     SuscripcionCorreoHabilitado[]
+
+  @@map("suscripciones")
+}
+
+model SuscripcionCorreoHabilitado {
+  id                String       @id
+  suscripcionId     String       @map("suscripcion_id")
+  correoNormalizado String       @unique @map("correo_normalizado")
+  createdAt         DateTime     @default(now()) @map("created_at")
+  suscripcion       Suscripcion  @relation(fields: [suscripcionId], references: [id], onDelete: Cascade)
+
+  @@index([suscripcionId])
+  @@map("suscripcion_correos_habilitados")
+}
+
+model Norma {
+  id                         String                       @id
+  numero                     String?
+  titulo                     String
+  contenido                  String
+  tipoNorma                  String                       @map("tipo_norma")
+  institucionExpide          String                       @map("institucion_expide")
+  fuente                     String
+  estadoJuridico             EstadoNormaPrisma            @map("estado_juridico")
+  estadoEditorial            EstadoEditorialNormaPrisma   @map("estado_editorial")
+  fechaExpedicion            DateTime                     @map("fecha_expedicion")
+  fechaPublicacionOficial    DateTime                     @map("fecha_publicacion_oficial")
+  fechaPublicacionEnSistema  DateTime?                    @map("fecha_publicacion_en_sistema")
+  createdAt                  DateTime                     @default(now()) @map("created_at")
+  updatedAt                  DateTime                     @updatedAt @map("updated_at")
+
+  @@map("normas")
+}
+
+model EventoNormaPublicada {
+  id                         String    @id
+  normaId                    String    @map("norma_id")
+  fechaPublicacionEnSistema  DateTime  @map("fecha_publicacion_en_sistema")
+  tieneContenidoCompleto     Boolean   @map("tiene_contenido_completo")
+  createdAt                  DateTime  @default(now()) @map("created_at")
+
+  @@index([normaId])
+  @@map("eventos_normas_publicadas")
+}
