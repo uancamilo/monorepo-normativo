@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: normativo
+          POSTGRES_PASSWORD: normativo
+          POSTGRES_DB: normativo_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U normativo -d normativo_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      # Los mapeadores importan tipos de @prisma/client: generar antes de typecheck.
+      - name: Generar Prisma Client
+        run: npm run prisma:generate --workspace=@normativo/infraestructura
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Tests unitarios y e2e en memoria
+        run: npm test
+
+      - name: Tests Prisma contra PostgreSQL
+        run: npm run test:prisma --workspace=@normativo/infraestructura
+        env:
+          TEST_DATABASE_URL: postgresql://normativo:normativo@localhost:5432/normativo_test?schema=public

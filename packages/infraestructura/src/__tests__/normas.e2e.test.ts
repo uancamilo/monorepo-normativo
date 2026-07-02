@@ -9,7 +9,10 @@ import {
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
-import { AppModule } from '../app.module';
+// Se monta NormasModule (memoria) directamente en vez de AppModule para que
+// este e2e no dependa de la variable PERSISTENCIA del entorno; el selector de
+// módulo tiene su propio test (seleccionar-modulo-normas.test.ts).
+import { NormasModule } from '../normas/normas.module';
 import { TOKEN_PUBLICADOR_EVENTOS } from '../normas/tokens';
 import { PublicadorEventosNormasEnMemoria } from '../memoria/PublicadorEventosNormasEnMemoria';
 
@@ -38,7 +41,7 @@ describe('Normas (e2e)', () => {
 
   beforeEach(async () => {
     const moduleRef = await Test.createTestingModule({
-      imports: [AppModule],
+      imports: [NormasModule],
     }).compile();
 
     app = moduleRef.createNestApplication();

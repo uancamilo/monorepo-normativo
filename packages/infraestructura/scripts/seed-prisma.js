@@ -20,8 +20,13 @@
  *   await sembrar(prisma);
  */
 
-const HOSTS_LOCALES_PERMITIDOS = new Set(['localhost', '127.0.0.1', '::1']);
+const {
+  validarTestDatabaseUrl,
+  validarUrlPostgres,
+} = require('./validar-url-base-datos');
 
+// Copia consciente de normalizarCorreo del dominio: este script es CJS
+// standalone y no carga el paquete TypeScript de dominio.
 const normalizarCorreo = (correo) => correo.trim().toLowerCase();
 
 const USUARIOS_SEMILLA = [
@@ -158,51 +163,6 @@ function obtenerUrlSeedDesdeEntorno(entorno = process.env) {
   throw new Error(
     'Define TEST_DATABASE_URL o DATABASE_URL con PERMITIR_SEED_DESARROLLO=true para ejecutar el seed de Prisma',
   );
-}
-
-function validarTestDatabaseUrl(valor, entorno = process.env) {
-  const url = parsearUrlPostgres(valor, 'TEST_DATABASE_URL');
-  const permiteNoLocal =
-    entorno.PERMITIR_TEST_DATABASE_URL_NO_LOCAL === 'true';
-  const nombreBaseDatos = obtenerNombreBaseDatos(url);
-
-  if (nombreBaseDatos !== 'normativo_test') {
-    throw new Error(
-      'TEST_DATABASE_URL debe apuntar siempre a la base normativo_test para ejecutar el seed de test',
-    );
-  }
-
-  if (!permiteNoLocal && !HOSTS_LOCALES_PERMITIDOS.has(url.hostname)) {
-    throw new Error(
-      'TEST_DATABASE_URL debe usar host localhost, 127.0.0.1 o ::1 para ejecutar el seed de test',
-    );
-  }
-
-  return valor;
-}
-
-function validarUrlPostgres(valor, nombreVariable) {
-  parsearUrlPostgres(valor, nombreVariable);
-  return valor;
-}
-
-function parsearUrlPostgres(valor, nombreVariable) {
-  let url;
-  try {
-    url = new URL(valor);
-  } catch {
-    throw new Error(`${nombreVariable} debe ser una URL válida`);
-  }
-
-  if (url.protocol !== 'postgresql:' && url.protocol !== 'postgres:') {
-    throw new Error(`${nombreVariable} debe usar protocolo postgresql`);
-  }
-
-  return url;
-}
-
-function obtenerNombreBaseDatos(url) {
-  return decodeURIComponent(url.pathname.replace(/^\/+/, ''));
 }
 
 module.exports = {

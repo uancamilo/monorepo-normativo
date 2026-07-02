@@ -58,6 +58,10 @@ Si en el futuro se usan migraciones versionadas en despliegue:
 DATABASE_URL="..." npm run prisma:migrate:deploy --workspace=@normativo/infraestructura
 ```
 
+> La CLI `prisma` es una devDependency (el runtime solo usa `@prisma/client`).
+> Un pipeline de despliegue que ejecute `prisma migrate deploy` debe instalar
+> devDependencies en esa etapa o usar `npx prisma`.
+
 ## 4. Ejecutar el seed
 
 El seed es **idempotente** (puede correrse varias veces sin duplicar) y solo

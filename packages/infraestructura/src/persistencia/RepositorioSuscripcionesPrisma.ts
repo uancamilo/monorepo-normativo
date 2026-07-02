@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Suscripcion } from '@normativo/dominio';
+import { normalizarCorreo, Suscripcion } from '@normativo/dominio';
 import { RepositorioSuscripciones } from '@normativo/aplicacion';
 import { PrismaService } from '../prisma/prisma.service';
 import { mapearSuscripcionDesdePrisma } from './mapeadores/mapearSuscripcion';
@@ -31,8 +31,4 @@ export class RepositorioSuscripcionesPrisma
 
     return mapearSuscripcionDesdePrisma(correoHabilitado.suscripcion);
   }
-}
-
-function normalizarCorreo(correo: string): string {
-  return correo.trim().toLowerCase();
 }

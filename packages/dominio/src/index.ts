@@ -1,3 +1,5 @@
+export { normalizarCorreo } from './compartido/validaciones/texto';
+
 export { RolUsuario } from './usuarios/enums/RolUsuario';
 export { EstadoSuscripcion } from './suscripciones/enums/EstadoSuscripcion';
 export { EstadoNorma } from './normas/enums/EstadoNorma';
