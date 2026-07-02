@@ -13,18 +13,13 @@ import { RepositorioNormasPrisma } from '../RepositorioNormasPrisma';
 import { RepositorioSuscripcionesPrisma } from '../RepositorioSuscripcionesPrisma';
 import { GeneradorIdsUuid } from '../GeneradorIdsUuid';
 import { PublicadorEventosNormasPrisma } from '../PublicadorEventosNormasPrisma';
+import { UnidadDeTrabajoPublicacionNormaPrisma } from '../UnidadDeTrabajoPublicacionNormaPrisma';
+import { obtenerTestDatabaseUrlDesdeEntorno } from '../../prisma/validar-url-base-datos-test';
 
-const testDatabaseUrl = process.env.TEST_DATABASE_URL;
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { aplicarChecksPrisma } = require('../../../scripts/aplicar-checks-prisma');
 
-if (
-  testDatabaseUrl !== undefined &&
-  !testDatabaseUrl.toLowerCase().includes('test')
-) {
-  throw new Error(
-    'TEST_DATABASE_URL debe apuntar a una base de datos de test; el valor debe incluir "test"',
-  );
-}
-
+const testDatabaseUrl = obtenerTestDatabaseUrlDesdeEntorno();
 const describirPrisma = testDatabaseUrl ? describe : describe.skip;
 
 // GeneradorIdsUuid no depende de PostgreSQL: se prueba siempre, aunque no haya
@@ -80,6 +75,7 @@ describirPrisma(
 
       prisma = new PrismaService();
       await prisma.$connect();
+      await aplicarChecksPrisma(prisma);
     });
 
     beforeEach(async () => {
@@ -206,6 +202,36 @@ describirPrisma(
       ).rejects.toMatchObject({ code: 'P2002' });
     });
 
+    it('PostgreSQL rechaza cantidadMaximaUsuarios menor o igual a cero', async () => {
+      await expect(
+        prisma.suscripcion.create({
+          data: {
+            id: 'suscripcion-invalida-cupo',
+            clienteId: 'cliente-invalido',
+            cantidadMaximaUsuarios: 0,
+            estado: 'ACTIVA',
+            fechaInicio: new Date('2025-01-01T00:00:00.000Z'),
+            fechaFin: new Date('2026-01-01T00:00:00.000Z'),
+          },
+        }),
+      ).rejects.toThrow();
+    });
+
+    it('PostgreSQL rechaza fechaFin igual o anterior a fechaInicio', async () => {
+      await expect(
+        prisma.suscripcion.create({
+          data: {
+            id: 'suscripcion-invalida-fechas',
+            clienteId: 'cliente-invalido',
+            cantidadMaximaUsuarios: 1,
+            estado: 'ACTIVA',
+            fechaInicio: new Date('2025-01-01T00:00:00.000Z'),
+            fechaFin: new Date('2025-01-01T00:00:00.000Z'),
+          },
+        }),
+      ).rejects.toThrow();
+    });
+
     it('PublicadorEventosNormasPrisma persiste evento sin llamar servicios externos', async () => {
       const publicador = new PublicadorEventosNormasPrisma(prisma);
       const fechaPublicacionEnSistema = new Date('2025-06-01T00:00:00.000Z');
@@ -223,6 +249,105 @@ describirPrisma(
         fechaPublicacionEnSistema,
       );
       expect(eventos[0].tieneContenidoCompleto).toBe(true);
+    });
+
+    it('UnidadDeTrabajoPublicacionNormaPrisma guarda norma PUBLICADA y evento en una transacción', async () => {
+      const repositorio = new RepositorioNormasPrisma(prisma);
+      const unidadDeTrabajo = new UnidadDeTrabajoPublicacionNormaPrisma(
+        prisma,
+        () => 'evento-publicacion-1',
+      );
+      const fechaPublicacionEnSistema = new Date('2025-06-01T00:00:00.000Z');
+      const norma = new Norma({
+        id: 'norma-transaccional-1',
+        numero: null,
+        titulo: 'Norma transaccional',
+        contenido: 'Texto completo',
+        tipoNorma: 'Ley',
+        institucionExpide: 'Asamblea Nacional',
+        fuente: 'https://www.registroficial.gob.ec/norma-transaccional.pdf',
+        estadoJuridico: EstadoNorma.VIGENTE,
+        estadoEditorial: EstadoEditorialNorma.BORRADOR,
+        fechaExpedicion: new Date('2025-01-01T00:00:00.000Z'),
+        fechaPublicacionOficial: new Date('2025-01-02T00:00:00.000Z'),
+        fechaPublicacionEnSistema: null,
+      });
+
+      await repositorio.guardar(norma);
+      await unidadDeTrabajo.guardarNormaPublicadaConEvento(
+        norma.publicar(fechaPublicacionEnSistema),
+        {
+          normaId: norma.id,
+          fechaPublicacionEnSistema,
+          tieneContenidoCompleto: true,
+        },
+      );
+
+      const normaPersistida = await repositorio.buscarPorId(norma.id);
+      const eventos = await prisma.eventoNormaPublicada.findMany({
+        where: { normaId: norma.id },
+      });
+
+      expect(normaPersistida?.estadoEditorial).toBe(
+        EstadoEditorialNorma.PUBLICADA,
+      );
+      expect(eventos).toHaveLength(1);
+      expect(eventos[0].id).toBe('evento-publicacion-1');
+    });
+
+    it('UnidadDeTrabajoPublicacionNormaPrisma revierte la norma si falla la persistencia del evento', async () => {
+      const repositorio = new RepositorioNormasPrisma(prisma);
+      const unidadDeTrabajo = new UnidadDeTrabajoPublicacionNormaPrisma(
+        prisma,
+        () => 'evento-duplicado',
+      );
+      const fechaPublicacionEnSistema = new Date('2025-06-01T00:00:00.000Z');
+      const norma = new Norma({
+        id: 'norma-rollback-evento',
+        numero: null,
+        titulo: 'Norma rollback',
+        contenido: 'Texto completo',
+        tipoNorma: 'Ley',
+        institucionExpide: 'Asamblea Nacional',
+        fuente: 'https://www.registroficial.gob.ec/norma-rollback.pdf',
+        estadoJuridico: EstadoNorma.VIGENTE,
+        estadoEditorial: EstadoEditorialNorma.BORRADOR,
+        fechaExpedicion: new Date('2025-01-01T00:00:00.000Z'),
+        fechaPublicacionOficial: new Date('2025-01-02T00:00:00.000Z'),
+        fechaPublicacionEnSistema: null,
+      });
+
+      await repositorio.guardar(norma);
+      await prisma.eventoNormaPublicada.create({
+        data: {
+          id: 'evento-duplicado',
+          normaId: 'otra-norma',
+          fechaPublicacionEnSistema,
+          tieneContenidoCompleto: false,
+        },
+      });
+
+      await expect(
+        unidadDeTrabajo.guardarNormaPublicadaConEvento(
+          norma.publicar(fechaPublicacionEnSistema),
+          {
+            normaId: norma.id,
+            fechaPublicacionEnSistema,
+            tieneContenidoCompleto: true,
+          },
+        ),
+      ).rejects.toMatchObject({ code: 'P2002' });
+
+      const normaPersistida = await repositorio.buscarPorId(norma.id);
+      const eventosDeNorma = await prisma.eventoNormaPublicada.findMany({
+        where: { normaId: norma.id },
+      });
+
+      expect(normaPersistida?.estadoEditorial).toBe(
+        EstadoEditorialNorma.BORRADOR,
+      );
+      expect(normaPersistida?.fechaPublicacionEnSistema).toBeNull();
+      expect(eventosDeNorma).toHaveLength(0);
     });
 
     async function crearSuscripcion(opciones: {

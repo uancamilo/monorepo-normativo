@@ -13,6 +13,7 @@ import {
   EventoNormaPublicada,
   PublicadorEventosNormas,
 } from '../../puertos/PublicadorEventosNormas';
+import { UnidadDeTrabajoPublicacionNorma } from '../../puertos/UnidadDeTrabajoPublicacionNorma';
 
 class RepositorioUsuariosEnMemoria implements RepositorioUsuarios {
   private readonly usuariosPorId = new Map<string, Usuario>();
@@ -52,12 +53,40 @@ class PublicadorEventosEnMemoria implements PublicadorEventosNormas {
   }
 }
 
-class PublicadorEventosFallido implements PublicadorEventosNormas {
-  eventos: EventoNormaPublicada[] = [];
-  readonly error = new Error('Fallo al publicar evento de norma publicada');
+class UnidadDeTrabajoPublicacionNormaEnMemoria
+  implements UnidadDeTrabajoPublicacionNorma
+{
+  constructor(
+    private readonly repositorioNormas: RepositorioNormasEnMemoria,
+    private readonly publicadorEventosNormas: PublicadorEventosNormas,
+  ) {}
 
-  async publicarNormaPublicada(evento: EventoNormaPublicada): Promise<void> {
-    this.eventos.push(evento);
+  async guardarNormaPublicadaConEvento(
+    normaPublicada: Norma,
+    evento: EventoNormaPublicada,
+  ): Promise<void> {
+    await this.repositorioNormas.guardar(normaPublicada);
+    await this.publicadorEventosNormas.publicarNormaPublicada(evento);
+  }
+}
+
+class UnidadDeTrabajoPublicacionFallida
+  implements UnidadDeTrabajoPublicacionNorma
+{
+  intentos: Array<{
+    normaPublicada: Norma;
+    evento: EventoNormaPublicada;
+  }> = [];
+
+  readonly error = new Error(
+    'Fallo transaccional al guardar norma publicada con evento',
+  );
+
+  async guardarNormaPublicadaConEvento(
+    normaPublicada: Norma,
+    evento: EventoNormaPublicada,
+  ): Promise<void> {
+    this.intentos.push({ normaPublicada, evento });
     throw this.error;
   }
 }
@@ -111,18 +140,30 @@ interface ContextoCasoUso {
   repositorioUsuarios: RepositorioUsuariosEnMemoria;
   repositorioNormas: RepositorioNormasEnMemoria;
   publicador: PublicadorEventosEnMemoria;
+  unidadDeTrabajoPublicacionNorma: UnidadDeTrabajoPublicacionNormaEnMemoria;
 }
 
 function crearContexto(): ContextoCasoUso {
   const repositorioUsuarios = new RepositorioUsuariosEnMemoria();
   const repositorioNormas = new RepositorioNormasEnMemoria();
   const publicador = new PublicadorEventosEnMemoria();
+  const unidadDeTrabajoPublicacionNorma =
+    new UnidadDeTrabajoPublicacionNormaEnMemoria(
+      repositorioNormas,
+      publicador,
+    );
   const casoUso = new PublicarNorma({
     repositorioUsuarios,
     repositorioNormas,
-    publicadorEventosNormas: publicador,
+    unidadDeTrabajoPublicacionNorma,
   });
-  return { casoUso, repositorioUsuarios, repositorioNormas, publicador };
+  return {
+    casoUso,
+    repositorioUsuarios,
+    repositorioNormas,
+    publicador,
+    unidadDeTrabajoPublicacionNorma,
+  };
 }
 
 const fechaPublicacion = new Date('2025-06-01');
@@ -368,14 +409,15 @@ describe('PublicarNorma', () => {
     expect(contexto.publicador.eventos[0].tieneContenidoCompleto).toBe(false);
   });
 
-  it('propaga el error si falla la emisión del evento después de guardar la norma publicada', async () => {
+  it('propaga el error si falla la unidad transaccional y no deja la norma publicada ni evento', async () => {
     const repositorioUsuarios = new RepositorioUsuariosEnMemoria();
     const repositorioNormas = new RepositorioNormasEnMemoria();
-    const publicador = new PublicadorEventosFallido();
+    const unidadDeTrabajoPublicacionNorma =
+      new UnidadDeTrabajoPublicacionFallida();
     const casoUso = new PublicarNorma({
       repositorioUsuarios,
       repositorioNormas,
-      publicadorEventosNormas: publicador,
+      unidadDeTrabajoPublicacionNorma,
     });
     const usuario = crearUsuario();
     const norma = crearNorma({ contenido: 'Texto completo' });
@@ -388,20 +430,15 @@ describe('PublicarNorma', () => {
         normaId: norma.id,
         fechaPublicacionEnSistema: fechaPublicacion,
       }),
-    ).rejects.toBe(publicador.error);
+    ).rejects.toBe(unidadDeTrabajoPublicacionNorma.error);
 
-    expect(repositorioNormas.guardadas).toHaveLength(1);
-    expect(repositorioNormas.guardadas[0].estadoEditorial).toBe(
-      EstadoEditorialNorma.PUBLICADA,
-    );
+    expect(repositorioNormas.guardadas).toHaveLength(0);
     const normaPersistida = await repositorioNormas.buscarPorId(norma.id);
     expect(normaPersistida?.estadoEditorial).toBe(
-      EstadoEditorialNorma.PUBLICADA,
+      EstadoEditorialNorma.BORRADOR,
     );
-    // No se simula rollback: este comportamiento actual expone la necesidad
-    // de outbox transaccional cuando exista infraestructura real.
-    expect(publicador.eventos).toHaveLength(1);
-    expect(publicador.eventos[0]).toEqual({
+    expect(unidadDeTrabajoPublicacionNorma.intentos).toHaveLength(1);
+    expect(unidadDeTrabajoPublicacionNorma.intentos[0].evento).toEqual({
       normaId: norma.id,
       fechaPublicacionEnSistema: fechaPublicacion,
       tieneContenidoCompleto: true,

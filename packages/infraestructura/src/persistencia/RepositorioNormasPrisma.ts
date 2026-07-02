@@ -1,12 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import {
-  EstadoEditorialNormaPrisma,
-  EstadoNormaPrisma,
-} from '@prisma/client';
 import { Norma } from '@normativo/dominio';
 import { RepositorioNormas } from '@normativo/aplicacion';
 import { PrismaService } from '../prisma/prisma.service';
-import { mapearNormaDesdePrisma } from './mapeadores/mapearNorma';
+import {
+  mapearNormaADataPrisma,
+  mapearNormaDesdePrisma,
+} from './mapeadores/mapearNorma';
 
 @Injectable()
 export class RepositorioNormasPrisma implements RepositorioNormas {
@@ -23,25 +22,8 @@ export class RepositorioNormasPrisma implements RepositorioNormas {
   async guardar(norma: Norma): Promise<void> {
     await this.prisma.norma.upsert({
       where: { id: norma.id },
-      create: datosPersistencia(norma),
-      update: datosPersistencia(norma),
+      create: mapearNormaADataPrisma(norma),
+      update: mapearNormaADataPrisma(norma),
     });
   }
-}
-
-function datosPersistencia(norma: Norma) {
-  return {
-    id: norma.id,
-    numero: norma.numero,
-    titulo: norma.titulo,
-    contenido: norma.contenido,
-    tipoNorma: norma.tipoNorma,
-    institucionExpide: norma.institucionExpide,
-    fuente: norma.fuente,
-    estadoJuridico: norma.estadoJuridico as EstadoNormaPrisma,
-    estadoEditorial: norma.estadoEditorial as EstadoEditorialNormaPrisma,
-    fechaExpedicion: norma.fechaExpedicion,
-    fechaPublicacionOficial: norma.fechaPublicacionOficial,
-    fechaPublicacionEnSistema: norma.fechaPublicacionEnSistema,
-  };
 }

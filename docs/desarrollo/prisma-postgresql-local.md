@@ -34,7 +34,8 @@ npm run prisma:generate --workspace=@normativo/infraestructura
 ## 3. Aplicar el schema
 
 Contra la base de test se usa `TEST_DATABASE_URL` (tiene prioridad sobre
-`DATABASE_URL`):
+`DATABASE_URL`). El script aplica el schema con Prisma y luego agrega de forma
+idempotente los constraints `CHECK` que Prisma no representa en `schema.prisma`:
 
 ```bash
 TEST_DATABASE_URL="postgresql://normativo:normativo@localhost:5433/normativo_test?schema=public" \
@@ -61,6 +62,17 @@ inserta datos de prueba (`@test.com`). **No** borra normas existentes.
 
 ```bash
 TEST_DATABASE_URL="postgresql://normativo:normativo@localhost:5433/normativo_test?schema=public" \
+  npm run prisma:seed --workspace=@normativo/infraestructura
+```
+
+Para evitar ejecutar el seed contra una base equivocada:
+
+- `TEST_DATABASE_URL` debe apuntar por defecto a la base `normativo_test` en
+  `localhost`, `127.0.0.1` o `::1`.
+- `DATABASE_URL` solo se permite con confirmación explícita:
+
+```bash
+PERMITIR_SEED_DESARROLLO=true DATABASE_URL="postgresql://normativo:normativo@localhost:5432/normativo?schema=public" \
   npm run prisma:seed --workspace=@normativo/infraestructura
 ```
 
@@ -120,8 +132,10 @@ TEST_DATABASE_URL="postgresql://normativo:normativo@localhost:5433/normativo_tes
 - E2E HTTP Prisma: `src/__tests__/normas-prisma.e2e.test.ts` (usa
   `@nestjs/testing` + `supertest`; no requiere un servidor externo).
 
-Si `TEST_DATABASE_URL` está definido pero no contiene la palabra `test`, los
-tests fallan a propósito para no escribir en una base equivocada.
+Si `TEST_DATABASE_URL` está definido pero no apunta a `normativo_test` en un host
+local permitido, los tests fallan a propósito para no escribir en una base
+equivocada. Para escenarios excepcionales puede usarse
+`PERMITIR_TEST_DATABASE_URL_NO_LOCAL=true`, pero no debe ser el flujo normal.
 
 ## Fuera de alcance (por ahora)
 

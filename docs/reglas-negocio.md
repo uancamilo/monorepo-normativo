@@ -229,10 +229,10 @@ Reglas jurídicas confirmadas:
 - Publicar asigna `fechaPublicacionEnSistema`. Si la solicitud no la entrega, el caso de uso usa la fecha actual.
 - Publicar cambia únicamente el estado editorial a `PUBLICADA`; no cambia el estado jurídico.
 - La publicación es idempotente respecto a normas ya publicadas: una norma ya `PUBLICADA` retorna `NORMA_YA_PUBLICADA`.
-- Al publicar, el caso de uso guarda la norma con `RepositorioNormas.guardar` y luego dispara un evento mediante el puerto de aplicación `PublicadorEventosNormas.publicarNormaPublicada`.
+- Al publicar, el caso de uso delega en el puerto de aplicación `UnidadDeTrabajoPublicacionNorma` la persistencia de la norma `PUBLICADA` y el registro del evento de publicación.
 - Ese evento representa la señal automática de que una norma fue publicada y habilita la sincronización futura del índice público (Algolia). En este hito solo existe el puerto/evento de aplicación; no se implementa Algolia real, SDK ni adaptador.
-- En la implementación actual de aplicación pura, si `RepositorioNormas.guardar` funciona pero `PublicadorEventosNormas.publicarNormaPublicada` falla después, el error se propaga al caller y la norma ya puede haber quedado guardada como `PUBLICADA`.
-- Ese comportamiento actual no simula rollback ni oculta el error con un `try/catch` best-effort silencioso. Se conserva explícitamente para exponer el riesgo de consistencia antes de integrar infraestructura real.
+- En infraestructura Prisma/PostgreSQL, la publicación usa una transacción para que la norma `PUBLICADA` y el evento se guarden de forma atómica.
+- Si falla el guardado de la norma o el registro del evento dentro de esa transacción, no debe quedar una norma `PUBLICADA` sin evento ni un evento sin norma publicada.
 - En infraestructura real, la sincronización con Algolia no debe depender de una llamada directa a Algolia después de guardar la norma.
 - La solución aprobada para producción será un patrón outbox transaccional: guardar la norma `PUBLICADA` y registrar el evento pendiente en una outbox dentro de la misma transacción.
 - La entrega posterior a Algolia, cola u otro consumidor debe ser asíncrona, reintentable, observable y ejecutada por infraestructura/adaptadores.

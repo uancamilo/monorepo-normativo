@@ -1,7 +1,7 @@
 import { EstadoEditorialNorma } from '@normativo/dominio';
 import { RepositorioNormas } from '../puertos/RepositorioNormas';
 import { RepositorioUsuarios } from '../puertos/RepositorioUsuarios';
-import { PublicadorEventosNormas } from '../puertos/PublicadorEventosNormas';
+import { UnidadDeTrabajoPublicacionNorma } from '../puertos/UnidadDeTrabajoPublicacionNorma';
 import { PoliticaGestionEditorialNorma } from '../politicas/PoliticaGestionEditorialNorma';
 
 export type SolicitudPublicarNorma = {
@@ -35,20 +35,21 @@ export type ResultadoPublicarNorma =
 export interface DependenciasPublicarNorma {
   repositorioUsuarios: RepositorioUsuarios;
   repositorioNormas: RepositorioNormas;
-  publicadorEventosNormas: PublicadorEventosNormas;
+  unidadDeTrabajoPublicacionNorma: UnidadDeTrabajoPublicacionNorma;
   politicaGestionEditorial?: PoliticaGestionEditorialNorma;
 }
 
 export class PublicarNorma {
   private readonly repositorioUsuarios: RepositorioUsuarios;
   private readonly repositorioNormas: RepositorioNormas;
-  private readonly publicadorEventosNormas: PublicadorEventosNormas;
+  private readonly unidadDeTrabajoPublicacionNorma: UnidadDeTrabajoPublicacionNorma;
   private readonly politicaGestionEditorial: PoliticaGestionEditorialNorma;
 
   constructor(dependencias: DependenciasPublicarNorma) {
     this.repositorioUsuarios = dependencias.repositorioUsuarios;
     this.repositorioNormas = dependencias.repositorioNormas;
-    this.publicadorEventosNormas = dependencias.publicadorEventosNormas;
+    this.unidadDeTrabajoPublicacionNorma =
+      dependencias.unidadDeTrabajoPublicacionNorma;
     this.politicaGestionEditorial =
       dependencias.politicaGestionEditorial ??
       new PoliticaGestionEditorialNorma();
@@ -95,15 +96,16 @@ export class PublicarNorma {
       solicitud.fechaPublicacionEnSistema ?? new Date();
     const normaPublicada = norma.publicar(fechaPublicacionEnSistema);
 
-    await this.repositorioNormas.guardar(normaPublicada);
-
     const tieneContenidoCompleto = normaPublicada.contenido.trim().length > 0;
 
-    await this.publicadorEventosNormas.publicarNormaPublicada({
-      normaId: normaPublicada.id,
-      fechaPublicacionEnSistema,
-      tieneContenidoCompleto,
-    });
+    await this.unidadDeTrabajoPublicacionNorma.guardarNormaPublicadaConEvento(
+      normaPublicada,
+      {
+        normaId: normaPublicada.id,
+        fechaPublicacionEnSistema,
+        tieneContenidoCompleto,
+      },
+    );
 
     return {
       exitoso: true,

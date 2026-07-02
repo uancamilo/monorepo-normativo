@@ -6,6 +6,7 @@ export type {
   PublicadorEventosNormas,
 } from './normas/puertos/PublicadorEventosNormas';
 export type { GeneradorIds } from './normas/puertos/GeneradorIds';
+export type { UnidadDeTrabajoPublicacionNorma } from './normas/puertos/UnidadDeTrabajoPublicacionNorma';
 
 export { PoliticaGestionEditorialNorma } from './normas/politicas/PoliticaGestionEditorialNorma';
 

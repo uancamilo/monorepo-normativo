@@ -5,26 +5,18 @@ import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { PrismaService } from '../prisma/prisma.service';
+import { obtenerTestDatabaseUrlDesdeEntorno } from '../prisma/validar-url-base-datos-test';
 
 // Seed compartido con el script `prisma:seed` (única fuente de verdad).
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { sembrar } = require('../../scripts/seed-prisma');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { aplicarChecksPrisma } = require('../../scripts/aplicar-checks-prisma');
 
 const USUARIO_EDITOR = 'usuario-editor-1';
 const USUARIO_SUSCRIPTOR = 'usuario-suscriptor-1';
 
-const testDatabaseUrl = process.env.TEST_DATABASE_URL;
-
-// No permitir jamás correr contra una base que no sea de test.
-if (
-  testDatabaseUrl !== undefined &&
-  !testDatabaseUrl.toLowerCase().includes('test')
-) {
-  throw new Error(
-    'TEST_DATABASE_URL debe apuntar a una base de datos de test; el valor debe incluir "test"',
-  );
-}
-
+const testDatabaseUrl = obtenerTestDatabaseUrlDesdeEntorno();
 const describirPrisma = testDatabaseUrl ? describe : describe.skip;
 
 function restaurarVariableEntorno(nombre: string, valorPrevio: string | undefined) {
@@ -86,6 +78,7 @@ describirPrisma(
 
       prisma = new PrismaService();
       await prisma.$connect();
+      await aplicarChecksPrisma(prisma);
       await sembrar(prisma);
 
       // AppModule se carga tras fijar PERSISTENCIA=prisma para que use el módulo Prisma.

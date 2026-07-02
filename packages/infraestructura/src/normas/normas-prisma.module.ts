@@ -2,27 +2,28 @@ import { Module } from '@nestjs/common';
 import {
   ConsultarContenidoNorma,
   GeneradorIds,
-  PublicadorEventosNormas,
   PublicarNorma,
   RegistrarNorma,
   RepositorioNormas,
   RepositorioSuscripciones,
   RepositorioUsuarios,
+  UnidadDeTrabajoPublicacionNorma,
 } from '@normativo/aplicacion';
 import { NormasController } from './normas.controller';
 import { PrismaModule } from '../prisma/prisma.module';
+import { PrismaService } from '../prisma/prisma.service';
 import { RepositorioUsuariosPrisma } from '../persistencia/RepositorioUsuariosPrisma';
 import { RepositorioNormasPrisma } from '../persistencia/RepositorioNormasPrisma';
 import { RepositorioSuscripcionesPrisma } from '../persistencia/RepositorioSuscripcionesPrisma';
 import { GeneradorIdsUuid } from '../persistencia/GeneradorIdsUuid';
-import { PublicadorEventosNormasPrisma } from '../persistencia/PublicadorEventosNormasPrisma';
+import { UnidadDeTrabajoPublicacionNormaPrisma } from '../persistencia/UnidadDeTrabajoPublicacionNormaPrisma';
 import {
   TOKEN_GENERADOR_IDS,
-  TOKEN_PUBLICADOR_EVENTOS,
   TOKEN_REPOSITORIO_NORMAS,
   TOKEN_REPOSITORIO_SUSCRIPCIONES,
   TOKEN_REPOSITORIO_USUARIOS,
-} from './normas.module';
+  TOKEN_UNIDAD_TRABAJO_PUBLICACION_NORMA,
+} from './tokens';
 
 @Module({
   imports: [PrismaModule],
@@ -36,7 +37,12 @@ import {
       useClass: RepositorioSuscripcionesPrisma,
     },
     { provide: TOKEN_GENERADOR_IDS, useClass: GeneradorIdsUuid },
-    { provide: TOKEN_PUBLICADOR_EVENTOS, useClass: PublicadorEventosNormasPrisma },
+    {
+      provide: TOKEN_UNIDAD_TRABAJO_PUBLICACION_NORMA,
+      useFactory: (prisma: PrismaService) =>
+        new UnidadDeTrabajoPublicacionNormaPrisma(prisma),
+      inject: [PrismaService],
+    },
 
     // Casos de uso de aplicación, compuestos sobre los puertos.
     {
@@ -62,17 +68,17 @@ import {
       useFactory: (
         repositorioUsuarios: RepositorioUsuarios,
         repositorioNormas: RepositorioNormas,
-        publicadorEventosNormas: PublicadorEventosNormas,
+        unidadDeTrabajoPublicacionNorma: UnidadDeTrabajoPublicacionNorma,
       ) =>
         new PublicarNorma({
           repositorioUsuarios,
           repositorioNormas,
-          publicadorEventosNormas,
+          unidadDeTrabajoPublicacionNorma,
         }),
       inject: [
         TOKEN_REPOSITORIO_USUARIOS,
         TOKEN_REPOSITORIO_NORMAS,
-        TOKEN_PUBLICADOR_EVENTOS,
+        TOKEN_UNIDAD_TRABAJO_PUBLICACION_NORMA,
       ],
     },
     {

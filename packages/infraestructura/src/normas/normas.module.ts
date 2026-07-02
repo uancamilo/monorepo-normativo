@@ -8,6 +8,7 @@ import {
   RepositorioNormas,
   RepositorioSuscripciones,
   RepositorioUsuarios,
+  UnidadDeTrabajoPublicacionNorma,
 } from '@normativo/aplicacion';
 import { NormasController } from './normas.controller';
 import { RepositorioUsuariosEnMemoria } from '../memoria/RepositorioUsuariosEnMemoria';
@@ -15,13 +16,15 @@ import { RepositorioNormasEnMemoria } from '../memoria/RepositorioNormasEnMemori
 import { RepositorioSuscripcionesEnMemoria } from '../memoria/RepositorioSuscripcionesEnMemoria';
 import { GeneradorIdsSecuencial } from '../memoria/GeneradorIdsSecuencial';
 import { PublicadorEventosNormasEnMemoria } from '../memoria/PublicadorEventosNormasEnMemoria';
-
-// Tokens de inyección de los puertos de aplicación.
-export const TOKEN_REPOSITORIO_USUARIOS = 'RepositorioUsuarios';
-export const TOKEN_REPOSITORIO_NORMAS = 'RepositorioNormas';
-export const TOKEN_REPOSITORIO_SUSCRIPCIONES = 'RepositorioSuscripciones';
-export const TOKEN_GENERADOR_IDS = 'GeneradorIds';
-export const TOKEN_PUBLICADOR_EVENTOS = 'PublicadorEventosNormas';
+import { UnidadDeTrabajoPublicacionNormaEnMemoria } from '../memoria/UnidadDeTrabajoPublicacionNormaEnMemoria';
+import {
+  TOKEN_GENERADOR_IDS,
+  TOKEN_PUBLICADOR_EVENTOS,
+  TOKEN_REPOSITORIO_NORMAS,
+  TOKEN_REPOSITORIO_SUSCRIPCIONES,
+  TOKEN_REPOSITORIO_USUARIOS,
+  TOKEN_UNIDAD_TRABAJO_PUBLICACION_NORMA,
+} from './tokens';
 
 @Module({
   controllers: [NormasController],
@@ -35,6 +38,18 @@ export const TOKEN_PUBLICADOR_EVENTOS = 'PublicadorEventosNormas';
     },
     { provide: TOKEN_GENERADOR_IDS, useClass: GeneradorIdsSecuencial },
     { provide: TOKEN_PUBLICADOR_EVENTOS, useClass: PublicadorEventosNormasEnMemoria },
+    {
+      provide: TOKEN_UNIDAD_TRABAJO_PUBLICACION_NORMA,
+      useFactory: (
+        repositorioNormas: RepositorioNormas,
+        publicadorEventosNormas: PublicadorEventosNormas,
+      ) =>
+        new UnidadDeTrabajoPublicacionNormaEnMemoria(
+          repositorioNormas,
+          publicadorEventosNormas,
+        ),
+      inject: [TOKEN_REPOSITORIO_NORMAS, TOKEN_PUBLICADOR_EVENTOS],
+    },
 
     // Casos de uso de aplicación, compuestos sobre los puertos.
     {
@@ -60,17 +75,17 @@ export const TOKEN_PUBLICADOR_EVENTOS = 'PublicadorEventosNormas';
       useFactory: (
         repositorioUsuarios: RepositorioUsuarios,
         repositorioNormas: RepositorioNormas,
-        publicadorEventosNormas: PublicadorEventosNormas,
+        unidadDeTrabajoPublicacionNorma: UnidadDeTrabajoPublicacionNorma,
       ) =>
         new PublicarNorma({
           repositorioUsuarios,
           repositorioNormas,
-          publicadorEventosNormas,
+          unidadDeTrabajoPublicacionNorma,
         }),
       inject: [
         TOKEN_REPOSITORIO_USUARIOS,
         TOKEN_REPOSITORIO_NORMAS,
-        TOKEN_PUBLICADOR_EVENTOS,
+        TOKEN_UNIDAD_TRABAJO_PUBLICACION_NORMA,
       ],
     },
     {

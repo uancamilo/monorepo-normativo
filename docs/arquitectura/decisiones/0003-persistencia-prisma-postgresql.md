@@ -82,16 +82,18 @@ La aplicación podrá validar preventivamente y traducir errores de constraint a
 
 ## Eventos y outbox
 
-Para mantener el hito pequeño se adopta una tabla simple:
+Para mantener el hito pequeño en Fase 3B se adopta una tabla simple:
 
 - `eventos_normas_publicadas`.
 
-`PublicadorEventosNormasPrisma` guarda ahí el evento emitido por `PublicarNorma`. No llama Algolia, no usa colas y no implementa worker.
+`PublicadorEventosNormasPrisma` guardaba ahí el evento emitido por `PublicarNorma`. No llama Algolia, no usa colas y no implementa worker.
 
-Esto no es todavía outbox transaccional completo. `PublicarNorma` sigue ejecutando:
+En Fase 3D, `PublicarNorma` deja de coordinar dos escrituras independientes y delega la persistencia crítica al puerto `UnidadDeTrabajoPublicacionNorma`. La implementación Prisma usa `prisma.$transaction` para:
 
-1. guardar norma publicada;
-2. publicar evento mediante puerto.
+1. guardar la norma `PUBLICADA`;
+2. registrar el evento en `eventos_normas_publicadas`.
+
+Si falla cualquiera de las dos operaciones, PostgreSQL revierte ambas. La tabla `eventos_normas_publicadas` sigue sin ser outbox completo porque no tiene estado de procesamiento, intentos ni worker.
 
 La solución definitiva para efectos externos reintentables seguirá siendo outbox transaccional o unidad de trabajo equivalente:
 
@@ -99,6 +101,23 @@ La solución definitiva para efectos externos reintentables seguirá siendo outb
 - registrar el evento pendiente;
 - ejecutar ambas operaciones en la misma transacción;
 - procesar el evento luego con worker/adaptador observable y con reintentos.
+
+## Endurecimiento de infraestructura (Fase 3D)
+
+Fase 3D cierra deuda técnica detectada después de Fase 3C sin introducir integraciones externas:
+
+- `PublicarNorma` usa el puerto `UnidadDeTrabajoPublicacionNorma`.
+- `UnidadDeTrabajoPublicacionNormaPrisma` usa `prisma.$transaction`.
+- Se agregan constraints `CHECK` en PostgreSQL para:
+  - `suscripciones.cantidad_maxima_usuarios > 0`;
+  - `suscripciones.fecha_fin > suscripciones.fecha_inicio`.
+- Como `prisma db push` no aplica SQL manual de migraciones, el script `prisma:push` ejecuta también `scripts/aplicar-checks-prisma.js`, idempotente y solo aditivo.
+- `TEST_DATABASE_URL` se valida por parsing de URL: por defecto debe apuntar a `normativo_test` en `localhost`, `127.0.0.1` o `::1`.
+- El seed solo acepta `DATABASE_URL` si se define `PERMITIR_SEED_DESARROLLO=true`.
+- Los tokens NestJS de puertos se movieron a `src/normas/tokens.ts`.
+- La selección `PERSISTENCIA=memoria | prisma` se extrajo a función testeable.
+
+Sigue fuera de alcance convertir `eventos_normas_publicadas` en una outbox completa con worker, estados, reintentos o entrega a Algolia.
 
 ## Seed y flujo local (Fase 3C)
 

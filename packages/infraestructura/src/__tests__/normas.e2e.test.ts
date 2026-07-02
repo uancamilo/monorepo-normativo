@@ -10,7 +10,7 @@ import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from '../app.module';
-import { TOKEN_PUBLICADOR_EVENTOS } from '../normas/normas.module';
+import { TOKEN_PUBLICADOR_EVENTOS } from '../normas/tokens';
 import { PublicadorEventosNormasEnMemoria } from '../memoria/PublicadorEventosNormasEnMemoria';
 
 const USUARIO_EDITOR = 'usuario-editor-1';

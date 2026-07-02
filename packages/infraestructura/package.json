@@ -7,7 +7,7 @@
     "build": "tsc -p tsconfig.build.json",
     "clean": "rm -rf dist coverage",
     "prisma:generate": "prisma generate",
-    "prisma:push": "prisma db push",
+    "prisma:push": "prisma db push && node scripts/aplicar-checks-prisma.js",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:reset:test": "prisma db push --force-reset",
     "prisma:seed": "node scripts/seed-prisma.js",
