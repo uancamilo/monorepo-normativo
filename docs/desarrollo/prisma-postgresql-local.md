@@ -34,8 +34,11 @@ npm run prisma:generate --workspace=@normativo/infraestructura
 ## 3. Aplicar el schema
 
 Contra la base de test se usa `TEST_DATABASE_URL` (tiene prioridad sobre
-`DATABASE_URL`). El script aplica el schema con Prisma y luego agrega de forma
-idempotente los constraints `CHECK` que Prisma no representa en `schema.prisma`:
+`DATABASE_URL` **solo en la CLI y los scripts**: push, seed y tests; el runtime
+de la aplicación lee únicamente `DATABASE_URL`, así una `TEST_DATABASE_URL`
+filtrada al entorno productivo no redirige la app a la base de test). El script
+aplica el schema con Prisma y luego agrega de forma idempotente los constraints
+`CHECK` que Prisma no representa en `schema.prisma`:
 
 ```bash
 TEST_DATABASE_URL="postgresql://normativo:normativo@localhost:5433/normativo_test?schema=public" \
@@ -99,6 +102,13 @@ npm run build
 PERSISTENCIA=prisma DATABASE_URL="postgresql://normativo:normativo@localhost:5432/normativo?schema=public" \
   npm run start --workspace=@normativo/infraestructura
 ```
+
+El arranque valida la configuración y aborta con mensaje claro si algo está mal:
+
+- `PERSISTENCIA` con un valor distinto de `memoria`/`prisma` es error (no hay
+  fallback silencioso a memoria); en `NODE_ENV=production` además es obligatoria.
+- Con `PERSISTENCIA=prisma`, `DATABASE_URL` debe existir y ser una URL postgres.
+- `PUERTO` es opcional (default `3000`).
 
 La identidad sigue simulada con el header `x-usuario-id` (no es autenticación
 real). Ejemplo de flujo con `curl`:

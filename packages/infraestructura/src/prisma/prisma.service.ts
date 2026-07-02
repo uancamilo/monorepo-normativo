@@ -21,7 +21,9 @@ export class PrismaService
 }
 
 function crearOpcionesPrisma(): Prisma.PrismaClientOptions {
-  const databaseUrl = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
+  // Solo DATABASE_URL: el runtime nunca debe redirigirse a la base de test por
+  // una TEST_DATABASE_URL filtrada al entorno. Los tests asignan DATABASE_URL.
+  const databaseUrl = process.env.DATABASE_URL;
 
   if (databaseUrl === undefined || databaseUrl.trim().length === 0) {
     throw new Error(

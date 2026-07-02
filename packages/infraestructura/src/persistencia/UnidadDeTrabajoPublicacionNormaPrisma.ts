@@ -21,11 +21,14 @@ export class UnidadDeTrabajoPublicacionNormaPrisma
     normaPublicada: Norma,
     evento: EventoNormaPublicada,
   ): Promise<void> {
+    const { id: _id, ...datosNorma } = mapearNormaADataPrisma(normaPublicada);
+
     await this.prisma.$transaction(async (transaccion) => {
-      await transaccion.norma.upsert({
+      // update (no upsert): publicar una norma inexistente debe fallar la
+      // transacción completa en vez de crearla ya publicada.
+      await transaccion.norma.update({
         where: { id: normaPublicada.id },
-        create: mapearNormaADataPrisma(normaPublicada),
-        update: mapearNormaADataPrisma(normaPublicada),
+        data: datosNorma,
       });
 
       await transaccion.eventoNormaPublicada.create({

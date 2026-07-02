@@ -84,17 +84,18 @@ model Norma {
   fechaPublicacionEnSistema  DateTime?                    @map("fecha_publicacion_en_sistema")
   createdAt                  DateTime                     @default(now()) @map("created_at")
   updatedAt                  DateTime                     @updatedAt @map("updated_at")
+  eventosPublicacion         EventoNormaPublicada[]
 
   @@map("normas")
 }
 
 model EventoNormaPublicada {
   id                         String    @id
-  normaId                    String    @map("norma_id")
+  normaId                    String    @unique @map("norma_id")
   fechaPublicacionEnSistema  DateTime  @map("fecha_publicacion_en_sistema")
   tieneContenidoCompleto     Boolean   @map("tiene_contenido_completo")
   createdAt                  DateTime  @default(now()) @map("created_at")
+  norma                      Norma     @relation(fields: [normaId], references: [id], onDelete: Restrict)
 
-  @@index([normaId])
   @@map("eventos_normas_publicadas")
 }

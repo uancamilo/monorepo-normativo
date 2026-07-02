@@ -233,6 +233,8 @@ describirPrisma(
     });
 
     it('PublicadorEventosNormasPrisma persiste evento sin llamar servicios externos', async () => {
+      const repositorio = new RepositorioNormasPrisma(prisma);
+      await repositorio.guardar(crearNormaBorrador('norma-1'));
       const publicador = new PublicadorEventosNormasPrisma(prisma);
       const fechaPublicacionEnSistema = new Date('2025-06-01T00:00:00.000Z');
 
@@ -318,6 +320,8 @@ describirPrisma(
       });
 
       await repositorio.guardar(norma);
+      // La FK exige que el evento preexistente apunte a una norma real.
+      await repositorio.guardar(crearNormaBorrador('otra-norma'));
       await prisma.eventoNormaPublicada.create({
         data: {
           id: 'evento-duplicado',
@@ -349,6 +353,100 @@ describirPrisma(
       expect(normaPersistida?.fechaPublicacionEnSistema).toBeNull();
       expect(eventosDeNorma).toHaveLength(0);
     });
+
+    it('UnidadDeTrabajoPublicacionNormaPrisma rechaza un segundo evento para la misma norma (unique norma_id)', async () => {
+      const repositorio = new RepositorioNormasPrisma(prisma);
+      const fechaPublicacionEnSistema = new Date('2025-06-01T00:00:00.000Z');
+      const norma = crearNormaBorrador('norma-doble-publicacion');
+      await repositorio.guardar(norma);
+
+      const primeraUnidad = new UnidadDeTrabajoPublicacionNormaPrisma(
+        prisma,
+        () => 'evento-primera-publicacion',
+      );
+      await primeraUnidad.guardarNormaPublicadaConEvento(
+        norma.publicar(fechaPublicacionEnSistema),
+        {
+          normaId: norma.id,
+          fechaPublicacionEnSistema,
+          tieneContenidoCompleto: false,
+        },
+      );
+
+      const segundaUnidad = new UnidadDeTrabajoPublicacionNormaPrisma(
+        prisma,
+        () => 'evento-segunda-publicacion',
+      );
+      await expect(
+        segundaUnidad.guardarNormaPublicadaConEvento(
+          norma.publicar(fechaPublicacionEnSistema),
+          {
+            normaId: norma.id,
+            fechaPublicacionEnSistema,
+            tieneContenidoCompleto: false,
+          },
+        ),
+      ).rejects.toMatchObject({ code: 'P2002' });
+
+      const eventos = await prisma.eventoNormaPublicada.findMany({
+        where: { normaId: norma.id },
+      });
+      expect(eventos).toHaveLength(1);
+      expect(eventos[0].id).toBe('evento-primera-publicacion');
+    });
+
+    it('PostgreSQL rechaza eventos de publicación sin norma existente (FK)', async () => {
+      await expect(
+        prisma.eventoNormaPublicada.create({
+          data: {
+            id: 'evento-huerfano',
+            normaId: 'norma-inexistente',
+            fechaPublicacionEnSistema: new Date('2025-06-01T00:00:00.000Z'),
+            tieneContenidoCompleto: false,
+          },
+        }),
+      ).rejects.toMatchObject({ code: 'P2003' });
+    });
+
+    it('UnidadDeTrabajoPublicacionNormaPrisma falla si la norma no existe y no deja evento', async () => {
+      const unidadDeTrabajo = new UnidadDeTrabajoPublicacionNormaPrisma(
+        prisma,
+        () => 'evento-sin-norma',
+      );
+      const fechaPublicacionEnSistema = new Date('2025-06-01T00:00:00.000Z');
+      const normaNuncaGuardada = crearNormaBorrador('norma-nunca-guardada');
+
+      await expect(
+        unidadDeTrabajo.guardarNormaPublicadaConEvento(
+          normaNuncaGuardada.publicar(fechaPublicacionEnSistema),
+          {
+            normaId: normaNuncaGuardada.id,
+            fechaPublicacionEnSistema,
+            tieneContenidoCompleto: false,
+          },
+        ),
+      ).rejects.toMatchObject({ code: 'P2025' });
+
+      const eventos = await prisma.eventoNormaPublicada.findMany();
+      expect(eventos).toHaveLength(0);
+    });
+
+    function crearNormaBorrador(id: string): Norma {
+      return new Norma({
+        id,
+        numero: null,
+        titulo: `Norma ${id}`,
+        contenido: '',
+        tipoNorma: 'Ley',
+        institucionExpide: 'Asamblea Nacional',
+        fuente: `https://www.registroficial.gob.ec/${id}.pdf`,
+        estadoJuridico: EstadoNorma.VIGENTE,
+        estadoEditorial: EstadoEditorialNorma.BORRADOR,
+        fechaExpedicion: new Date('2025-01-01T00:00:00.000Z'),
+        fechaPublicacionOficial: new Date('2025-01-02T00:00:00.000Z'),
+        fechaPublicacionEnSistema: null,
+      });
+    }
 
     async function crearSuscripcion(opciones: {
       id: string;
