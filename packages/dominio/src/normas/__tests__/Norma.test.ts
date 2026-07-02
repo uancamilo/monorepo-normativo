@@ -399,6 +399,20 @@ describe('Norma', () => {
         'fechaPublicacionEnSistema debe ser una fecha válida',
       );
     });
+
+    it('lanza error al publicar una norma ya publicada', () => {
+      const norma = new Norma(
+        crearProps({
+          estadoEditorial: EstadoEditorialNorma.BORRADOR,
+          fechaPublicacionEnSistema: null,
+        }),
+      );
+      const publicada = norma.publicar(new Date('2025-02-01'));
+
+      expect(() => publicada.publicar(new Date('2025-03-01'))).toThrow(
+        'Una norma ya publicada no puede publicarse nuevamente',
+      );
+    });
   });
 
   describe('estado jurídico', () => {

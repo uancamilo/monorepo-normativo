@@ -2,8 +2,6 @@ import { EstadoNorma } from '../enums/EstadoNorma';
 import { EstadoEditorialNorma } from '../enums/EstadoEditorialNorma';
 import { estaTextoVacio, normalizarTexto } from '../../compartido/validaciones/texto';
 
-type ConstructorUrl = new (url: string) => unknown;
-
 export interface NormaProps {
   id: string;
   numero: string | null;
@@ -105,6 +103,10 @@ export class Norma {
   }
 
   publicar(fechaPublicacionEnSistema: Date): Norma {
+    if (this.estaPublicada()) {
+      throw new Error('Una norma ya publicada no puede publicarse nuevamente');
+    }
+
     return new Norma({
       id: this.id,
       numero: this.numero,
@@ -135,14 +137,8 @@ function esFechaValida(fecha: Date): boolean {
 }
 
 function esUrlValida(valor: string): boolean {
-  const URLConstructor = (globalThis as unknown as { URL?: ConstructorUrl }).URL;
-
-  if (!URLConstructor) {
-    return false;
-  }
-
   try {
-    new URLConstructor(valor);
+    new URL(valor);
     return true;
   } catch {
     return false;

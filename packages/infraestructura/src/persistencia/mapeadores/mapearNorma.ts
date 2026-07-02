@@ -8,6 +8,7 @@ import {
   EstadoNormaPrisma,
   Norma as NormaPrisma,
 } from '@prisma/client';
+import { asegurarValorEnum } from './validarEnum';
 
 export function mapearNormaDesdePrisma(norma: NormaPrisma): Norma {
   return new Norma({
@@ -18,8 +19,16 @@ export function mapearNormaDesdePrisma(norma: NormaPrisma): Norma {
     tipoNorma: norma.tipoNorma,
     institucionExpide: norma.institucionExpide,
     fuente: norma.fuente,
-    estadoJuridico: norma.estadoJuridico as EstadoNorma,
-    estadoEditorial: norma.estadoEditorial as EstadoEditorialNorma,
+    estadoJuridico: asegurarValorEnum(
+      norma.estadoJuridico,
+      Object.values(EstadoNorma),
+      { entidad: 'Norma', campo: 'estadoJuridico', id: norma.id },
+    ),
+    estadoEditorial: asegurarValorEnum(
+      norma.estadoEditorial,
+      Object.values(EstadoEditorialNorma),
+      { entidad: 'Norma', campo: 'estadoEditorial', id: norma.id },
+    ),
     fechaExpedicion: norma.fechaExpedicion,
     fechaPublicacionOficial: norma.fechaPublicacionOficial,
     fechaPublicacionEnSistema: norma.fechaPublicacionEnSistema,

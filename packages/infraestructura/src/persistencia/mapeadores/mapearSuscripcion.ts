@@ -1,4 +1,5 @@
 import { EstadoSuscripcion, Suscripcion } from '@normativo/dominio';
+import { asegurarValorEnum } from './validarEnum';
 
 type SuscripcionPrismaConCorreos = {
   id: string;
@@ -19,7 +20,11 @@ export function mapearSuscripcionDesdePrisma(
     id: suscripcion.id,
     clienteId: suscripcion.clienteId,
     cantidadMaximaUsuarios: suscripcion.cantidadMaximaUsuarios,
-    estado: suscripcion.estado as EstadoSuscripcion,
+    estado: asegurarValorEnum(
+      suscripcion.estado,
+      Object.values(EstadoSuscripcion),
+      { entidad: 'Suscripcion', campo: 'estado', id: suscripcion.id },
+    ),
     fechaInicio: suscripcion.fechaInicio,
     fechaFin: suscripcion.fechaFin,
     correosUsuariosHabilitados: suscripcion.correosHabilitados.map(

@@ -1,5 +1,6 @@
 import { Usuario, RolUsuario } from '@normativo/dominio';
 import { Usuario as UsuarioPrisma } from '@prisma/client';
+import { asegurarValorEnum } from './validarEnum';
 
 export function mapearUsuarioDesdePrisma(usuario: UsuarioPrisma): Usuario {
   return new Usuario({
@@ -7,6 +8,10 @@ export function mapearUsuarioDesdePrisma(usuario: UsuarioPrisma): Usuario {
     nombre: usuario.nombre,
     apellido: usuario.apellido,
     correo: usuario.correoNormalizado,
-    rol: usuario.rol as RolUsuario,
+    rol: asegurarValorEnum(usuario.rol, Object.values(RolUsuario), {
+      entidad: 'Usuario',
+      campo: 'rol',
+      id: usuario.id,
+    }),
   });
 }
