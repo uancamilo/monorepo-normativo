@@ -1,13 +1,12 @@
 import { NormasModule } from './normas.module';
 import { NormasPrismaModule } from './normas-prisma.module';
+import {
+  obtenerPersistenciaNormas,
+  PersistenciaNormas,
+} from '../configuracion/persistencia';
 
-export type PersistenciaNormas = 'memoria' | 'prisma';
-
-export function obtenerPersistenciaNormas(
-  valor: string | undefined = process.env.PERSISTENCIA,
-): PersistenciaNormas {
-  return valor === 'prisma' ? 'prisma' : 'memoria';
-}
+export type { PersistenciaNormas };
+export { obtenerPersistenciaNormas };
 
 export function seleccionarModuloNormas(
   valor: string | undefined = process.env.PERSISTENCIA,

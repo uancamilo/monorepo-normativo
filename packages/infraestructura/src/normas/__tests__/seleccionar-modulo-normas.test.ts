@@ -12,13 +12,22 @@ describe('seleccionarModuloNormas', () => {
     expect(seleccionarModuloNormas(undefined)).toBe(NormasModule);
   });
 
+  it('usa memoria explícita', () => {
+    expect(obtenerPersistenciaNormas('memoria')).toBe('memoria');
+    expect(seleccionarModuloNormas('memoria')).toBe(NormasModule);
+  });
+
   it('usa Prisma solo cuando PERSISTENCIA es prisma', () => {
     expect(obtenerPersistenciaNormas('prisma')).toBe('prisma');
     expect(seleccionarModuloNormas('prisma')).toBe(NormasPrismaModule);
   });
 
-  it('trata valores desconocidos como memoria', () => {
-    expect(obtenerPersistenciaNormas('otro')).toBe('memoria');
-    expect(seleccionarModuloNormas('otro')).toBe(NormasModule);
+  it('lanza error ante valores desconocidos (misma semántica que el arranque)', () => {
+    expect(() => obtenerPersistenciaNormas('otro')).toThrow(
+      /PERSISTENCIA tiene un valor desconocido: 'otro'/,
+    );
+    expect(() => seleccionarModuloNormas('prsima')).toThrow(
+      /PERSISTENCIA tiene un valor desconocido: 'prsima'/,
+    );
   });
 });

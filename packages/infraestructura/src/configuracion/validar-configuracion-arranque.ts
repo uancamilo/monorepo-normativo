@@ -1,4 +1,7 @@
-import { PersistenciaNormas } from '../normas/seleccionar-modulo-normas';
+import {
+  obtenerPersistenciaNormas,
+  PersistenciaNormas,
+} from './persistencia';
 
 export const PUERTO_POR_DEFECTO = 3000;
 
@@ -38,22 +41,15 @@ function validarPersistencia(entorno: NodeJS.ProcessEnv): PersistenciaNormas {
   const valor = entorno.PERSISTENCIA;
   const esProduccion = entorno.NODE_ENV === 'production';
 
-  if (valor === undefined || valor.trim().length === 0) {
-    if (esProduccion) {
-      throw new Error(
-        'PERSISTENCIA debe definirse explícitamente en producción (memoria o prisma)',
-      );
-    }
-    return 'memoria';
+  if (esProduccion && (valor === undefined || valor.trim().length === 0)) {
+    throw new Error(
+      'PERSISTENCIA debe definirse explícitamente en producción (memoria o prisma)',
+    );
   }
 
-  if (valor === 'memoria' || valor === 'prisma') {
-    return valor;
-  }
-
-  throw new Error(
-    `PERSISTENCIA tiene un valor desconocido: '${valor}' (se espera memoria o prisma)`,
-  );
+  // Semántica única compartida con seleccionarModuloNormas: ausente -> memoria,
+  // valor desconocido -> error.
+  return obtenerPersistenciaNormas(valor);
 }
 
 function validarDatabaseUrl(valor: string | undefined): void {

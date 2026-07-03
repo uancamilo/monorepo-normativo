@@ -45,6 +45,11 @@ TEST_DATABASE_URL="postgresql://normativo:normativo@localhost:5433/normativo_tes
   npm run prisma:push --workspace=@normativo/infraestructura
 ```
 
+> **`prisma:push` es exclusivamente local/test.** Nunca debe apuntar a una base
+> productiva: no versiona cambios y puede requerir `--force-reset` ante
+> constraints nuevos. El despliegue usa únicamente `prisma migrate deploy` con
+> las migraciones versionadas de `prisma/migrations/`.
+
 Para un reset limpio y destructivo de la base de test (borra todo):
 
 ```bash
