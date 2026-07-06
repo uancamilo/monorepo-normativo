@@ -67,6 +67,7 @@ Cada fase cierra con un commit y un tag anotado (`git tag -n`):
 - Fase 4A: autenticación real mínima con Bearer token (JWT HS256).
 - Fase 4B: login mínimo (`POST /auth/login`) y hash de contraseñas con scrypt.
 - Fase 4C: los e2e consumen los endpoints con tokens emitidos por login real; `x-usuario-id` sin soporte legado alguno.
+- Fase 4D: frontera autenticación/autorización endurecida y testeada — el guard solo autentica; los permisos salen de aplicación/dominio.
 
 ## Autenticación
 

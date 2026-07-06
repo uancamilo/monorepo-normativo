@@ -79,6 +79,24 @@ describe('GuardAutenticacion', () => {
     });
   });
 
+  it('no autoriza: acepta cualquier claim rol y lo deja solo como dato informativo', async () => {
+    // El guard autentica identidad; no valida ni usa el rol para decidir
+    // acceso. Un rol arbitrario/desconocido no altera la autenticación.
+    const token = await servicioTokens.firmar({
+      usuarioId: 'usuario-1',
+      rol: 'ROL_QUE_NO_EXISTE',
+    });
+    const solicitud: SolicitudConUsuarioAutenticado = {
+      headers: { authorization: `Bearer ${token}` },
+    };
+
+    await expect(guard.canActivate(crearContexto(solicitud))).resolves.toBe(true);
+    expect(solicitud.usuarioAutenticado).toEqual({
+      id: 'usuario-1',
+      rol: 'ROL_QUE_NO_EXISTE',
+    });
+  });
+
   it('acepta el esquema bearer sin distinguir mayúsculas', async () => {
     const token = await servicioTokens.firmar({ usuarioId: 'usuario-1' });
     const solicitud: SolicitudConUsuarioAutenticado = {

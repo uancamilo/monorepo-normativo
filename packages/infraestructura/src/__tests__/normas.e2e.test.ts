@@ -217,6 +217,46 @@ describe('Normas (e2e)', () => {
     expect(consulta.status).toBe(403);
   });
 
+  it('los 403 de causas distintas devuelven el mismo cuerpo genérico', async () => {
+    await registrarComoEditor();
+    await request(servidor())
+      .post('/normas/norma-1/publicar')
+      .set('Authorization', await autorizacionDe(USUARIO_EDITOR))
+      .send({});
+
+    // Causa 1: ADMINISTRADOR sin permiso editorial intenta registrar.
+    const porPermiso = await request(servidor())
+      .post('/normas')
+      .set('Authorization', await autorizacionDe(USUARIO_ADMIN))
+      .send(cuerpoNormaValido());
+    // Causa 2: EDITOR sin suscripción habilitada consulta contenido.
+    const porSuscripcion = await request(servidor())
+      .get('/normas/norma-1/contenido')
+      .set('Authorization', await autorizacionDe(USUARIO_EDITOR));
+
+    expect(porPermiso.status).toBe(403);
+    expect(porSuscripcion.status).toBe(403);
+    expect(porPermiso.body.message).toBe('Acceso denegado');
+    expect(porPermiso.body).toEqual(porSuscripcion.body);
+  });
+
+  it('ningún rol global obtiene contenido sin suscripción habilitada (403)', async () => {
+    await registrarComoEditor();
+    await request(servidor())
+      .post('/normas/norma-1/publicar')
+      .set('Authorization', await autorizacionDe(USUARIO_EDITOR))
+      .send({});
+
+    // Solo suscriptor@test.com está habilitado en la suscripción semilla:
+    // ni ADMINISTRADOR ni SUPERADMINISTRADOR acceden por su rol global.
+    for (const usuario of [USUARIO_ADMIN, USUARIO_SUPERADMIN]) {
+      const consulta = await request(servidor())
+        .get('/normas/norma-1/contenido')
+        .set('Authorization', await autorizacionDe(usuario));
+      expect(consulta.status).toBe(403);
+    }
+  });
+
   it('norma en BORRADOR no es consultable (403)', async () => {
     await registrarComoEditor();
     const consulta = await request(servidor())
@@ -278,6 +318,28 @@ describe('Normas (e2e)', () => {
       .set('Authorization', await autorizacionDe(USUARIO_ADMIN, { rol: 'EDITOR' }))
       .send(cuerpoNormaValido());
     expect(respuesta.status).toBe(403);
+  });
+
+  it('el rol falsificado en el token tampoco permite publicar', async () => {
+    await registrarComoEditor();
+    const respuesta = await request(servidor())
+      .post('/normas/norma-1/publicar')
+      .set('Authorization', await autorizacionDe(USUARIO_ADMIN, { rol: 'EDITOR' }))
+      .send({});
+    expect(respuesta.status).toBe(403);
+  });
+
+  it('un claim rol degradado tampoco altera lo que decide el caso de uso', async () => {
+    // EDITOR real con claim rol SUSCRIPTOR falsificado: sigue pudiendo
+    // registrar porque la autorización usa el Usuario del repositorio.
+    const respuesta = await request(servidor())
+      .post('/normas')
+      .set(
+        'Authorization',
+        await autorizacionDe(USUARIO_EDITOR, { rol: 'SUSCRIPTOR' }),
+      )
+      .send(cuerpoNormaValido());
+    expect(respuesta.status).toBe(201);
   });
 
   it('token válido de usuario inexistente devuelve 401', async () => {
