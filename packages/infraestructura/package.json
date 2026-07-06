@@ -11,6 +11,7 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:reset:test": "prisma db push --force-reset",
     "prisma:seed": "node scripts/seed-prisma.js",
+    "bootstrap:superadmin": "node scripts/bootstrap-superadmin.js",
     "start": "node dist/main.js",
     "test": "jest --passWithNoTests",
     "test:prisma": "jest --runInBand prisma",

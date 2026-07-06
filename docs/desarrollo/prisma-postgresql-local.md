@@ -100,6 +100,23 @@ El script vive en `packages/infraestructura/scripts/seed-prisma.js` y es la úni
 fuente de verdad de la semilla: el test e2e Prisma reutiliza la misma función
 `sembrar(prisma)`.
 
+> **El seed NO es el mecanismo operativo de producción.** Para inicializar o
+> actualizar el SUPERADMINISTRADOR real existe el bootstrap (Fase 4E):
+>
+> ```bash
+> PERMITIR_BOOTSTRAP_SUPERADMIN=true \
+> DATABASE_URL="postgresql://..." \
+> BOOTSTRAP_SUPERADMIN_CORREO="superadmin@ejemplo.com" \
+> BOOTSTRAP_SUPERADMIN_PASSWORD="una-contrasena-de-12+caracteres" \
+>   npm run bootstrap:superadmin --workspace=@normativo/infraestructura
+> ```
+>
+> Requiere confirmación explícita; contra un host no local exige además
+> `PERMITIR_BOOTSTRAP_SUPERADMIN_NO_LOCAL=true`. Es idempotente, no borra
+> datos, falla si el correo pertenece a otro usuario y nunca imprime la
+> contraseña ni el hash. Variables opcionales: `BOOTSTRAP_SUPERADMIN_ID`,
+> `_NOMBRE`, `_APELLIDO`. Detalle en ADR 0007.
+
 ## 5. Levantar el backend con Prisma
 
 Para desarrollo se usa `DATABASE_URL` (por ejemplo la base de desarrollo en

@@ -68,6 +68,7 @@ Cada fase cierra con un commit y un tag anotado (`git tag -n`):
 - Fase 4B: login mínimo (`POST /auth/login`) y hash de contraseñas con scrypt.
 - Fase 4C: los e2e consumen los endpoints con tokens emitidos por login real; `x-usuario-id` sin soporte legado alguno.
 - Fase 4D: frontera autenticación/autorización endurecida y testeada — el guard solo autentica; los permisos salen de aplicación/dominio.
+- Fase 4E: bootstrap operativo del SUPERADMINISTRADOR inicial y política mínima de contraseñas.
 
 ## Autenticación
 
@@ -87,5 +88,12 @@ del dominio. El header `x-usuario-id` quedó eliminado como mecanismo de identid
   `JWT_AUDIENCE` son opcionales. Ejemplos en `packages/infraestructura/.env.example`.
 - Herramienta local alternativa (ya no el flujo principal):
   `node packages/infraestructura/scripts/generar-token-dev.js usuario-editor-1`.
+- **Bootstrap operativo del SUPERADMINISTRADOR** (el seed es solo
+  desarrollo/test): `npm run bootstrap:superadmin --workspace=@normativo/infraestructura`
+  con `PERMITIR_BOOTSTRAP_SUPERADMIN=true`, `DATABASE_URL`,
+  `BOOTSTRAP_SUPERADMIN_CORREO` y `BOOTSTRAP_SUPERADMIN_PASSWORD` (mínimo 12
+  caracteres). Idempotente, no borra datos, falla si el correo pertenece a otro
+  usuario, nunca imprime secretos; host remoto exige doble confirmación
+  (`PERMITIR_BOOTSTRAP_SUPERADMIN_NO_LOCAL=true`). Ver ADR 0007.
 - Sigue siendo una implementación mínima: sin refresh tokens, sesiones,
   logout, revocación, registro público, OAuth ni Azure AD/B2C (ADR 0005 y 0006).
