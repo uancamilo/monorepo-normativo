@@ -6,6 +6,7 @@ import {
 
 const URL_POSTGRES_VALIDA =
   'postgresql://normativo:normativo@localhost:5432/normativo?schema=public';
+const JWT_SECRET_LARGO = 'secreto-jwt-de-produccion-con-longitud-suficiente';
 
 function entornoBase(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   return { ...overrides };
@@ -49,7 +50,11 @@ describe('validarConfiguracionArranque', () => {
 
     it('acepta memoria explícita en producción', () => {
       const configuracion = validarConfiguracionArranque(
-        entornoBase({ NODE_ENV: 'production', PERSISTENCIA: 'memoria' }),
+        entornoBase({
+          NODE_ENV: 'production',
+          PERSISTENCIA: 'memoria',
+          JWT_SECRET: JWT_SECRET_LARGO,
+        }),
       );
 
       expect(configuracion.persistencia).toBe('memoria');
@@ -61,10 +66,27 @@ describe('validarConfiguracionArranque', () => {
           NODE_ENV: 'production',
           PERSISTENCIA: 'prisma',
           DATABASE_URL: URL_POSTGRES_VALIDA,
+          JWT_SECRET: JWT_SECRET_LARGO,
         }),
       );
 
       expect(configuracion.persistencia).toBe('prisma');
+    });
+  });
+
+  describe('JWT en el arranque', () => {
+    it('en producción exige JWT_SECRET', () => {
+      expect(() =>
+        validarConfiguracionArranque(
+          entornoBase({ NODE_ENV: 'production', PERSISTENCIA: 'memoria' }),
+        ),
+      ).toThrow('JWT_SECRET debe estar configurado en producción');
+    });
+
+    it('fuera de producción entrega configuración jwt con secreto de desarrollo', () => {
+      const configuracion = validarConfiguracionArranque(entornoBase());
+
+      expect(configuracion.jwt.secreto.length).toBeGreaterThan(0);
     });
   });
 

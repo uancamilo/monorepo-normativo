@@ -119,20 +119,29 @@ El arranque valida la configuración y aborta con mensaje claro si algo está ma
 - Con `PERSISTENCIA=prisma`, `DATABASE_URL` debe existir y ser una URL postgres.
 - `PUERTO` es opcional (default `3000`).
 
-La identidad sigue simulada con el header `x-usuario-id` (no es autenticación
-real). Ejemplo de flujo con `curl`:
+Desde la Fase 4A los endpoints exigen `Authorization: Bearer <token>` (JWT
+HS256; el header `x-usuario-id` ya no autentica). Para desarrollo local genera
+tokens con el script (usa `JWT_SECRET` del entorno o el secreto explícito de
+desarrollo, el mismo que la app fuera de producción):
+
+```bash
+TOKEN_EDITOR=$(node packages/infraestructura/scripts/generar-token-dev.js usuario-editor-1)
+TOKEN_SUSCRIPTOR=$(node packages/infraestructura/scripts/generar-token-dev.js usuario-suscriptor-1)
+```
+
+Ejemplo de flujo con `curl`:
 
 ```bash
 # Registrar (editor)
-curl -X POST localhost:3000/normas -H 'x-usuario-id: usuario-editor-1' \
+curl -X POST localhost:3000/normas -H "Authorization: Bearer $TOKEN_EDITOR" \
   -H 'content-type: application/json' \
   -d '{"titulo":"Ley","contenido":"","tipoNorma":"Ley","institucionExpide":"Asamblea","fuente":"https://x/y.pdf","estadoJuridico":"VIGENTE","fechaExpedicion":"2025-01-01","fechaPublicacionOficial":"2025-01-02"}'
 
 # Publicar (editor) -> incluye fechaPublicacionEnSistema
-curl -X POST localhost:3000/normas/<ID>/publicar -H 'x-usuario-id: usuario-editor-1'
+curl -X POST localhost:3000/normas/<ID>/publicar -H "Authorization: Bearer $TOKEN_EDITOR"
 
 # Consultar contenido (suscriptor) -> incluye fuente, sin fechaPublicacionEnSistema ni estadoEditorial
-curl localhost:3000/normas/<ID>/contenido -H 'x-usuario-id: usuario-suscriptor-1'
+curl localhost:3000/normas/<ID>/contenido -H "Authorization: Bearer $TOKEN_SUSCRIPTOR"
 ```
 
 ## 6. Ejecutar tests Prisma

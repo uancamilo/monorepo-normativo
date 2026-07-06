@@ -2,12 +2,14 @@ import {
   obtenerPersistenciaNormas,
   PersistenciaNormas,
 } from './persistencia';
+import { ConfiguracionJwt, obtenerConfiguracionJwt } from './jwt';
 
 export const PUERTO_POR_DEFECTO = 3000;
 
 export interface ConfiguracionArranque {
   persistencia: PersistenciaNormas;
   puerto: number;
+  jwt: ConfiguracionJwt;
 }
 
 /**
@@ -34,6 +36,7 @@ export function validarConfiguracionArranque(
   return {
     persistencia,
     puerto: validarPuerto(entorno.PUERTO),
+    jwt: obtenerConfiguracionJwt(entorno),
   };
 }
 

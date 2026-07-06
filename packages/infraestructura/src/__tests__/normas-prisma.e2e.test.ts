@@ -6,6 +6,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { PrismaService } from '../prisma/prisma.service';
 import { obtenerTestDatabaseUrlDesdeEntorno } from '../prisma/validar-url-base-datos-test';
+import { ServicioTokens } from '../autenticacion/servicio-tokens';
 
 // Seed compartido con el script `prisma:seed` (única fuente de verdad).
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -48,8 +49,15 @@ describirPrisma(
   () => {
     let app: INestApplication;
     let prisma: PrismaService;
+    let servicioTokens: ServicioTokens;
     let persistenciaPrevia: string | undefined;
     let databaseUrlPrevia: string | undefined;
+
+    async function autorizacionDe(usuarioId: string): Promise<string> {
+      // ServicioTokens real de la app: firma con el mismo secreto que verifica
+      // el guard, esté o no definido JWT_SECRET en el entorno.
+      return `Bearer ${await servicioTokens.firmar({ usuarioId })}`;
+    }
 
     beforeAll(async () => {
       // Fuerza el selector a Prisma solo para este archivo; se restaura al final
@@ -89,6 +97,7 @@ describirPrisma(
       }).compile();
       app = moduleRef.createNestApplication();
       await app.init();
+      servicioTokens = app.get(ServicioTokens);
     });
 
     afterAll(async () => {
@@ -106,7 +115,7 @@ describirPrisma(
       // 2-3. POST /normas como editor -> 201 y BORRADOR.
       const registro = await request(servidor())
         .post('/normas')
-        .set('x-usuario-id', USUARIO_EDITOR)
+        .set('Authorization', await autorizacionDe(USUARIO_EDITOR))
         .send(cuerpoNormaValido());
       expect(registro.status).toBe(201);
       expect(registro.body.estadoEditorial).toBe('BORRADOR');
@@ -117,13 +126,13 @@ describirPrisma(
       // 4. GET contenido como suscriptor antes de publicar -> 403.
       const consultaAntes = await request(servidor())
         .get(`/normas/${normaId}/contenido`)
-        .set('x-usuario-id', USUARIO_SUSCRIPTOR);
+        .set('Authorization', await autorizacionDe(USUARIO_SUSCRIPTOR));
       expect(consultaAntes.status).toBe(403);
 
       // 5. POST publicar como editor -> 200 con fechaPublicacionEnSistema.
       const publicacion = await request(servidor())
         .post(`/normas/${normaId}/publicar`)
-        .set('x-usuario-id', USUARIO_EDITOR)
+        .set('Authorization', await autorizacionDe(USUARIO_EDITOR))
         .send({ fechaPublicacionEnSistema: '2026-06-29T00:00:00.000Z' });
       expect(publicacion.status).toBe(200);
       expect(publicacion.body.estadoEditorial).toBe('PUBLICADA');
@@ -135,7 +144,7 @@ describirPrisma(
       //    sin fechaPublicacionEnSistema ni estadoEditorial.
       const consultaDespues = await request(servidor())
         .get(`/normas/${normaId}/contenido`)
-        .set('x-usuario-id', USUARIO_SUSCRIPTOR);
+        .set('Authorization', await autorizacionDe(USUARIO_SUSCRIPTOR));
       expect(consultaDespues.status).toBe(200);
       expect(consultaDespues.body.fuente).toBe(
         'https://www.registroficial.gob.ec/norma-prisma.pdf',

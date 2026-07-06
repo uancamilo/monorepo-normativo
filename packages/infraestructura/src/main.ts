@@ -3,8 +3,8 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { validarConfiguracionArranque } from './configuracion/validar-configuracion-arranque';
 
-// Identidad simulada para Fase 3A; no es autenticación real.
-// Los endpoints leen el usuario del header x-usuario-id (placeholder inseguro).
+// Autenticación real mínima (Fase 4A): Bearer token JWT HS256 verificado por
+// GuardAutenticacion. Ver docs/arquitectura/decisiones/0005-autenticacion-real-minima.md.
 async function bootstrap(): Promise<void> {
   const configuracion = validarConfiguracionArranque();
 

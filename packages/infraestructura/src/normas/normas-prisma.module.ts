@@ -10,6 +10,7 @@ import {
   UnidadDeTrabajoPublicacionNorma,
 } from '@normativo/aplicacion';
 import { NormasController } from './normas.controller';
+import { AutenticacionModule } from '../autenticacion/autenticacion.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { PrismaService } from '../prisma/prisma.service';
 import { RepositorioUsuariosPrisma } from '../persistencia/RepositorioUsuariosPrisma';
@@ -26,7 +27,7 @@ import {
 } from './tokens';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [AutenticacionModule, PrismaModule],
   controllers: [NormasController],
   providers: [
     // Adaptadores Prisma detrás de los puertos de aplicación.

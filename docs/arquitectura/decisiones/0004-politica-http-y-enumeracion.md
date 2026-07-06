@@ -31,11 +31,13 @@ Se mantiene el mapeo actual de forma consciente:
    `SUSCRIPCION_NO_ENCONTRADA` colapsan al mismo código y no revelan la causa
    concreta (rol, suscripción inactiva, correo no habilitado o norma no
    publicada), evitando filtrar el estado de suscripciones ajenas.
-3. **401 para `USUARIO_NO_ENCONTRADO` es provisional.** Hoy la identidad llega
-   por el header `x-usuario-id`, que es un placeholder inseguro sin
-   autenticación real. Cuando se introduzca autenticación (JWT/sesión), la
-   verificación de identidad ocurrirá antes del caso de uso y esta razón debe
-   reevaluarse (probablemente desaparezca del contrato HTTP).
+3. **401 para `USUARIO_NO_ENCONTRADO` se mantiene tras la Fase 4A.** La
+   identidad ahora llega por Bearer token firmado (ADR 0005): el guard verifica
+   el token y los casos de uso cargan el usuario del repositorio. Un token
+   válido cuyo `sub` no existe en el sistema sigue produciendo 401, igual que
+   un token ausente o inválido, sin distinguir la causa hacia el cliente.
+   Cuando exista emisión de tokens ligada a usuarios reales (login), esta razón
+   debería volverse residual y puede reevaluarse.
 
 ## Consecuencias
 

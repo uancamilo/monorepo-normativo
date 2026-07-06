@@ -11,6 +11,7 @@ import {
   UnidadDeTrabajoPublicacionNorma,
 } from '@normativo/aplicacion';
 import { NormasController } from './normas.controller';
+import { AutenticacionModule } from '../autenticacion/autenticacion.module';
 import { RepositorioUsuariosEnMemoria } from '../memoria/RepositorioUsuariosEnMemoria';
 import { RepositorioNormasEnMemoria } from '../memoria/RepositorioNormasEnMemoria';
 import { RepositorioSuscripcionesEnMemoria } from '../memoria/RepositorioSuscripcionesEnMemoria';
@@ -27,6 +28,7 @@ import {
 } from './tokens';
 
 @Module({
+  imports: [AutenticacionModule],
   controllers: [NormasController],
   providers: [
     // Adaptadores en memoria detrás de los puertos de aplicación.

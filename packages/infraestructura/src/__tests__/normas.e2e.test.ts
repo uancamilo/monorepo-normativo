@@ -15,6 +15,7 @@ import request from 'supertest';
 import { NormasModule } from '../normas/normas.module';
 import { TOKEN_PUBLICADOR_EVENTOS } from '../normas/tokens';
 import { PublicadorEventosNormasEnMemoria } from '../memoria/PublicadorEventosNormasEnMemoria';
+import { ServicioTokens } from '../autenticacion/servicio-tokens';
 
 const USUARIO_EDITOR = 'usuario-editor-1';
 const USUARIO_SUPERADMIN = 'usuario-superadmin-1';
@@ -38,6 +39,8 @@ function cuerpoNormaValido(overrides: Record<string, unknown> = {}) {
 
 describe('Normas (e2e)', () => {
   let app: INestApplication;
+  let servicioTokens: ServicioTokens;
+  const tokens = new Map<string, string>();
 
   beforeEach(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -46,6 +49,10 @@ describe('Normas (e2e)', () => {
 
     app = moduleRef.createNestApplication();
     await app.init();
+
+    // ServicioTokens real de la app: los tokens de test se firman con el mismo
+    // secreto que verifica el guard, esté o no definido JWT_SECRET en el entorno.
+    servicioTokens = app.get(ServicioTokens);
   });
 
   afterEach(async () => {
@@ -56,10 +63,30 @@ describe('Normas (e2e)', () => {
     return app.getHttpServer();
   }
 
+  async function autorizacionDe(
+    usuarioId: string,
+    opciones: { rol?: string } = {},
+  ): Promise<string> {
+    if (opciones.rol !== undefined) {
+      // Sin cache: token especial solo para el test que lo pide.
+      const token = await servicioTokens.firmar({ usuarioId, rol: opciones.rol });
+      return `Bearer ${token}`;
+    }
+
+    // El secreto no cambia entre apps del mismo proceso, así que el cache por
+    // usuario es seguro aunque la app se recree en cada test.
+    let token = tokens.get(usuarioId);
+    if (token === undefined) {
+      token = await servicioTokens.firmar({ usuarioId });
+      tokens.set(usuarioId, token);
+    }
+    return `Bearer ${token}`;
+  }
+
   async function registrarComoEditor(overrides: Record<string, unknown> = {}) {
     const respuesta = await request(servidor())
       .post('/normas')
-      .set('x-usuario-id', USUARIO_EDITOR)
+      .set('Authorization', await autorizacionDe(USUARIO_EDITOR))
       .send(cuerpoNormaValido(overrides));
     return respuesta;
   }
@@ -74,7 +101,7 @@ describe('Normas (e2e)', () => {
 
     const publicacion = await request(servidor())
       .post('/normas/norma-1/publicar')
-      .set('x-usuario-id', USUARIO_EDITOR)
+      .set('Authorization', await autorizacionDe(USUARIO_EDITOR))
       .send({ fechaPublicacionEnSistema: '2026-06-29T00:00:00.000Z' });
     expect(publicacion.status).toBe(200);
     expect(publicacion.body.id).toBe('norma-1');
@@ -86,7 +113,7 @@ describe('Normas (e2e)', () => {
 
     const consulta = await request(servidor())
       .get('/normas/norma-1/contenido')
-      .set('x-usuario-id', USUARIO_SUSCRIPTOR);
+      .set('Authorization', await autorizacionDe(USUARIO_SUSCRIPTOR));
     expect(consulta.status).toBe(200);
     expect(consulta.body.id).toBe('norma-1');
     expect(consulta.body.titulo).toBe('Ley Orgánica de Prueba');
@@ -95,12 +122,13 @@ describe('Normas (e2e)', () => {
       'https://www.registroficial.gob.ec/norma.pdf',
     );
     expect(consulta.body).not.toHaveProperty('fechaPublicacionEnSistema');
+    expect(consulta.body).not.toHaveProperty('estadoEditorial');
   });
 
   it('SUPERADMINISTRADOR puede registrar', async () => {
     const respuesta = await request(servidor())
       .post('/normas')
-      .set('x-usuario-id', USUARIO_SUPERADMIN)
+      .set('Authorization', await autorizacionDe(USUARIO_SUPERADMIN))
       .send(cuerpoNormaValido());
     expect(respuesta.status).toBe(201);
     expect(respuesta.body.estadoEditorial).toBe('BORRADOR');
@@ -109,7 +137,7 @@ describe('Normas (e2e)', () => {
   it('ADMINISTRADOR no puede registrar (403)', async () => {
     const respuesta = await request(servidor())
       .post('/normas')
-      .set('x-usuario-id', USUARIO_ADMIN)
+      .set('Authorization', await autorizacionDe(USUARIO_ADMIN))
       .send(cuerpoNormaValido());
     expect(respuesta.status).toBe(403);
   });
@@ -117,7 +145,7 @@ describe('Normas (e2e)', () => {
   it('SUSCRIPTOR no puede registrar (403)', async () => {
     const respuesta = await request(servidor())
       .post('/normas')
-      .set('x-usuario-id', USUARIO_SUSCRIPTOR)
+      .set('Authorization', await autorizacionDe(USUARIO_SUSCRIPTOR))
       .send(cuerpoNormaValido());
     expect(respuesta.status).toBe(403);
   });
@@ -126,7 +154,7 @@ describe('Normas (e2e)', () => {
     await registrarComoEditor();
     const respuesta = await request(servidor())
       .post('/normas/norma-1/publicar')
-      .set('x-usuario-id', USUARIO_ADMIN)
+      .set('Authorization', await autorizacionDe(USUARIO_ADMIN))
       .send({});
     expect(respuesta.status).toBe(403);
   });
@@ -135,7 +163,7 @@ describe('Normas (e2e)', () => {
     await registrarComoEditor();
     const respuesta = await request(servidor())
       .post('/normas/norma-1/publicar')
-      .set('x-usuario-id', USUARIO_SUSCRIPTOR)
+      .set('Authorization', await autorizacionDe(USUARIO_SUSCRIPTOR))
       .send({});
     expect(respuesta.status).toBe(403);
   });
@@ -144,7 +172,7 @@ describe('Normas (e2e)', () => {
     await registrarComoEditor();
     const respuesta = await request(servidor())
       .post('/normas/norma-1/publicar')
-      .set('x-usuario-id', USUARIO_SUPERADMIN)
+      .set('Authorization', await autorizacionDe(USUARIO_SUPERADMIN))
       .send({});
     expect(respuesta.status).toBe(200);
     expect(respuesta.body.estadoEditorial).toBe('PUBLICADA');
@@ -154,13 +182,13 @@ describe('Normas (e2e)', () => {
     await registrarComoEditor();
     await request(servidor())
       .post('/normas/norma-1/publicar')
-      .set('x-usuario-id', USUARIO_EDITOR)
+      .set('Authorization', await autorizacionDe(USUARIO_EDITOR))
       .send({});
 
     // editor@test.com no está habilitado en la suscripción semilla.
     const consulta = await request(servidor())
       .get('/normas/norma-1/contenido')
-      .set('x-usuario-id', USUARIO_EDITOR);
+      .set('Authorization', await autorizacionDe(USUARIO_EDITOR));
     expect(consulta.status).toBe(403);
   });
 
@@ -168,13 +196,47 @@ describe('Normas (e2e)', () => {
     await registrarComoEditor();
     const consulta = await request(servidor())
       .get('/normas/norma-1/contenido')
-      .set('x-usuario-id', USUARIO_SUSCRIPTOR);
+      .set('Authorization', await autorizacionDe(USUARIO_SUSCRIPTOR));
     expect(consulta.status).toBe(403);
   });
 
-  it('falta header x-usuario-id devuelve 401', async () => {
+  it('sin token devuelve 401', async () => {
     const respuesta = await request(servidor())
       .post('/normas')
+      .send(cuerpoNormaValido());
+    expect(respuesta.status).toBe(401);
+  });
+
+  it('token inválido devuelve 401', async () => {
+    const respuesta = await request(servidor())
+      .post('/normas')
+      .set('Authorization', 'Bearer token-invalido')
+      .send(cuerpoNormaValido());
+    expect(respuesta.status).toBe(401);
+  });
+
+  it('el header legacy x-usuario-id ya no autentica (401)', async () => {
+    const respuesta = await request(servidor())
+      .post('/normas')
+      .set('x-usuario-id', USUARIO_EDITOR)
+      .send(cuerpoNormaValido());
+    expect(respuesta.status).toBe(401);
+  });
+
+  it('no concede permisos por el rol informativo del token', async () => {
+    // Token válido con rol EDITOR falsificado, pero el sub es el ADMINISTRADOR
+    // semilla: los permisos salen del Usuario del repositorio, no del claim.
+    const respuesta = await request(servidor())
+      .post('/normas')
+      .set('Authorization', await autorizacionDe(USUARIO_ADMIN, { rol: 'EDITOR' }))
+      .send(cuerpoNormaValido());
+    expect(respuesta.status).toBe(403);
+  });
+
+  it('token válido de usuario inexistente devuelve 401', async () => {
+    const respuesta = await request(servidor())
+      .post('/normas')
+      .set('Authorization', await autorizacionDe('usuario-fantasma'))
       .send(cuerpoNormaValido());
     expect(respuesta.status).toBe(401);
   });
@@ -182,7 +244,7 @@ describe('Normas (e2e)', () => {
   it('solicitud inválida (título vacío) devuelve 400', async () => {
     const respuesta = await request(servidor())
       .post('/normas')
-      .set('x-usuario-id', USUARIO_EDITOR)
+      .set('Authorization', await autorizacionDe(USUARIO_EDITOR))
       .send(cuerpoNormaValido({ titulo: '' }));
     expect(respuesta.status).toBe(400);
   });
@@ -190,7 +252,7 @@ describe('Normas (e2e)', () => {
   it('publicar norma inexistente devuelve 404', async () => {
     const respuesta = await request(servidor())
       .post('/normas/norma-inexistente/publicar')
-      .set('x-usuario-id', USUARIO_EDITOR)
+      .set('Authorization', await autorizacionDe(USUARIO_EDITOR))
       .send({});
     expect(respuesta.status).toBe(404);
   });
@@ -199,11 +261,11 @@ describe('Normas (e2e)', () => {
     await registrarComoEditor();
     await request(servidor())
       .post('/normas/norma-1/publicar')
-      .set('x-usuario-id', USUARIO_EDITOR)
+      .set('Authorization', await autorizacionDe(USUARIO_EDITOR))
       .send({});
     const segunda = await request(servidor())
       .post('/normas/norma-1/publicar')
-      .set('x-usuario-id', USUARIO_EDITOR)
+      .set('Authorization', await autorizacionDe(USUARIO_EDITOR))
       .send({});
     expect(segunda.status).toBe(409);
   });
@@ -213,7 +275,7 @@ describe('Normas (e2e)', () => {
     await registrarComoEditor();
     await request(servidor())
       .post('/normas/norma-1/publicar')
-      .set('x-usuario-id', USUARIO_EDITOR)
+      .set('Authorization', await autorizacionDe(USUARIO_EDITOR))
       .send({ fechaPublicacionEnSistema: '2026-06-29T00:00:00.000Z' });
 
     const publicador = app.get<PublicadorEventosNormasEnMemoria>(
