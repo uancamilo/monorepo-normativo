@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
-import { seleccionarModuloNormas } from './normas/seleccionar-modulo-normas';
+import { seleccionarModulosHttp } from './normas/seleccionar-modulo-normas';
 
 @Module({
-  imports: [seleccionarModuloNormas()],
+  imports: [...seleccionarModulosHttp()],
 })
 export class AppModule {}

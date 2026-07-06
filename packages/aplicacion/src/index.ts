@@ -34,3 +34,17 @@ export type {
   ResultadoRegistrarNorma,
   SolicitudRegistrarNorma,
 } from './normas/casos-uso/RegistrarNorma';
+
+export type {
+  CredencialesUsuario,
+  RepositorioCredencialesUsuarios,
+} from './autenticacion/puertos/RepositorioCredencialesUsuarios';
+export type { VerificadorContrasenas } from './autenticacion/puertos/VerificadorContrasenas';
+
+export { IniciarSesion } from './autenticacion/casos-uso/IniciarSesion';
+export type {
+  DependenciasIniciarSesion,
+  RazonIniciarSesionFallido,
+  ResultadoIniciarSesion,
+  SolicitudIniciarSesion,
+} from './autenticacion/casos-uso/IniciarSesion';

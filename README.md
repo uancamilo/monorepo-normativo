@@ -65,18 +65,25 @@ Cada fase cierra con un commit y un tag anotado (`git tag -n`):
 - Fase 3F: CI con PostgreSQL y limpieza de deudas menores.
 - Fase 3G: endurecimiento de dominio, validación de enums en mapeadores y documentación.
 - Fase 4A: autenticación real mínima con Bearer token (JWT HS256).
+- Fase 4B: login mínimo (`POST /auth/login`) y hash de contraseñas con scrypt.
 
 ## Autenticación
 
-Los endpoints exigen `Authorization: Bearer <token>` (JWT HS256 verificado en
-infraestructura con `jose`). El token solo identifica al usuario (`sub`); los
-roles y permisos de negocio siguen resolviéndose con el `Usuario` del dominio.
-El header `x-usuario-id` quedó eliminado como mecanismo de identidad.
+Los endpoints de normas exigen `Authorization: Bearer <token>` (JWT HS256
+verificado en infraestructura con `jose`). El token solo identifica al usuario
+(`sub`); los roles y permisos de negocio siguen resolviéndose con el `Usuario`
+del dominio. El header `x-usuario-id` quedó eliminado como mecanismo de identidad.
 
+- **Login**: `POST /auth/login` con `{ "correo", "contrasena" }` responde
+  `{ "accessToken", "tokenType": "Bearer", "expiresIn" }`. Credenciales
+  inválidas → 401 genérico (no revela si el correo existe). Las contraseñas se
+  almacenan como hash scrypt (`usuarios.password_hash`, formato
+  `scrypt:v1:...`); nunca en texto plano. Usuarios semilla locales usan la
+  contraseña documentada `Password123!`.
 - `JWT_SECRET` es obligatorio en producción (mínimo 32 caracteres); fuera de
   producción hay un secreto explícito de desarrollo. `JWT_ISSUER` y
   `JWT_AUDIENCE` son opcionales. Ejemplos en `packages/infraestructura/.env.example`.
-- Token de prueba local:
+- Herramienta local alternativa (ya no el flujo principal):
   `node packages/infraestructura/scripts/generar-token-dev.js usuario-editor-1`.
-- Es una implementación inicial mínima: sin refresh tokens, sesiones, login,
-  OAuth ni Azure AD/B2C (ver ADR 0005).
+- Sigue siendo una implementación mínima: sin refresh tokens, sesiones,
+  logout, revocación, registro público, OAuth ni Azure AD/B2C (ADR 0005 y 0006).

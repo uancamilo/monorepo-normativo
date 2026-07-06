@@ -61,9 +61,11 @@ infraestructura lo obtiene.
   futura: rotación de claves o firma asimétrica cuando haya emisor separado.
 - No hay revocación: un token robado vale hasta su expiración (1 h por
   defecto). Aceptado en esta fase; sesiones/refresh quedan diferidos.
-- No existe endpoint de login: los tokens se emiten fuera de banda
+- ~~No existe endpoint de login: los tokens se emiten fuera de banda
   (`scripts/generar-token-dev.js` en local). El flujo de emisión real llegará
-  con la gestión de usuarios.
+  con la gestión de usuarios.~~ Resuelto en Fase 4B: `POST /auth/login` emite
+  tokens verificando credenciales (ADR 0006); el script queda como herramienta
+  local secundaria.
 
 ## Fuera de alcance (diferido)
 

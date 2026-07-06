@@ -9,6 +9,7 @@ import {
 } from '@normativo/dominio';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RepositorioUsuariosPrisma } from '../RepositorioUsuariosPrisma';
+import { RepositorioCredencialesUsuariosPrisma } from '../RepositorioCredencialesUsuariosPrisma';
 import { RepositorioNormasPrisma } from '../RepositorioNormasPrisma';
 import { RepositorioSuscripcionesPrisma } from '../RepositorioSuscripcionesPrisma';
 import { GeneradorIdsUuid } from '../GeneradorIdsUuid';
@@ -114,6 +115,45 @@ describirPrisma(
       expect(usuario?.obtenerId()).toBe('usuario-1');
       expect(usuario?.obtenerCorreo()).toBe('usuario@test.com');
       expect(usuario?.tieneRol(RolUsuario.EDITOR)).toBe(true);
+      expect(inexistente).toBeNull();
+    });
+
+    it('RepositorioCredencialesUsuariosPrisma busca por correo normalizado y preserva passwordHash', async () => {
+      await prisma.usuario.create({
+        data: {
+          id: 'usuario-con-password',
+          nombre: 'Usuario',
+          apellido: 'ConPassword',
+          correoNormalizado: 'con-password@test.com',
+          rol: 'EDITOR',
+          passwordHash: 'scrypt:v1:c2FsdA==:aGFzaA==',
+        },
+      });
+      await prisma.usuario.create({
+        data: {
+          id: 'usuario-sin-password',
+          nombre: 'Usuario',
+          apellido: 'SinPassword',
+          correoNormalizado: 'sin-password@test.com',
+          rol: 'SUSCRIPTOR',
+        },
+      });
+      const repositorio = new RepositorioCredencialesUsuariosPrisma(prisma);
+
+      const conPassword = await repositorio.buscarPorCorreo('con-password@test.com');
+      const sinPassword = await repositorio.buscarPorCorreo('sin-password@test.com');
+      const inexistente = await repositorio.buscarPorCorreo('nadie@test.com');
+
+      expect(conPassword).toEqual({
+        usuarioId: 'usuario-con-password',
+        rol: RolUsuario.EDITOR,
+        hashContrasena: 'scrypt:v1:c2FsdA==:aGFzaA==',
+      });
+      expect(sinPassword).toEqual({
+        usuarioId: 'usuario-sin-password',
+        rol: RolUsuario.SUSCRIPTOR,
+        hashContrasena: null,
+      });
       expect(inexistente).toBeNull();
     });
 

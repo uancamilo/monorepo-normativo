@@ -38,6 +38,7 @@ model Usuario {
   apellido           String
   correoNormalizado  String            @unique @map("correo_normalizado")
   rol                RolUsuarioPrisma
+  passwordHash       String?           @map("password_hash")
   createdAt          DateTime          @default(now()) @map("created_at")
   updatedAt          DateTime          @updatedAt @map("updated_at")
 

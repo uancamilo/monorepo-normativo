@@ -24,10 +24,15 @@ const {
   validarTestDatabaseUrl,
   validarUrlPostgres,
 } = require('./validar-url-base-datos');
+const { generarHashContrasena } = require('./hash-contrasenas');
 
 // Copia consciente de normalizarCorreo del dominio: este script es CJS
 // standalone y no carga el paquete TypeScript de dominio.
 const normalizarCorreo = (correo) => correo.trim().toLowerCase();
+
+// Contraseña semilla documentada para usuarios @test.com locales. Nunca se
+// guarda en texto plano: se persiste su hash scrypt (scripts/hash-contrasenas.js).
+const CONTRASENA_SEMILLA = 'Password123!';
 
 const USUARIOS_SEMILLA = [
   {
@@ -85,12 +90,15 @@ const datosSemilla = {
  * @param {import('@prisma/client').PrismaClient} prisma
  */
 async function sembrar(prisma) {
+  const passwordHash = await generarHashContrasena(CONTRASENA_SEMILLA);
+
   for (const usuario of USUARIOS_SEMILLA) {
     const datos = {
       nombre: usuario.nombre,
       apellido: usuario.apellido,
       correoNormalizado: usuario.correoNormalizado,
       rol: usuario.rol,
+      passwordHash,
     };
     await prisma.usuario.upsert({
       where: { id: usuario.id },
@@ -171,6 +179,7 @@ module.exports = {
   normalizarCorreo,
   obtenerUrlSeedDesdeEntorno,
   validarTestDatabaseUrl,
+  CONTRASENA_SEMILLA,
 };
 
 if (require.main === module) {

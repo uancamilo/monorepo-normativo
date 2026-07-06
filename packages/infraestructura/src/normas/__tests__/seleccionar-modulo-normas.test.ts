@@ -2,9 +2,12 @@ import { describe, expect, it } from '@jest/globals';
 import {
   obtenerPersistenciaNormas,
   seleccionarModuloNormas,
+  seleccionarModulosHttp,
 } from '../seleccionar-modulo-normas';
 import { NormasModule } from '../normas.module';
 import { NormasPrismaModule } from '../normas-prisma.module';
+import { AuthModule } from '../../autenticacion/http/auth.module';
+import { AuthPrismaModule } from '../../autenticacion/http/auth-prisma.module';
 
 describe('seleccionarModuloNormas', () => {
   it('usa memoria por defecto', () => {
@@ -29,5 +32,17 @@ describe('seleccionarModuloNormas', () => {
     expect(() => seleccionarModuloNormas('prsima')).toThrow(
       /PERSISTENCIA tiene un valor desconocido: 'prsima'/,
     );
+    expect(() => seleccionarModulosHttp('prsima')).toThrow(
+      /PERSISTENCIA tiene un valor desconocido: 'prsima'/,
+    );
+  });
+
+  it('seleccionarModulosHttp entrega normas + auth acordes a la persistencia', () => {
+    expect(seleccionarModulosHttp(undefined)).toEqual([NormasModule, AuthModule]);
+    expect(seleccionarModulosHttp('memoria')).toEqual([NormasModule, AuthModule]);
+    expect(seleccionarModulosHttp('prisma')).toEqual([
+      NormasPrismaModule,
+      AuthPrismaModule,
+    ]);
   });
 });

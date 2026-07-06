@@ -120,9 +120,22 @@ El arranque valida la configuración y aborta con mensaje claro si algo está ma
 - `PUERTO` es opcional (default `3000`).
 
 Desde la Fase 4A los endpoints exigen `Authorization: Bearer <token>` (JWT
-HS256; el header `x-usuario-id` ya no autentica). Para desarrollo local genera
-tokens con el script (usa `JWT_SECRET` del entorno o el secreto explícito de
-desarrollo, el mismo que la app fuera de producción):
+HS256; el header `x-usuario-id` ya no autentica). Desde la Fase 4B el flujo
+principal es `POST /auth/login` con los usuarios seed (contraseña semilla
+documentada `Password123!`, almacenada solo como hash scrypt):
+
+```bash
+TOKEN_EDITOR=$(curl -s -X POST localhost:3000/auth/login \
+  -H 'content-type: application/json' \
+  -d '{"correo":"editor@test.com","contrasena":"Password123!"}' | node -pe 'JSON.parse(require("fs").readFileSync(0)).accessToken')
+TOKEN_SUSCRIPTOR=$(curl -s -X POST localhost:3000/auth/login \
+  -H 'content-type: application/json' \
+  -d '{"correo":"suscriptor@test.com","contrasena":"Password123!"}' | node -pe 'JSON.parse(require("fs").readFileSync(0)).accessToken')
+```
+
+Alternativa local sin login (herramienta de desarrollo, usa `JWT_SECRET` del
+entorno o el secreto explícito de desarrollo, el mismo que la app fuera de
+producción):
 
 ```bash
 TOKEN_EDITOR=$(node packages/infraestructura/scripts/generar-token-dev.js usuario-editor-1)
