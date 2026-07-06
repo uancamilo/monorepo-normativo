@@ -66,6 +66,7 @@ Cada fase cierra con un commit y un tag anotado (`git tag -n`):
 - Fase 3G: endurecimiento de dominio, validación de enums en mapeadores y documentación.
 - Fase 4A: autenticación real mínima con Bearer token (JWT HS256).
 - Fase 4B: login mínimo (`POST /auth/login`) y hash de contraseñas con scrypt.
+- Fase 4C: los e2e consumen los endpoints con tokens emitidos por login real; `x-usuario-id` sin soporte legado alguno.
 
 ## Autenticación
 

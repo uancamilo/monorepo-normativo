@@ -6,16 +6,15 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { PrismaService } from '../prisma/prisma.service';
 import { obtenerTestDatabaseUrlDesdeEntorno } from '../prisma/validar-url-base-datos-test';
-import { ServicioTokens } from '../autenticacion/servicio-tokens';
 
 // Seed compartido con el script `prisma:seed` (única fuente de verdad).
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { sembrar } = require('../../scripts/seed-prisma');
+const { sembrar, CONTRASENA_SEMILLA } = require('../../scripts/seed-prisma');
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { aplicarChecksPrisma } = require('../../scripts/aplicar-checks-prisma');
 
-const USUARIO_EDITOR = 'usuario-editor-1';
-const USUARIO_SUSCRIPTOR = 'usuario-suscriptor-1';
+const CORREO_EDITOR = 'editor@test.com';
+const CORREO_SUSCRIPTOR = 'suscriptor@test.com';
 
 const testDatabaseUrl = obtenerTestDatabaseUrlDesdeEntorno();
 const describirPrisma = testDatabaseUrl ? describe : describe.skip;
@@ -49,14 +48,17 @@ describirPrisma(
   () => {
     let app: INestApplication;
     let prisma: PrismaService;
-    let servicioTokens: ServicioTokens;
     let persistenciaPrevia: string | undefined;
     let databaseUrlPrevia: string | undefined;
 
-    async function autorizacionDe(usuarioId: string): Promise<string> {
-      // ServicioTokens real de la app: firma con el mismo secreto que verifica
-      // el guard, esté o no definido JWT_SECRET en el entorno.
-      return `Bearer ${await servicioTokens.firmar({ usuarioId })}`;
+    async function autorizacionDe(correo: string): Promise<string> {
+      // Flujo real de Fase 4B/4C: el token sale de POST /auth/login contra los
+      // usuarios seed (credenciales scrypt en PostgreSQL).
+      const login = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ correo, contrasena: CONTRASENA_SEMILLA });
+      expect(login.status).toBe(200);
+      return `Bearer ${login.body.accessToken}`;
     }
 
     beforeAll(async () => {
@@ -97,7 +99,6 @@ describirPrisma(
       }).compile();
       app = moduleRef.createNestApplication();
       await app.init();
-      servicioTokens = app.get(ServicioTokens);
     });
 
     afterAll(async () => {
@@ -115,7 +116,7 @@ describirPrisma(
       // 2-3. POST /normas como editor -> 201 y BORRADOR.
       const registro = await request(servidor())
         .post('/normas')
-        .set('Authorization', await autorizacionDe(USUARIO_EDITOR))
+        .set('Authorization', await autorizacionDe(CORREO_EDITOR))
         .send(cuerpoNormaValido());
       expect(registro.status).toBe(201);
       expect(registro.body.estadoEditorial).toBe('BORRADOR');
@@ -126,13 +127,13 @@ describirPrisma(
       // 4. GET contenido como suscriptor antes de publicar -> 403.
       const consultaAntes = await request(servidor())
         .get(`/normas/${normaId}/contenido`)
-        .set('Authorization', await autorizacionDe(USUARIO_SUSCRIPTOR));
+        .set('Authorization', await autorizacionDe(CORREO_SUSCRIPTOR));
       expect(consultaAntes.status).toBe(403);
 
       // 5. POST publicar como editor -> 200 con fechaPublicacionEnSistema.
       const publicacion = await request(servidor())
         .post(`/normas/${normaId}/publicar`)
-        .set('Authorization', await autorizacionDe(USUARIO_EDITOR))
+        .set('Authorization', await autorizacionDe(CORREO_EDITOR))
         .send({ fechaPublicacionEnSistema: '2026-06-29T00:00:00.000Z' });
       expect(publicacion.status).toBe(200);
       expect(publicacion.body.estadoEditorial).toBe('PUBLICADA');
@@ -144,7 +145,7 @@ describirPrisma(
       //    sin fechaPublicacionEnSistema ni estadoEditorial.
       const consultaDespues = await request(servidor())
         .get(`/normas/${normaId}/contenido`)
-        .set('Authorization', await autorizacionDe(USUARIO_SUSCRIPTOR));
+        .set('Authorization', await autorizacionDe(CORREO_SUSCRIPTOR));
       expect(consultaDespues.status).toBe(200);
       expect(consultaDespues.body.fuente).toBe(
         'https://www.registroficial.gob.ec/norma-prisma.pdf',

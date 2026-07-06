@@ -9,18 +9,29 @@ import {
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
-// Se monta NormasModule (memoria) directamente en vez de AppModule para que
-// este e2e no dependa de la variable PERSISTENCIA del entorno; el selector de
-// módulo tiene su propio test (seleccionar-modulo-normas.test.ts).
+// Se montan NormasModule + AuthModule (memoria) directamente en vez de
+// AppModule para que este e2e no dependa de la variable PERSISTENCIA del
+// entorno; el selector de módulo tiene su propio test
+// (seleccionar-modulo-normas.test.ts).
 import { NormasModule } from '../normas/normas.module';
+import { AuthModule } from '../autenticacion/http/auth.module';
 import { TOKEN_PUBLICADOR_EVENTOS } from '../normas/tokens';
 import { PublicadorEventosNormasEnMemoria } from '../memoria/PublicadorEventosNormasEnMemoria';
 import { ServicioTokens } from '../autenticacion/servicio-tokens';
+import { CONTRASENA_SEMILLA } from '../memoria/RepositorioCredencialesUsuariosEnMemoria';
 
 const USUARIO_EDITOR = 'usuario-editor-1';
 const USUARIO_SUPERADMIN = 'usuario-superadmin-1';
 const USUARIO_ADMIN = 'usuario-admin-1';
 const USUARIO_SUSCRIPTOR = 'usuario-suscriptor-1';
+
+// Correos de los usuarios semilla para obtener tokens mediante login real.
+const CORREOS_SEMILLA: Record<string, string> = {
+  [USUARIO_EDITOR]: 'editor@test.com',
+  [USUARIO_SUPERADMIN]: 'superadmin@test.com',
+  [USUARIO_ADMIN]: 'admin@test.com',
+  [USUARIO_SUSCRIPTOR]: 'suscriptor@test.com',
+};
 
 function cuerpoNormaValido(overrides: Record<string, unknown> = {}) {
   return {
@@ -44,14 +55,14 @@ describe('Normas (e2e)', () => {
 
   beforeEach(async () => {
     const moduleRef = await Test.createTestingModule({
-      imports: [NormasModule],
+      imports: [NormasModule, AuthModule],
     }).compile();
 
     app = moduleRef.createNestApplication();
     await app.init();
 
-    // ServicioTokens real de la app: los tokens de test se firman con el mismo
-    // secreto que verifica el guard, esté o no definido JWT_SECRET en el entorno.
+    // ServicioTokens real de la app: solo para los casos que el login no puede
+    // producir (usuario inexistente, rol falsificado en el claim).
     servicioTokens = app.get(ServicioTokens);
   });
 
@@ -68,16 +79,30 @@ describe('Normas (e2e)', () => {
     opciones: { rol?: string } = {},
   ): Promise<string> {
     if (opciones.rol !== undefined) {
-      // Sin cache: token especial solo para el test que lo pide.
+      // Token con claim de rol falsificado: el login real nunca lo emitiría,
+      // se firma directo solo para el test que lo pide. Sin cache.
       const token = await servicioTokens.firmar({ usuarioId, rol: opciones.rol });
       return `Bearer ${token}`;
     }
 
-    // El secreto no cambia entre apps del mismo proceso, así que el cache por
-    // usuario es seguro aunque la app se recree en cada test.
+    const correo = CORREOS_SEMILLA[usuarioId];
+    if (correo === undefined) {
+      // Usuario sin credenciales semilla (p. ej. inexistente): token firmado
+      // directo, imposible de obtener por login.
+      const token = await servicioTokens.firmar({ usuarioId });
+      return `Bearer ${token}`;
+    }
+
+    // Flujo real de Fase 4B/4C: el token sale de POST /auth/login. El secreto
+    // no cambia entre apps del mismo proceso, así que el cache por usuario es
+    // seguro aunque la app se recree en cada test.
     let token = tokens.get(usuarioId);
     if (token === undefined) {
-      token = await servicioTokens.firmar({ usuarioId });
+      const login = await request(servidor())
+        .post('/auth/login')
+        .send({ correo, contrasena: CONTRASENA_SEMILLA });
+      expect(login.status).toBe(200);
+      token = login.body.accessToken as string;
       tokens.set(usuarioId, token);
     }
     return `Bearer ${token}`;
@@ -213,6 +238,28 @@ describe('Normas (e2e)', () => {
       .set('Authorization', 'Bearer token-invalido')
       .send(cuerpoNormaValido());
     expect(respuesta.status).toBe(401);
+  });
+
+  it('Authorization con formato incorrecto devuelve 401', async () => {
+    const autorizacionValida = await autorizacionDe(USUARIO_EDITOR);
+    const tokenValido = autorizacionValida.replace('Bearer ', '');
+
+    const esquemaBasic = await request(servidor())
+      .post('/normas')
+      .set('Authorization', `Basic ${tokenValido}`)
+      .send(cuerpoNormaValido());
+    const tokenPelado = await request(servidor())
+      .post('/normas')
+      .set('Authorization', tokenValido)
+      .send(cuerpoNormaValido());
+    const bearerVacio = await request(servidor())
+      .post('/normas')
+      .set('Authorization', 'Bearer')
+      .send(cuerpoNormaValido());
+
+    expect(esquemaBasic.status).toBe(401);
+    expect(tokenPelado.status).toBe(401);
+    expect(bearerVacio.status).toBe(401);
   });
 
   it('el header legacy x-usuario-id ya no autentica (401)', async () => {

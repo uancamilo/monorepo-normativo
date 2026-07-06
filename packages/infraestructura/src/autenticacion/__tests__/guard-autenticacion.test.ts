@@ -48,6 +48,19 @@ describe('GuardAutenticacion', () => {
     ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
+  it('rechaza token expirado con 401', async () => {
+    const tokenExpirado = await servicioTokens.firmar({
+      usuarioId: 'usuario-1',
+      duracionSegundos: -60,
+    });
+
+    await expect(
+      guard.canActivate(
+        crearContexto({ headers: { authorization: `Bearer ${tokenExpirado}` } }),
+      ),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
   it('con Bearer válido deja el usuario autenticado en la request', async () => {
     const token = await servicioTokens.firmar({
       usuarioId: 'usuario-1',
