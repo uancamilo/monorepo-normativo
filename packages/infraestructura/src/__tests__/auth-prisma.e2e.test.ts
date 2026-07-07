@@ -150,6 +150,48 @@ describirPrisma(
       expect(contrasenaIncorrecta.body).toEqual(correoInexistente.body);
     });
 
+    it('cambiar contraseña: 204, hash scrypt nuevo en DB, vieja falla y nueva funciona', async () => {
+      const CORREO_ADMIN = 'admin@test.com';
+      const NUEVA_CONTRASENA = 'nueva-contrasena-prisma-1';
+
+      // Login con la contraseña actual funciona antes del cambio.
+      const login = await iniciarSesion(CORREO_ADMIN, CONTRASENA_SEMILLA);
+      expect(login.status).toBe(200);
+      const hashAntes = (
+        await prisma.usuario.findUnique({
+          where: { correoNormalizado: CORREO_ADMIN },
+        })
+      )?.passwordHash;
+
+      const cambio = await request(app.getHttpServer())
+        .post('/auth/cambiar-contrasena')
+        .set('Authorization', `Bearer ${login.body.accessToken}`)
+        .send({
+          contrasenaActual: CONTRASENA_SEMILLA,
+          nuevaContrasena: NUEVA_CONTRASENA,
+        });
+      expect(cambio.status).toBe(204);
+      expect(cambio.body).toEqual({});
+
+      // El hash cambió en PostgreSQL y mantiene el formato scrypt:v1.
+      const usuarioDespues = await prisma.usuario.findUnique({
+        where: { correoNormalizado: CORREO_ADMIN },
+      });
+      expect(usuarioDespues?.passwordHash?.startsWith('scrypt:v1:')).toBe(true);
+      expect(usuarioDespues?.passwordHash).not.toBe(hashAntes);
+
+      const loginVieja = await iniciarSesion(CORREO_ADMIN, CONTRASENA_SEMILLA);
+      expect(loginVieja.status).toBe(401);
+
+      const loginNueva = await iniciarSesion(CORREO_ADMIN, NUEVA_CONTRASENA);
+      expect(loginNueva.status).toBe(200);
+
+      // Restaura la contraseña semilla para no contaminar otras suites.
+      await sembrar(prisma);
+      const loginRestaurado = await iniciarSesion(CORREO_ADMIN, CONTRASENA_SEMILLA);
+      expect(loginRestaurado.status).toBe(200);
+    });
+
     it('usuario sin password_hash no puede iniciar sesión', async () => {
       await prisma.usuario.upsert({
         where: { id: 'usuario-sin-password' },

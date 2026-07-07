@@ -40,6 +40,12 @@ export type {
   RepositorioCredencialesUsuarios,
 } from './autenticacion/puertos/RepositorioCredencialesUsuarios';
 export type { VerificadorContrasenas } from './autenticacion/puertos/VerificadorContrasenas';
+export type { GeneradorHashContrasenas } from './autenticacion/puertos/GeneradorHashContrasenas';
+
+export {
+  LONGITUD_MINIMA_CONTRASENA,
+  PoliticaContrasenas,
+} from './autenticacion/politicas/PoliticaContrasenas';
 
 export { IniciarSesion } from './autenticacion/casos-uso/IniciarSesion';
 export type {
@@ -48,3 +54,11 @@ export type {
   ResultadoIniciarSesion,
   SolicitudIniciarSesion,
 } from './autenticacion/casos-uso/IniciarSesion';
+
+export { CambiarContrasenaPropia } from './autenticacion/casos-uso/CambiarContrasenaPropia';
+export type {
+  DependenciasCambiarContrasenaPropia,
+  RazonCambiarContrasenaPropiaFallido,
+  ResultadoCambiarContrasenaPropia,
+  SolicitudCambiarContrasenaPropia,
+} from './autenticacion/casos-uso/CambiarContrasenaPropia';

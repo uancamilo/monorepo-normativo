@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import {
+  CambiarContrasenaPropia,
   IniciarSesion,
   RepositorioCredencialesUsuarios,
   VerificadorContrasenas,
@@ -33,6 +34,19 @@ import {
         verificadorContrasenas: VerificadorContrasenas,
       ) =>
         new IniciarSesion({ repositorioCredenciales, verificadorContrasenas }),
+      inject: [TOKEN_REPOSITORIO_CREDENCIALES, TOKEN_VERIFICADOR_CONTRASENAS],
+    },
+    {
+      provide: CambiarContrasenaPropia,
+      useFactory: (
+        repositorioCredenciales: RepositorioCredencialesUsuarios,
+        servicioHashContrasenas: ServicioHashContrasenas,
+      ) =>
+        new CambiarContrasenaPropia({
+          repositorioCredenciales,
+          verificadorContrasenas: servicioHashContrasenas,
+          generadorHashContrasenas: servicioHashContrasenas,
+        }),
       inject: [TOKEN_REPOSITORIO_CREDENCIALES, TOKEN_VERIFICADOR_CONTRASENAS],
     },
   ],

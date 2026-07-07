@@ -32,6 +32,9 @@ const {
 } = require('./validar-url-base-datos');
 const { generarHashContrasena } = require('./hash-contrasenas');
 
+// Copia operativa consciente de la política de aplicación
+// (packages/aplicacion PoliticaContrasenas): script CJS standalone que no
+// carga TypeScript. Mantener ambos valores alineados.
 const LONGITUD_MINIMA_PASSWORD = 12;
 
 const VALORES_POR_DEFECTO = {

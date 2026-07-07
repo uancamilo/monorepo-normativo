@@ -21,18 +21,44 @@ export class RepositorioCredencialesUsuariosPrisma
       select: { id: true, rol: true, passwordHash: true },
     });
 
-    if (usuario === null) {
-      return null;
-    }
-
-    return {
-      usuarioId: usuario.id,
-      rol: asegurarValorEnum(usuario.rol, Object.values(RolUsuario), {
-        entidad: 'Usuario',
-        campo: 'rol',
-        id: usuario.id,
-      }),
-      hashContrasena: usuario.passwordHash,
-    };
+    return usuario === null ? null : mapearCredenciales(usuario);
   }
+
+  async buscarPorUsuarioId(
+    usuarioId: string,
+  ): Promise<CredencialesUsuario | null> {
+    const usuario = await this.prisma.usuario.findUnique({
+      where: { id: usuarioId },
+      select: { id: true, rol: true, passwordHash: true },
+    });
+
+    return usuario === null ? null : mapearCredenciales(usuario);
+  }
+
+  async actualizarPasswordHash(
+    usuarioId: string,
+    passwordHash: string,
+  ): Promise<void> {
+    // Solo el campo passwordHash del usuario objetivo; nada más.
+    await this.prisma.usuario.update({
+      where: { id: usuarioId },
+      data: { passwordHash },
+    });
+  }
+}
+
+function mapearCredenciales(usuario: {
+  id: string;
+  rol: string;
+  passwordHash: string | null;
+}): CredencialesUsuario {
+  return {
+    usuarioId: usuario.id,
+    rol: asegurarValorEnum(usuario.rol, Object.values(RolUsuario), {
+      entidad: 'Usuario',
+      campo: 'rol',
+      id: usuario.id,
+    }),
+    hashContrasena: usuario.passwordHash,
+  };
 }

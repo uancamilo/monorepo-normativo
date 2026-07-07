@@ -69,6 +69,7 @@ Cada fase cierra con un commit y un tag anotado (`git tag -n`):
 - Fase 4C: los e2e consumen los endpoints con tokens emitidos por login real; `x-usuario-id` sin soporte legado alguno.
 - Fase 4D: frontera autenticación/autorización endurecida y testeada — el guard solo autentica; los permisos salen de aplicación/dominio.
 - Fase 4E: bootstrap operativo del SUPERADMINISTRADOR inicial y política mínima de contraseñas.
+- Fase 4F: cambio de contraseña propia autenticado (`POST /auth/cambiar-contrasena`).
 
 ## Autenticación
 
@@ -83,6 +84,12 @@ del dominio. El header `x-usuario-id` quedó eliminado como mecanismo de identid
   almacenan como hash scrypt (`usuarios.password_hash`, formato
   `scrypt:v1:...`); nunca en texto plano. Usuarios semilla locales usan la
   contraseña documentada `Password123!`.
+- **Cambio de contraseña propia**: `POST /auth/cambiar-contrasena` (Bearer
+  obligatorio) con `{ "contrasenaActual", "nuevaContrasena" }` → 204 sin
+  cuerpo. Valida la contraseña actual, exige la política mínima (12+
+  caracteres) y que la nueva sea distinta; 401 genérico si las credenciales no
+  validan, 400 si la nueva contraseña es inválida o igual. No emite token
+  nuevo ni revoca los existentes.
 - `JWT_SECRET` es obligatorio en producción (mínimo 32 caracteres); fuera de
   producción hay un secreto explícito de desarrollo. `JWT_ISSUER` y
   `JWT_AUDIENCE` son opcionales. Ejemplos en `packages/infraestructura/.env.example`.

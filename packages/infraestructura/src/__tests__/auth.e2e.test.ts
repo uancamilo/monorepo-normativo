@@ -124,4 +124,122 @@ describe('Auth (e2e memoria)', () => {
     expect(respuesta.status).toBe(200);
     expect(typeof respuesta.body.accessToken).toBe('string');
   });
+
+  describe('POST /auth/cambiar-contrasena', () => {
+    const NUEVA_CONTRASENA = 'nueva-contrasena-larga-1';
+
+    async function tokenDeEditor(): Promise<string> {
+      const login = await request(servidor())
+        .post('/auth/login')
+        .send({ correo: CORREO_EDITOR, contrasena: CONTRASENA_SEMILLA });
+      expect(login.status).toBe(200);
+      return login.body.accessToken as string;
+    }
+
+    it('flujo completo: login -> cambiar (204 sin body) -> vieja falla -> nueva funciona', async () => {
+      // Login con contraseña actual funciona antes del cambio.
+      const token = await tokenDeEditor();
+
+      const cambio = await request(servidor())
+        .post('/auth/cambiar-contrasena')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          contrasenaActual: CONTRASENA_SEMILLA,
+          nuevaContrasena: NUEVA_CONTRASENA,
+        });
+      expect(cambio.status).toBe(204);
+      // Sin body sensible: 204 No Content vacío.
+      expect(cambio.body).toEqual({});
+      expect(cambio.text ?? '').toBe('');
+
+      const loginVieja = await request(servidor())
+        .post('/auth/login')
+        .send({ correo: CORREO_EDITOR, contrasena: CONTRASENA_SEMILLA });
+      expect(loginVieja.status).toBe(401);
+
+      const loginNueva = await request(servidor())
+        .post('/auth/login')
+        .send({ correo: CORREO_EDITOR, contrasena: NUEVA_CONTRASENA });
+      expect(loginNueva.status).toBe(200);
+      expect(typeof loginNueva.body.accessToken).toBe('string');
+    });
+
+    it('sin Bearer devuelve 401', async () => {
+      const respuesta = await request(servidor())
+        .post('/auth/cambiar-contrasena')
+        .send({
+          contrasenaActual: CONTRASENA_SEMILLA,
+          nuevaContrasena: NUEVA_CONTRASENA,
+        });
+      expect(respuesta.status).toBe(401);
+    });
+
+    it('con Bearer inválido devuelve 401', async () => {
+      const respuesta = await request(servidor())
+        .post('/auth/cambiar-contrasena')
+        .set('Authorization', 'Bearer token-invalido')
+        .send({
+          contrasenaActual: CONTRASENA_SEMILLA,
+          nuevaContrasena: NUEVA_CONTRASENA,
+        });
+      expect(respuesta.status).toBe(401);
+    });
+
+    it('con contraseña actual incorrecta devuelve 401 genérico', async () => {
+      const token = await tokenDeEditor();
+
+      const respuesta = await request(servidor())
+        .post('/auth/cambiar-contrasena')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          contrasenaActual: 'incorrecta-larga-123',
+          nuevaContrasena: NUEVA_CONTRASENA,
+        });
+
+      expect(respuesta.status).toBe(401);
+      expect(JSON.stringify(respuesta.body)).not.toContain('scrypt');
+    });
+
+    it('actual incorrecta e igual a la nueva devuelve 401 (no revela la igualdad)', async () => {
+      const token = await tokenDeEditor();
+
+      const respuesta = await request(servidor())
+        .post('/auth/cambiar-contrasena')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          contrasenaActual: 'incorrecta-larga-123',
+          nuevaContrasena: 'incorrecta-larga-123',
+        });
+
+      expect(respuesta.status).toBe(401);
+    });
+
+    it('con nueva contraseña corta devuelve 400', async () => {
+      const token = await tokenDeEditor();
+
+      const respuesta = await request(servidor())
+        .post('/auth/cambiar-contrasena')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          contrasenaActual: CONTRASENA_SEMILLA,
+          nuevaContrasena: 'corta12345',
+        });
+
+      expect(respuesta.status).toBe(400);
+    });
+
+    it('con nueva contraseña igual a la actual devuelve 400', async () => {
+      const token = await tokenDeEditor();
+
+      const respuesta = await request(servidor())
+        .post('/auth/cambiar-contrasena')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          contrasenaActual: CONTRASENA_SEMILLA,
+          nuevaContrasena: CONTRASENA_SEMILLA,
+        });
+
+      expect(respuesta.status).toBe(400);
+    });
+  });
 });

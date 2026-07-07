@@ -41,8 +41,11 @@ Fase 4E agrega `scripts/bootstrap-superadmin.js` (CJS operativo, expuesto como
 
 ## Política mínima de contraseña
 
-Validación operativa en infraestructura (el dominio no se contamina; se
-promoverá a aplicación si el cambio de contraseña se modela como caso de uso):
+Validación operativa en infraestructura (el dominio no se contamina).
+*Actualización Fase 4F*: la política se promovió a aplicación pura como
+`PoliticaContrasenas` (usada por `CambiarContrasenaPropia`); el script de
+bootstrap conserva su validación CJS equivalente como copia operativa
+consciente (mismo patrón que `normalizarCorreo`).
 
 - no vacía (el trim no puede quedar vacío);
 - mínimo 12 caracteres;

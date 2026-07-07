@@ -1,4 +1,7 @@
-import { VerificadorContrasenas } from '@normativo/aplicacion';
+import {
+  GeneradorHashContrasenas,
+  VerificadorContrasenas,
+} from '@normativo/aplicacion';
 
 /**
  * Wrapper tipado sobre scripts/hash-contrasenas.js, la única fuente de verdad
@@ -17,7 +20,9 @@ interface ModuloHashContrasenas {
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const moduloHashContrasenas: ModuloHashContrasenas = require('../../scripts/hash-contrasenas');
 
-export class ServicioHashContrasenas implements VerificadorContrasenas {
+export class ServicioHashContrasenas
+  implements VerificadorContrasenas, GeneradorHashContrasenas
+{
   generar(contrasenaPlano: string): Promise<string> {
     return moduloHashContrasenas.generarHashContrasena(contrasenaPlano);
   }

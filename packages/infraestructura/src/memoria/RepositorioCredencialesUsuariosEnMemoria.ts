@@ -28,6 +28,31 @@ export class RepositorioCredencialesUsuariosEnMemoria
     return credenciales.get(correoNormalizado) ?? null;
   }
 
+  async buscarPorUsuarioId(
+    usuarioId: string,
+  ): Promise<CredencialesUsuario | null> {
+    const credenciales = await this.obtenerCredenciales();
+    for (const credencial of credenciales.values()) {
+      if (credencial.usuarioId === usuarioId) {
+        return credencial;
+      }
+    }
+    return null;
+  }
+
+  async actualizarPasswordHash(
+    usuarioId: string,
+    passwordHash: string,
+  ): Promise<void> {
+    const credenciales = await this.obtenerCredenciales();
+    for (const credencial of credenciales.values()) {
+      if (credencial.usuarioId === usuarioId) {
+        credencial.hashContrasena = passwordHash;
+        return;
+      }
+    }
+  }
+
   private async obtenerCredenciales(): Promise<Map<string, CredencialesUsuario>> {
     if (this.credencialesPorCorreo === null) {
       const hash = await this.hashContrasenas.generar(CONTRASENA_SEMILLA);

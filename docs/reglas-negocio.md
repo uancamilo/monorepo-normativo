@@ -26,6 +26,16 @@ Los tests del dominio siguen siendo la especificación ejecutable del comportami
   - `obtenerRol()`.
   - `tieneRol()`.
 
+### Cambio de contraseña propia (caso de uso `CambiarContrasenaPropia`, Fase 4F)
+
+- Un usuario autenticado puede cambiar su propia contraseña validando la contraseña actual.
+- La nueva contraseña debe cumplir la política mínima (`PoliticaContrasenas`): no vacía tras trim y mínimo 12 caracteres.
+- La nueva contraseña debe ser distinta de la actual.
+- Usuario inexistente, usuario sin contraseña asignada o contraseña actual incorrecta responden la misma razón `CREDENCIALES_INVALIDAS` (no se revela cuál fue).
+- El cambio no emite token nuevo, no cierra sesiones ni revoca tokens (aún no existe modelo de sesión/revocación); los tokens ya emitidos valen hasta expirar.
+- Nunca se devuelve ni registra la contraseña o el hash.
+- Expuesto por HTTP como `POST /auth/cambiar-contrasena` (Bearer obligatorio; 204 sin cuerpo; 401 genérico para credenciales inválidas; 400 para nueva contraseña inválida o igual a la actual).
+
 ### Regla global diferida
 
 - El correo electrónico identifica globalmente al usuario.
