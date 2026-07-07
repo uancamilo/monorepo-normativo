@@ -10,6 +10,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { RepositorioUsuariosPrisma } from '../RepositorioUsuariosPrisma';
 import { RepositorioCredencialesUsuariosPrisma } from '../RepositorioCredencialesUsuariosPrisma';
+import { RepositorioUsuariosSistemaPrisma } from '../RepositorioUsuariosSistemaPrisma';
 import { RepositorioNormasPrisma } from '../RepositorioNormasPrisma';
 import { RepositorioSuscripcionesPrisma } from '../RepositorioSuscripcionesPrisma';
 import { GeneradorIdsUuid } from '../GeneradorIdsUuid';
@@ -155,6 +156,50 @@ describirPrisma(
         hashContrasena: null,
       });
       expect(inexistente).toBeNull();
+    });
+
+    it('RepositorioUsuariosSistemaPrisma traduce el P2002 de correo a duplicado y propaga otros errores', async () => {
+      const repositorio = new RepositorioUsuariosSistemaPrisma(prisma);
+      const base = {
+        nombre: 'Editor',
+        apellido: 'Sistema',
+        rol: RolUsuario.EDITOR,
+        passwordHash: 'scrypt:v1:c2FsdA==:aGFzaA==',
+      };
+
+      // Creación normal.
+      const creado = await repositorio.crear({
+        ...base,
+        id: 'usuario-sistema-1',
+        correoNormalizado: 'sistema-1@test.com',
+      });
+      expect(creado).toEqual({ exitoso: true });
+
+      // Duplicado de correo SIN pre-verificación: el UNIQUE dispara P2002 y el
+      // adaptador lo traduce al resultado del puerto (no error crudo).
+      const duplicado = await repositorio.crear({
+        ...base,
+        id: 'usuario-sistema-2',
+        correoNormalizado: 'sistema-1@test.com',
+      });
+      expect(duplicado).toEqual({
+        exitoso: false,
+        razon: 'CORREO_YA_REGISTRADO',
+      });
+      const segundos = await prisma.usuario.findUnique({
+        where: { id: 'usuario-sistema-2' },
+      });
+      expect(segundos).toBeNull();
+
+      // Otro error (P2002 sobre la clave primaria, no sobre el correo) NO se
+      // oculta como duplicado: se propaga.
+      await expect(
+        repositorio.crear({
+          ...base,
+          id: 'usuario-sistema-1',
+          correoNormalizado: 'sistema-otro@test.com',
+        }),
+      ).rejects.toMatchObject({ code: 'P2002' });
     });
 
     it('RepositorioNormasPrisma guarda BORRADOR con contenido vacío, busca y actualiza a PUBLICADA', async () => {

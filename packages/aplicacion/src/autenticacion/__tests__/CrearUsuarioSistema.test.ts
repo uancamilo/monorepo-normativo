@@ -22,6 +22,7 @@ function crearActor(rol: RolUsuario): Usuario {
 function crearDependencias(opciones: {
   actor?: Usuario | null;
   correoExistente?: boolean;
+  crearReportaDuplicado?: boolean;
 } = {}) {
   const creados: UsuarioSistemaNuevo[] = [];
   const repositorioUsuariosSistema: RepositorioUsuariosSistema & {
@@ -30,7 +31,11 @@ function crearDependencias(opciones: {
     creados,
     existeCorreo: jest.fn(async () => opciones.correoExistente ?? false),
     crear: jest.fn(async (usuario: UsuarioSistemaNuevo) => {
+      if (opciones.crearReportaDuplicado === true) {
+        return { exitoso: false, razon: 'CORREO_YA_REGISTRADO' };
+      }
       creados.push(usuario);
+      return { exitoso: true };
     }),
   } as never;
 
@@ -212,5 +217,26 @@ describe('CrearUsuarioSistema', () => {
       'editor.real@test.com',
     );
     expect(repositorioUsuariosSistema.crear).not.toHaveBeenCalled();
+  });
+
+  it('traduce el duplicado detectado por el repositorio al crear (carrera) a CORREO_YA_REGISTRADO', async () => {
+    // Pre-verificación pasa (existeCorreo false), pero la garantía final del
+    // repositorio (UNIQUE en persistencia) reporta el duplicado concurrente.
+    const { casoUso, repositorioUsuariosSistema } = crearDependencias({
+      correoExistente: false,
+      crearReportaDuplicado: true,
+    });
+
+    const resultado = await casoUso.ejecutar(solicitudValida());
+
+    expect(resultado).toEqual({
+      exitoso: false,
+      razon: 'CORREO_YA_REGISTRADO',
+    });
+    expect(repositorioUsuariosSistema.crear).toHaveBeenCalledTimes(1);
+    // El resultado no expone hash ni contraseña.
+    const serializado = JSON.stringify(resultado);
+    expect(serializado).not.toContain('scrypt');
+    expect(serializado).not.toContain(CONTRASENA_VALIDA);
   });
 });

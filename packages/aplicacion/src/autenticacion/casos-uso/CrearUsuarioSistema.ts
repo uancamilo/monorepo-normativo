@@ -123,7 +123,7 @@ export class CrearUsuarioSistema {
       solicitud.contrasenaInicial,
     );
 
-    await this.repositorioUsuariosSistema.crear({
+    const resultadoCrear = await this.repositorioUsuariosSistema.crear({
       id,
       nombre,
       apellido,
@@ -131,6 +131,12 @@ export class CrearUsuarioSistema {
       rol,
       passwordHash,
     });
+
+    if (!resultadoCrear.exitoso) {
+      // Duplicado concurrente detectado por la garantía final de persistencia
+      // (la pre-verificación pasó, pero otro proceso creó el correo antes).
+      return { exitoso: false, razon: resultadoCrear.razon };
+    }
 
     return {
       exitoso: true,

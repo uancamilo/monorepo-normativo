@@ -65,6 +65,7 @@ export type {
 
 export type {
   RepositorioUsuariosSistema,
+  ResultadoCrearUsuarioSistemaRepositorio,
   UsuarioSistemaNuevo,
 } from './autenticacion/puertos/RepositorioUsuariosSistema';
 

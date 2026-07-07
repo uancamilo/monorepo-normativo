@@ -48,7 +48,7 @@ Los tests del dominio siguen siendo la especificación ejecutable del comportami
 - Un SUPERADMINISTRADOR autenticado puede crear usuarios internos del sistema con roles de negocio existentes: **solo EDITOR y ADMINISTRADOR** en esta fase.
 - No se pueden crear SUSCRIPTOR, otros SUPERADMINISTRADOR ni roles dinámicos: los roles siguen definidos por el dominio.
 - Ningún otro rol puede crear usuarios (EDITOR/ADMINISTRADOR/SUSCRIPTOR y actores inexistentes reciben acceso denegado).
-- El correo del nuevo usuario se normaliza y debe ser único globalmente (`CORREO_YA_REGISTRADO` si ya existe).
+- El correo del nuevo usuario se normaliza y debe ser único globalmente (`CORREO_YA_REGISTRADO` si ya existe). La unicidad se protege en dos capas (Fase 4H): pre-verificación en aplicación y garantía final de persistencia (UNIQUE de `usuarios.correo_normalizado`); un duplicado concurrente detectado al crear también se traduce a `CORREO_YA_REGISTRADO` (HTTP 409), nunca a un error crudo de infraestructura.
 - La contraseña inicial debe cumplir la política mínima (`PoliticaContrasenas`) y se persiste solo como hash scrypt; nunca se devuelve contraseña ni hash.
 - El usuario creado puede iniciar sesión de inmediato con su contraseña inicial (y debería cambiarla con el cambio de contraseña propia).
 - Expuesto por HTTP como `POST /usuarios/sistema` (Bearer obligatorio; 201 con datos públicos del usuario; 403 actor no autorizado; 409 correo duplicado; 400 solicitud/rol/contraseña inválidos).

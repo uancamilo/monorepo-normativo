@@ -1,6 +1,7 @@
 import { Usuario } from '@normativo/dominio';
 import {
   RepositorioUsuariosSistema,
+  ResultadoCrearUsuarioSistemaRepositorio,
   UsuarioSistemaNuevo,
 } from '@normativo/aplicacion';
 import { RepositorioUsuariosEnMemoria } from './RepositorioUsuariosEnMemoria';
@@ -23,7 +24,16 @@ export class RepositorioUsuariosSistemaEnMemoria
     return this.repositorioUsuarios.existeCorreo(correoNormalizado);
   }
 
-  async crear(usuario: UsuarioSistemaNuevo): Promise<void> {
+  async crear(
+    usuario: UsuarioSistemaNuevo,
+  ): Promise<ResultadoCrearUsuarioSistemaRepositorio> {
+    // Garantía final del adaptador (equivalente al UNIQUE de persistencia):
+    // re-verifica el correo en el momento de crear, aun si la pre-verificación
+    // de aplicación pasó antes.
+    if (await this.repositorioUsuarios.existeCorreo(usuario.correoNormalizado)) {
+      return { exitoso: false, razon: 'CORREO_YA_REGISTRADO' };
+    }
+
     this.repositorioUsuarios.agregar(
       new Usuario({
         id: usuario.id,
@@ -38,5 +48,7 @@ export class RepositorioUsuariosSistemaEnMemoria
       rol: usuario.rol,
       hashContrasena: usuario.passwordHash,
     });
+
+    return { exitoso: true };
   }
 }
