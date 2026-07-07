@@ -8,6 +8,8 @@ import { NormasModule } from '../normas.module';
 import { NormasPrismaModule } from '../normas-prisma.module';
 import { AuthModule } from '../../autenticacion/http/auth.module';
 import { AuthPrismaModule } from '../../autenticacion/http/auth-prisma.module';
+import { UsuariosModule } from '../../usuarios/usuarios.module';
+import { UsuariosPrismaModule } from '../../usuarios/usuarios-prisma.module';
 
 describe('seleccionarModuloNormas', () => {
   it('usa memoria por defecto', () => {
@@ -37,12 +39,21 @@ describe('seleccionarModuloNormas', () => {
     );
   });
 
-  it('seleccionarModulosHttp entrega normas + auth acordes a la persistencia', () => {
-    expect(seleccionarModulosHttp(undefined)).toEqual([NormasModule, AuthModule]);
-    expect(seleccionarModulosHttp('memoria')).toEqual([NormasModule, AuthModule]);
+  it('seleccionarModulosHttp entrega normas + auth + usuarios acordes a la persistencia', () => {
+    expect(seleccionarModulosHttp(undefined)).toEqual([
+      NormasModule,
+      AuthModule,
+      UsuariosModule,
+    ]);
+    expect(seleccionarModulosHttp('memoria')).toEqual([
+      NormasModule,
+      AuthModule,
+      UsuariosModule,
+    ]);
     expect(seleccionarModulosHttp('prisma')).toEqual([
       NormasPrismaModule,
       AuthPrismaModule,
+      UsuariosPrismaModule,
     ]);
   });
 });

@@ -101,5 +101,7 @@ import {
       ],
     },
   ],
+  // Compartidos con la gestión mínima de usuarios (Fase 4G).
+  exports: [TOKEN_REPOSITORIO_USUARIOS, TOKEN_GENERADOR_IDS],
 })
 export class NormasPrismaModule {}

@@ -116,6 +116,12 @@ fuente de verdad de la semilla: el test e2e Prisma reutiliza la misma función
 > datos, falla si el correo pertenece a otro usuario y nunca imprime la
 > contraseña ni el hash. Variables opcionales: `BOOTSTRAP_SUPERADMIN_ID`,
 > `_NOMBRE`, `_APELLIDO`. Detalle en ADR 0007.
+>
+> Flujo operativo completo: la contraseña de bootstrap es **temporal** (se
+> genera con un password manager y se inyecta por variables seguras del
+> entorno), tras el primer login se cambia de inmediato con
+> `POST /auth/cambiar-contrasena` y las variables sensibles se borran/rotan.
+> Ver "Ciclo de vida operativo" en ADR 0007.
 
 ## 5. Levantar el backend con Prisma
 

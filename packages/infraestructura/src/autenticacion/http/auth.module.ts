@@ -51,5 +51,8 @@ import {
       inject: [TOKEN_REPOSITORIO_CREDENCIALES, TOKEN_VERIFICADOR_CONTRASENAS],
     },
   ],
+  // Compartido con la gestión mínima de usuarios (Fase 4G): misma instancia de
+  // credenciales en memoria para que el usuario creado pueda iniciar sesión.
+  exports: [TOKEN_REPOSITORIO_CREDENCIALES],
 })
 export class AuthModule {}

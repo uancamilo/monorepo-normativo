@@ -30,7 +30,11 @@ export function razonAExcepcionHttp(razon: string): HttpException {
     case 'NORMA_NO_ENCONTRADA':
       return new NotFoundException(razon);
     case 'NORMA_YA_PUBLICADA':
+    case 'CORREO_YA_REGISTRADO':
       return new ConflictException(razon);
+    case 'ROL_NO_PERMITIDO':
+    case 'CONTRASENA_INVALIDA':
+      return new BadRequestException(razon);
     default:
       return new BadRequestException(razon);
   }

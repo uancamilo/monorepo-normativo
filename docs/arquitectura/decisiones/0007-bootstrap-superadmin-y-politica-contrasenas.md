@@ -51,6 +51,38 @@ consciente (mismo patrón que `normalizarCorreo`).
 - mínimo 12 caracteres;
 - sin exigencias de complejidad adicionales por ahora.
 
+## Ciclo de vida operativo del SUPERADMINISTRADOR inicial
+
+El SUPERADMINISTRADOR inicial es el usuario con el que arranca la operación
+real del sistema. No puede crearse desde un endpoint público: antes de que
+exista no hay ningún usuario autenticado que pueda autorizar esa acción. El
+flujo profesional es:
+
+1. Definir correo y **contraseña inicial temporal** mediante variables de
+   entorno seguras (`BOOTSTRAP_SUPERADMIN_CORREO`,
+   `BOOTSTRAP_SUPERADMIN_PASSWORD`). La contraseña inicial debe generarse con
+   un password manager, no inventarse a mano.
+2. Ejecutar el bootstrap controlado (`npm run bootstrap:superadmin`) con la
+   confirmación explícita requerida.
+3. Iniciar sesión con ese usuario (`POST /auth/login`).
+4. **Cambiar inmediatamente la contraseña inicial** desde el sistema con
+   `POST /auth/cambiar-contrasena` (Fase 4F). La contraseña de bootstrap es
+   temporal por diseño.
+5. Borrar/rotar las variables sensibles usadas para el bootstrap (entorno,
+   historial del shell, pipeline).
+6. A partir de ahí, gestionar los usuarios internos desde la API protegida.
+
+Reglas de producción (obligatorias):
+
+- No hardcodear correo/contraseña en código.
+- No subir `.env` con credenciales reales (solo `.env.example` con valores de
+  ejemplo).
+- No usar el seed para producción (es exclusivo de desarrollo/test).
+- No crear el primer superadmin desde un endpoint público.
+- En despliegue futuro, inyectar los secretos con Azure Key Vault, GitHub
+  Actions Secrets, variables secretas del proveedor o mecanismo equivalente;
+  nunca en texto plano versionado.
+
 ## Seed vs bootstrap
 
 - El **seed** (`prisma:seed`) sigue siendo exclusivamente desarrollo/test:

@@ -26,6 +26,13 @@ Los tests del dominio siguen siendo la especificación ejecutable del comportami
   - `obtenerRol()`.
   - `tieneRol()`.
 
+### SUPERADMINISTRADOR inicial (regla operativa, Fase 4E/4F)
+
+- El SUPERADMINISTRADOR inicial no se crea desde ningún endpoint público: antes de existir no hay usuario autenticado que pueda autorizarlo.
+- Se aprovisiona con el bootstrap controlado (variables de entorno seguras + confirmación explícita), inicia sesión y **cambia de inmediato su contraseña temporal** con el cambio de contraseña propia; luego las variables sensibles se borran/rotan.
+- El seed nunca es mecanismo de producción: solo desarrollo/test con usuarios `@test.com` y contraseña conocida.
+- Detalle operativo completo en ADR 0007.
+
 ### Cambio de contraseña propia (caso de uso `CambiarContrasenaPropia`, Fase 4F)
 
 - Un usuario autenticado puede cambiar su propia contraseña validando la contraseña actual.
@@ -35,6 +42,17 @@ Los tests del dominio siguen siendo la especificación ejecutable del comportami
 - El cambio no emite token nuevo, no cierra sesiones ni revoca tokens (aún no existe modelo de sesión/revocación); los tokens ya emitidos valen hasta expirar.
 - Nunca se devuelve ni registra la contraseña o el hash.
 - Expuesto por HTTP como `POST /auth/cambiar-contrasena` (Bearer obligatorio; 204 sin cuerpo; 401 genérico para credenciales inválidas; 400 para nueva contraseña inválida o igual a la actual).
+
+### Gestión mínima de usuarios internos (caso de uso `CrearUsuarioSistema`, Fase 4G)
+
+- Un SUPERADMINISTRADOR autenticado puede crear usuarios internos del sistema con roles de negocio existentes: **solo EDITOR y ADMINISTRADOR** en esta fase.
+- No se pueden crear SUSCRIPTOR, otros SUPERADMINISTRADOR ni roles dinámicos: los roles siguen definidos por el dominio.
+- Ningún otro rol puede crear usuarios (EDITOR/ADMINISTRADOR/SUSCRIPTOR y actores inexistentes reciben acceso denegado).
+- El correo del nuevo usuario se normaliza y debe ser único globalmente (`CORREO_YA_REGISTRADO` si ya existe).
+- La contraseña inicial debe cumplir la política mínima (`PoliticaContrasenas`) y se persiste solo como hash scrypt; nunca se devuelve contraseña ni hash.
+- El usuario creado puede iniciar sesión de inmediato con su contraseña inicial (y debería cambiarla con el cambio de contraseña propia).
+- Expuesto por HTTP como `POST /usuarios/sistema` (Bearer obligatorio; 201 con datos públicos del usuario; 403 actor no autorizado; 409 correo duplicado; 400 solicitud/rol/contraseña inválidos).
+- Fuera de alcance en esta fase: listar/editar/desactivar usuarios, cambiar roles, invitaciones, reset administrativo de contraseña y gestión de clientes/suscripciones.
 
 ### Regla global diferida
 

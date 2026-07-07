@@ -21,6 +21,9 @@ describe('razonAExcepcionHttp', () => {
     ['SUSCRIPCION_NO_ENCONTRADA', ForbiddenException],
     ['NORMA_NO_ENCONTRADA', NotFoundException],
     ['NORMA_YA_PUBLICADA', ConflictException],
+    ['CORREO_YA_REGISTRADO', ConflictException],
+    ['ROL_NO_PERMITIDO', BadRequestException],
+    ['CONTRASENA_INVALIDA', BadRequestException],
   ])('traduce %s', (razon, excepcionEsperada) => {
     expect(razonAExcepcionHttp(razon)).toBeInstanceOf(excepcionEsperada);
   });

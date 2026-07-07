@@ -53,6 +53,15 @@ export class RepositorioCredencialesUsuariosEnMemoria
     }
   }
 
+  /** Alta local para usuarios internos creados en runtime (Fase 4G). */
+  async agregar(
+    correoNormalizado: string,
+    credencial: CredencialesUsuario,
+  ): Promise<void> {
+    const credenciales = await this.obtenerCredenciales();
+    credenciales.set(correoNormalizado, credencial);
+  }
+
   private async obtenerCredenciales(): Promise<Map<string, CredencialesUsuario>> {
     if (this.credencialesPorCorreo === null) {
       const hash = await this.hashContrasenas.generar(CONTRASENA_SEMILLA);

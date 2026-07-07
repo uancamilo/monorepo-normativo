@@ -109,5 +109,9 @@ import {
       ],
     },
   ],
+  // Compartidos con la gestión mínima de usuarios (Fase 4G): misma instancia
+  // de repositorio de usuarios para que los usuarios creados en runtime sean
+  // visibles en los casos de uso de normas.
+  exports: [TOKEN_REPOSITORIO_USUARIOS, TOKEN_GENERADOR_IDS],
 })
 export class NormasModule {}

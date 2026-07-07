@@ -62,3 +62,17 @@ export type {
   ResultadoCambiarContrasenaPropia,
   SolicitudCambiarContrasenaPropia,
 } from './autenticacion/casos-uso/CambiarContrasenaPropia';
+
+export type {
+  RepositorioUsuariosSistema,
+  UsuarioSistemaNuevo,
+} from './autenticacion/puertos/RepositorioUsuariosSistema';
+
+export { CrearUsuarioSistema } from './autenticacion/casos-uso/CrearUsuarioSistema';
+export type {
+  DependenciasCrearUsuarioSistema,
+  RazonCrearUsuarioSistemaFallido,
+  ResultadoCrearUsuarioSistema,
+  RolUsuarioSistemaPermitido,
+  SolicitudCrearUsuarioSistema,
+} from './autenticacion/casos-uso/CrearUsuarioSistema';

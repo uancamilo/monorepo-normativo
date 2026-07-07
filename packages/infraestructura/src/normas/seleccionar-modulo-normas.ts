@@ -2,6 +2,8 @@ import { NormasModule } from './normas.module';
 import { NormasPrismaModule } from './normas-prisma.module';
 import { AuthModule } from '../autenticacion/http/auth.module';
 import { AuthPrismaModule } from '../autenticacion/http/auth-prisma.module';
+import { UsuariosModule } from '../usuarios/usuarios.module';
+import { UsuariosPrismaModule } from '../usuarios/usuarios-prisma.module';
 import {
   obtenerPersistenciaNormas,
   PersistenciaNormas,
@@ -19,13 +21,14 @@ export function seleccionarModuloNormas(
 }
 
 /**
- * Módulos HTTP de la aplicación según PERSISTENCIA: normas + auth/login,
- * ambos respaldados por el mismo tipo de adaptadores (memoria o Prisma).
+ * Módulos HTTP de la aplicación según PERSISTENCIA: normas + auth/login +
+ * gestión mínima de usuarios, todos respaldados por el mismo tipo de
+ * adaptadores (memoria o Prisma).
  */
 export function seleccionarModulosHttp(
   valor: string | undefined = process.env.PERSISTENCIA,
 ) {
   return obtenerPersistenciaNormas(valor) === 'prisma'
-    ? [NormasPrismaModule, AuthPrismaModule]
-    : [NormasModule, AuthModule];
+    ? [NormasPrismaModule, AuthPrismaModule, UsuariosPrismaModule]
+    : [NormasModule, AuthModule, UsuariosModule];
 }

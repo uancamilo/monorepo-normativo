@@ -70,6 +70,7 @@ Cada fase cierra con un commit y un tag anotado (`git tag -n`):
 - Fase 4D: frontera autenticación/autorización endurecida y testeada — el guard solo autentica; los permisos salen de aplicación/dominio.
 - Fase 4E: bootstrap operativo del SUPERADMINISTRADOR inicial y política mínima de contraseñas.
 - Fase 4F: cambio de contraseña propia autenticado (`POST /auth/cambiar-contrasena`).
+- Fase 4G: gestión mínima de usuarios internos (`POST /usuarios/sistema`, solo SUPERADMINISTRADOR; roles EDITOR/ADMINISTRADOR).
 
 ## Autenticación
 
@@ -95,6 +96,10 @@ del dominio. El header `x-usuario-id` quedó eliminado como mecanismo de identid
   `JWT_AUDIENCE` son opcionales. Ejemplos en `packages/infraestructura/.env.example`.
 - Herramienta local alternativa (ya no el flujo principal):
   `node packages/infraestructura/scripts/generar-token-dev.js usuario-editor-1`.
+- **Usuarios internos**: `POST /usuarios/sistema` (Bearer de SUPERADMINISTRADOR)
+  crea usuarios EDITOR o ADMINISTRADOR con contraseña inicial (política mínima);
+  responde 201 con datos públicos, 403 si el actor no es superadmin, 409 si el
+  correo ya existe. Sin listar/editar/desactivar todavía.
 - **Bootstrap operativo del SUPERADMINISTRADOR** (el seed es solo
   desarrollo/test): `npm run bootstrap:superadmin --workspace=@normativo/infraestructura`
   con `PERMITIR_BOOTSTRAP_SUPERADMIN=true`, `DATABASE_URL`,

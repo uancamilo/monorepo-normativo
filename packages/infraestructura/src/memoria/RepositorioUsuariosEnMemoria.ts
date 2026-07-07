@@ -16,4 +16,18 @@ export class RepositorioUsuariosEnMemoria implements RepositorioUsuarios {
   async buscarPorId(id: string): Promise<Usuario | null> {
     return this.usuariosPorId.get(id) ?? null;
   }
+
+  /** Alta local para usuarios internos creados en runtime (Fase 4G). */
+  agregar(usuario: Usuario): void {
+    this.usuariosPorId.set(usuario.obtenerId(), usuario);
+  }
+
+  async existeCorreo(correoNormalizado: string): Promise<boolean> {
+    for (const usuario of this.usuariosPorId.values()) {
+      if (usuario.tieneCorreo(correoNormalizado)) {
+        return true;
+      }
+    }
+    return false;
+  }
 }
