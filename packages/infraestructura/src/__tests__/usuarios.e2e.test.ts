@@ -80,13 +80,11 @@ describe('Usuarios del sistema (e2e memoria)', () => {
       .send({
         numero: '789',
         titulo: 'Ley registrada por editor creado',
-        contenido: '',
+        contenido: [],
         tipoNorma: 'Ley',
         institucionExpide: 'Asamblea Nacional',
-        fuente: 'https://www.registroficial.gob.ec/norma-editor-creado.pdf',
         estadoJuridico: 'VIGENTE',
         fechaExpedicion: '2025-01-01',
-        fechaPublicacionOficial: '2025-01-02',
       });
     expect(registro.status).toBe(201);
     expect(registro.body.estadoEditorial).toBe('BORRADOR');

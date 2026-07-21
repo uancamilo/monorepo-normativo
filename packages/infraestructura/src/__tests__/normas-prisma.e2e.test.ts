@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
-import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
@@ -14,7 +14,14 @@ const { sembrar, CONTRASENA_SEMILLA } = require('../../scripts/seed-prisma');
 const { aplicarChecksPrisma } = require('../../scripts/aplicar-checks-prisma');
 
 const CORREO_EDITOR = 'editor@test.com';
+const CORREO_SUPERADMIN = 'superadmin@test.com';
+const CORREO_ADMIN = 'admin@test.com';
 const CORREO_SUSCRIPTOR = 'suscriptor@test.com';
+const sufijoEdicion = randomUUID().slice(0, 8);
+const numeroEdicion =
+  1_000_000_000 + (Number.parseInt(sufijoEdicion, 16) % 1_000_000_000);
+const urlPdfEdicion =
+  `https://www.registroficial.gob.ec/norma-prisma-${sufijoEdicion}.pdf`;
 
 const testDatabaseUrl = obtenerTestDatabaseUrlDesdeEntorno();
 const describirPrisma = testDatabaseUrl ? describe : describe.skip;
@@ -32,13 +39,14 @@ function cuerpoNormaValido(overrides: Record<string, unknown> = {}) {
   return {
     numero: '123',
     titulo: 'Ley Orgánica de Prueba (Prisma)',
-    contenido: '',
+    contenido: [],
     tipoNorma: 'Ley',
     institucionExpide: 'Asamblea Nacional',
-    fuente: 'https://www.registroficial.gob.ec/norma-prisma.pdf',
     estadoJuridico: 'VIGENTE',
     fechaExpedicion: '2025-01-01',
     fechaPublicacionOficial: '2025-01-02',
+    tipoPublicacionRegistroOficial: 'RO',
+    numeroPublicacionRegistroOficial: numeroEdicion,
     ...overrides,
   };
 }
@@ -68,23 +76,6 @@ describirPrisma(
       databaseUrlPrevia = process.env.DATABASE_URL;
       process.env.PERSISTENCIA = 'prisma';
       process.env.DATABASE_URL = testDatabaseUrl;
-
-      // Asegura el schema sin borrar la base (`db push` no destructivo). El test usa
-      // un id de norma único, por lo que no depende de una base recién vaciada.
-      try {
-        const prismaCli = require.resolve('prisma/build/index.js');
-        execFileSync(process.execPath, [prismaCli, 'db', 'push'], {
-          cwd: process.cwd(),
-          env: { ...process.env, DATABASE_URL: testDatabaseUrl },
-          stdio: 'pipe',
-        });
-      } catch (error) {
-        throw new Error(
-          'No se pudo aplicar el schema en la base de test. ¿Está PostgreSQL arriba? ' +
-            'Ejecuta: docker compose -f docker-compose.test.yml up -d. Detalle: ' +
-            (error instanceof Error ? error.message : String(error)),
-        );
-      }
 
       prisma = new PrismaService();
       await prisma.$connect();
@@ -123,12 +114,26 @@ describirPrisma(
       const normaId: string = registro.body.id;
       expect(typeof normaId).toBe('string');
       expect(normaId.length).toBeGreaterThan(0);
+      expect(registro.body.contenido).toEqual([]);
+      expect(registro.body).not.toHaveProperty('edicionRegistroOficialId');
+      const edicionId: string = registro.body.edicionesRegistroOficial[0].id;
+      expect(edicionId).toEqual(expect.any(String));
 
       // 4. GET contenido como suscriptor antes de publicar -> 403.
       const consultaAntes = await request(servidor())
         .get(`/normas/${normaId}/contenido`)
         .set('Authorization', await autorizacionDe(CORREO_SUSCRIPTOR));
       expect(consultaAntes.status).toBe(403);
+
+      // La fuente pertenece a la edición. La corrección manual deja la edición
+      // en MANUAL y habilita la publicación de la norma asociada.
+      const correccionFuente = await request(servidor())
+        .patch(`/ediciones-registro-oficial/${edicionId}/fuente`)
+        .set('Authorization', await autorizacionDe(CORREO_EDITOR))
+        .send({ urlPdf: urlPdfEdicion });
+      expect(correccionFuente.status).toBe(200);
+      expect(correccionFuente.body.estadoResolucionFuente).toBe('MANUAL');
+      expect(correccionFuente.body.urlPdf).toBe(urlPdfEdicion);
 
       // 5. POST publicar como editor -> 200 con fechaPublicacionEnSistema.
       const publicacion = await request(servidor())
@@ -147,16 +152,37 @@ describirPrisma(
         .get(`/normas/${normaId}/contenido`)
         .set('Authorization', await autorizacionDe(CORREO_SUSCRIPTOR));
       expect(consultaDespues.status).toBe(200);
-      expect(consultaDespues.body.fuente).toBe(
-        'https://www.registroficial.gob.ec/norma-prisma.pdf',
-      );
+      expect(consultaDespues.body.edicionesRegistroOficial).toEqual([
+        expect.objectContaining({
+          tipoRelacion: 'PRINCIPAL',
+          id: edicionId,
+          fuente: urlPdfEdicion,
+        }),
+      ]);
+      expect(consultaDespues.body).not.toHaveProperty('fuente');
       expect(consultaDespues.body).not.toHaveProperty('fechaPublicacionEnSistema');
       expect(consultaDespues.body).not.toHaveProperty('estadoEditorial');
 
       // 7. Verificar en PostgreSQL que la norma existe y está PUBLICADA.
-      const normaEnBd = await prisma.norma.findUnique({ where: { id: normaId } });
+      const normaEnBd = await prisma.norma.findUnique({
+        where: { id: normaId },
+        include: { edicionRegistroOficial: true },
+      });
       expect(normaEnBd).not.toBeNull();
       expect(normaEnBd?.estadoEditorial).toBe('PUBLICADA');
+      expect(normaEnBd?.edicionRegistroOficialId).toBe(edicionId);
+      expect(normaEnBd).not.toHaveProperty('fuente');
+      expect(normaEnBd).not.toHaveProperty('tipoPublicacionRegistroOficial');
+      expect(normaEnBd).not.toHaveProperty('numeroPublicacionRegistroOficial');
+      expect(normaEnBd?.edicionRegistroOficial).toEqual(
+        expect.objectContaining({
+          id: edicionId,
+          tipoPublicacionRegistroOficial: 'RO',
+          numeroPublicacionRegistroOficial: numeroEdicion,
+          urlPdf: urlPdfEdicion,
+          estadoResolucionFuente: 'MANUAL',
+        }),
+      );
 
       // 8. Verificar que se persistió el evento de publicación.
       const eventos = await prisma.eventoNormaPublicada.findMany({
@@ -164,6 +190,187 @@ describirPrisma(
       });
       expect(eventos).toHaveLength(1);
       expect(eventos[0].tieneContenidoCompleto).toBe(false);
+    });
+
+    it('dos POST /normas/:id/publicar concurrentes contra Prisma: un 200, un 409 NORMA_YA_PUBLICADA, nunca 500', async () => {
+      const registro = await request(servidor())
+        .post('/normas')
+        .set('Authorization', await autorizacionDe(CORREO_EDITOR))
+        .send(
+          cuerpoNormaValido({
+            titulo: 'Norma de publicación concurrente (Prisma)',
+            numeroPublicacionRegistroOficial: numeroEdicion + 2,
+          }),
+        );
+      expect(registro.status).toBe(201);
+      const normaId: string = registro.body.id;
+      const edicionId: string = registro.body.edicionesRegistroOficial[0].id;
+      const correccionFuente = await request(servidor())
+        .patch(`/ediciones-registro-oficial/${edicionId}/fuente`)
+        .set('Authorization', await autorizacionDe(CORREO_EDITOR))
+        .send({ urlPdf: urlPdfEdicion });
+      expect(correccionFuente.status).toBe(200);
+      const autorizacion = await autorizacionDe(CORREO_EDITOR);
+
+      const respuestas = await Promise.all([
+        request(servidor())
+          .post(`/normas/${normaId}/publicar`)
+          .set('Authorization', autorizacion)
+          .send({}),
+        request(servidor())
+          .post(`/normas/${normaId}/publicar`)
+          .set('Authorization', autorizacion)
+          .send({}),
+      ]);
+
+      // La carrera se resuelve en la actualización condicionada: nunca un
+      // error Prisma crudo ni un 500.
+      const estados = respuestas.map((respuesta) => respuesta.status).sort();
+      expect(estados).toEqual([200, 409]);
+      const conflicto = respuestas.find(
+        (respuesta) => respuesta.status === 409,
+      );
+      expect(conflicto?.body.message).toBe('NORMA_YA_PUBLICADA');
+
+      const normaEnBd = await prisma.norma.findUnique({
+        where: { id: normaId },
+      });
+      expect(normaEnBd?.estadoEditorial).toBe('PUBLICADA');
+      const eventos = await prisma.eventoNormaPublicada.findMany({
+        where: { normaId },
+      });
+      expect(eventos).toHaveLength(1);
+    });
+
+    it('reemplaza la principal atómicamente y filtra cambios no publicables para cualquier lector con suscripción', async () => {
+      const registro = await request(servidor())
+        .post('/normas')
+        .set('Authorization', await autorizacionDe(CORREO_EDITOR))
+        .send(
+          cuerpoNormaValido({
+            titulo: 'Norma con cambio pendiente (Prisma)',
+            numeroPublicacionRegistroOficial: numeroEdicion + 20,
+          }),
+        );
+      expect(registro.status).toBe(201);
+      const normaId = registro.body.id as string;
+      const principalAnteriorId = registro.body.edicionesRegistroOficial[0]
+        .id as string;
+
+      const nuevaPrincipal = await request(servidor())
+        .post('/ediciones-registro-oficial')
+        .set('Authorization', await autorizacionDe(CORREO_EDITOR))
+        .send({
+          tipoPublicacionRegistroOficial: 'SRO',
+          numeroPublicacionRegistroOficial: numeroEdicion + 21,
+          fechaPublicacionOficial: '2026-07-16',
+          urlPdf: `https://www.registroficial.gob.ec/principal-${sufijoEdicion}.pdf`,
+        });
+      expect(nuevaPrincipal.status).toBe(201);
+
+      const cambio = await request(servidor())
+        .patch(`/normas/${normaId}/edicion-registro-oficial`)
+        .set('Authorization', await autorizacionDe(CORREO_EDITOR))
+        .send({ edicionRegistroOficialId: nuevaPrincipal.body.id });
+      expect(cambio.status).toBe(200);
+      expect(cambio.body.edicionesRegistroOficial).toEqual([
+        expect.objectContaining({
+          tipoRelacion: 'PRINCIPAL',
+          id: nuevaPrincipal.body.id,
+        }),
+        expect.objectContaining({
+          tipoRelacion: 'CAMBIO',
+          id: principalAnteriorId,
+          fuente: null,
+        }),
+      ]);
+      expect(cambio.body).not.toHaveProperty('edicionRegistroOficialId');
+
+      await expect(
+        prisma.normaEdicionRegistroOficialCambio.findUnique({
+          where: {
+            normaId_edicionRegistroOficialId: {
+              normaId,
+              edicionRegistroOficialId: principalAnteriorId,
+            },
+          },
+        }),
+      ).resolves.not.toBeNull();
+
+      const publicacion = await request(servidor())
+        .post(`/normas/${normaId}/publicar`)
+        .set('Authorization', await autorizacionDe(CORREO_EDITOR))
+        .send({});
+      expect(publicacion.status).toBe(200);
+
+      const suscripcionAdminId = `suscripcion-admin-${sufijoEdicion}`;
+      await prisma.suscripcion.create({
+        data: {
+          id: suscripcionAdminId,
+          clienteId: `cliente-admin-${sufijoEdicion}`,
+          cantidadMaximaUsuarios: 1,
+          estado: 'ACTIVA',
+          fechaInicio: new Date('2000-01-01T00:00:00.000Z'),
+          fechaFin: new Date('2100-01-01T00:00:00.000Z'),
+          correosHabilitados: {
+            create: {
+              id: `correo-admin-${sufijoEdicion}`,
+              correoNormalizado: CORREO_ADMIN,
+            },
+          },
+        },
+      });
+
+      try {
+        for (const correo of [CORREO_SUSCRIPTOR, CORREO_ADMIN]) {
+          const contenido = await request(servidor())
+            .get(`/normas/${normaId}/contenido`)
+            .set('Authorization', await autorizacionDe(correo));
+          expect(contenido.status).toBe(200);
+          expect(contenido.body.edicionesRegistroOficial).toEqual([
+            expect.objectContaining({
+              tipoRelacion: 'PRINCIPAL',
+              id: nuevaPrincipal.body.id,
+              fuente: nuevaPrincipal.body.urlPdf,
+            }),
+          ]);
+          expect(contenido.body).not.toHaveProperty(
+            'estadoResolucionFuente',
+          );
+          expect(contenido.body).not.toHaveProperty('origenRegistroOficial');
+        }
+      } finally {
+        await prisma.suscripcion.delete({ where: { id: suscripcionAdminId } });
+      }
+    });
+
+    it('resolver-pendientes sin catálogo real devuelve 503 y conserva la edición PENDIENTE', async () => {
+      const edicionId = `edicion-catalogo-no-disponible-${sufijoEdicion}`;
+      await prisma.edicionRegistroOficial.create({
+        data: {
+          id: edicionId,
+          tipoPublicacionRegistroOficial: 'SRO',
+          numeroPublicacionRegistroOficial: numeroEdicion + 1,
+          fechaPublicacionOficial: new Date('2026-07-15T00:00:00.000Z'),
+          urlPdf: null,
+          estadoResolucionFuente: 'PENDIENTE',
+        },
+      });
+
+      const respuesta = await request(servidor())
+        .post('/ediciones-registro-oficial/resolver-pendientes')
+        .set('Authorization', await autorizacionDe(CORREO_SUPERADMIN));
+
+      expect(respuesta.status).toBe(503);
+      expect(respuesta.body.message).toBe('CATALOGO_NO_DISPONIBLE');
+      await expect(
+        prisma.edicionRegistroOficial.findUnique({ where: { id: edicionId } }),
+      ).resolves.toEqual(
+        expect.objectContaining({
+          urlPdf: null,
+          estadoResolucionFuente: 'PENDIENTE',
+        }),
+      );
     });
   },
 );

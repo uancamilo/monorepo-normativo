@@ -70,10 +70,10 @@ El paquete `aplicacion` está preparado para contener la orquestación de casos 
 - `EstadoEditorialNorma` representa el flujo editorial interno: `BORRADOR`, `EN_REVISION` o `PUBLICADA`.
 - `Norma.estaVisibleParaSuscriptores()` se mantiene solo como nombre técnico heredado del método existente; la regla de negocio depende de `estadoEditorial = PUBLICADA`.
 - Una norma no se reforma ni se deroga por voluntad de un editor o superadministrador. Reforma y derogatoria requieren sustento normativo; la trazabilidad profunda queda diferida.
-- `tipoNorma` e `institucionExpide` son strings obligatorios por ahora.
+- `tipoNorma` e `institucionExpide` pueden estar vacíos en `BORRADOR` y son obligatorios al publicar.
 - `numero` es opcional.
-- `fuente` es una URL obligatoria y no es única, porque un mismo PDF o URL puede contener varias normas.
-- `fechaExpedicion` y `fechaPublicacionOficial` son metadata normativa distinta. `fechaPublicacionEnSistema` es una fecha interna del flujo editorial.
+- La fuente es `urlPdf` de la `EdicionRegistroOficial` asociada y no un campo propio de `Norma`; una edición puede contener varias normas.
+- `fechaExpedicion` pertenece a `Norma` y es opcional al publicar; `fechaPublicacionOficial` pertenece a `EdicionRegistroOficial`. `fechaPublicacionEnSistema` es una fecha interna del flujo editorial.
 - `SUSCRIPTOR` no modifica normas. `EDITOR` y `SUPERADMINISTRADOR` pueden modificar contenido y metadata, pero no inventar reforma o derogatoria sin sustento jurídico.
 
 ### Acceso a normas

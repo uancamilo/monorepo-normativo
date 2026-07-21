@@ -32,6 +32,14 @@ enum EstadoEditorialNormaPrisma {
   PUBLICADA
 }
 
+enum EstadoResolucionFuentePrisma {
+  PENDIENTE
+  RESUELTA
+  CONFLICTIVA
+  NO_ENCONTRADA
+  MANUAL
+}
+
 model Usuario {
   id                 String            @id
   nombre             String
@@ -70,24 +78,110 @@ model SuscripcionCorreoHabilitado {
   @@map("suscripcion_correos_habilitados")
 }
 
-model Norma {
-  id                         String                       @id
-  numero                     String?
-  titulo                     String
-  contenido                  String
-  tipoNorma                  String                       @map("tipo_norma")
-  institucionExpide          String                       @map("institucion_expide")
-  fuente                     String
-  estadoJuridico             EstadoNormaPrisma            @map("estado_juridico")
-  estadoEditorial            EstadoEditorialNormaPrisma   @map("estado_editorial")
-  fechaExpedicion            DateTime                     @map("fecha_expedicion")
-  fechaPublicacionOficial    DateTime                     @map("fecha_publicacion_oficial")
-  fechaPublicacionEnSistema  DateTime?                    @map("fecha_publicacion_en_sistema")
-  createdAt                  DateTime                     @default(now()) @map("created_at")
-  updatedAt                  DateTime                     @updatedAt @map("updated_at")
-  eventosPublicacion         EventoNormaPublicada[]
+// Edición/publicación específica del Registro Oficial. Es la dueña de la URL
+// del PDF oficial: varias normas comparten la misma edición y la fuente se
+// resuelve/corrige una sola vez por edición.
+model EdicionRegistroOficial {
+  id                               String                        @id
+  tipoPublicacionRegistroOficial   String                        @map("tipo_publicacion_registro_oficial")
+  numeroPublicacionRegistroOficial Int                           @map("numero_publicacion_registro_oficial")
+  fechaPublicacionOficial          DateTime                      @db.Date @map("fecha_publicacion_oficial")
+  urlPdf                           String?                       @map("url_pdf")
+  estadoResolucionFuente           EstadoResolucionFuentePrisma  @map("estado_resolucion_fuente")
+  createdAt                        DateTime                      @default(now()) @map("created_at")
+  updatedAt                        DateTime                      @updatedAt @map("updated_at")
+  normasPrincipales                Norma[]                               @relation("EdicionPrincipalNorma")
+  cambiosNormas                    NormaEdicionRegistroOficialCambio[]
 
+  @@unique([tipoPublicacionRegistroOficial, numeroPublicacionRegistroOficial, fechaPublicacionOficial], map: "ediciones_registro_oficial_clave_logica_key")
+  @@index([estadoResolucionFuente])
+  @@map("ediciones_registro_oficial")
+}
+
+// Los campos jurídicos/editoriales pueden estar vacíos o nulos mientras la
+// norma está en BORRADOR (el scraping puede fallar en cualquier detección);
+// la obligatoriedad se exige en la regla de publicación, no en el esquema.
+// La norma no persiste `fuente` propia, ni la triple de publicación (tipo,
+// número, fecha): se proyectan desde su EdicionRegistroOficial.
+model Norma {
+  id                        String                       @id
+  numero                    String?
+  titulo                    String
+  contenido                 String[]                     @default([])
+  tipoNorma                 String                       @map("tipo_norma")
+  institucionExpide         String                       @map("institucion_expide")
+  estadoJuridico            EstadoNormaPrisma?           @map("estado_juridico")
+  estadoEditorial           EstadoEditorialNormaPrisma   @map("estado_editorial")
+  fechaExpedicion           DateTime?                    @map("fecha_expedicion")
+  edicionRegistroOficialId  String?                      @map("edicion_registro_oficial_id")
+  fechaPublicacionEnSistema DateTime?                    @map("fecha_publicacion_en_sistema")
+  createdAt                 DateTime                     @default(now()) @map("created_at")
+  updatedAt                 DateTime                     @updatedAt @map("updated_at")
+  eventosPublicacion        EventoNormaPublicada[]
+  entradasIngesta           EntradaDetectadaRegistroOficial[]
+  // FK interna que representa exclusivamente la edición principal.
+  edicionRegistroOficial    EdicionRegistroOficial?      @relation("EdicionPrincipalNorma", fields: [edicionRegistroOficialId], references: [id], onDelete: Restrict)
+  edicionesCambio           NormaEdicionRegistroOficialCambio[]
+
+  @@index([estadoEditorial])
+  @@index([edicionRegistroOficialId])
   @@map("normas")
+}
+
+// Relación explícita muchos-a-muchos para las ediciones posteriores en las
+// que se registran cambios de una norma. La principal continúa siendo la FK
+// nullable de Norma; esta tabla contiene exclusivamente relaciones CAMBIO.
+model NormaEdicionRegistroOficialCambio {
+  normaId                     String                   @map("norma_id")
+  edicionRegistroOficialId    String                   @map("edicion_registro_oficial_id")
+  createdAt                   DateTime                 @default(now()) @map("created_at")
+  norma                       Norma                    @relation(fields: [normaId], references: [id], onDelete: Cascade, map: "normas_ediciones_cambio_norma_id_fkey")
+  edicionRegistroOficial      EdicionRegistroOficial   @relation(fields: [edicionRegistroOficialId], references: [id], onDelete: Restrict, map: "normas_ediciones_cambio_edicion_id_fkey")
+
+  @@id([normaId, edicionRegistroOficialId])
+  @@index([edicionRegistroOficialId], map: "normas_ediciones_cambio_edicion_id_idx")
+  @@map("normas_ediciones_registro_oficial_cambios")
+}
+
+model LoteIngestaRegistroOficial {
+  id                      String                       @id
+  huellaLote              String                       @map("huella_lote")
+  periodoAnio             Int                          @map("periodo_anio")
+  periodoMes              Int                          @map("periodo_mes")
+  fechaEjecucion          DateTime                     @map("fecha_ejecucion")
+  urlResumenMensualRegistroOficial String              @map("url_resumen_mensual_registro_oficial")
+  versionExtractor        String                       @map("version_extractor")
+  createdAt               DateTime                     @default(now()) @map("created_at")
+  entradasDetectadas      EntradaDetectadaRegistroOficial[]
+
+  @@unique([periodoAnio, periodoMes])
+  @@map("lotes_ingesta_registro_oficial")
+}
+
+model EntradaDetectadaRegistroOficial {
+  id                    String                     @id
+  loteId                String                     @map("lote_id")
+  posicion              Int
+  normaId               String                     @map("norma_id")
+  segmentoCrudo         String                     @map("segmento_crudo")
+  metadataExtraccion    Json                       @map("metadata_extraccion")
+  tipoDetectado         String?                    @map("tipo_detectado")
+  numeroDetectado       String?                    @map("numero_detectado")
+  tituloDetectado       String?                    @map("titulo_detectado")
+  institucionDetectada  String?                    @map("institucion_detectada")
+  seccion               String?
+  publicacionTipo       String?                    @map("publicacion_tipo")
+  publicacionNumero     Int?                       @map("publicacion_numero")
+  publicacionFecha      DateTime?                  @map("publicacion_fecha")
+  advertencias          Json
+  confianza             Float
+  createdAt             DateTime                   @default(now()) @map("created_at")
+  lote                  LoteIngestaRegistroOficial @relation(fields: [loteId], references: [id], onDelete: Cascade)
+  norma                 Norma                      @relation(fields: [normaId], references: [id], onDelete: Restrict)
+
+  @@unique([loteId, posicion])
+  @@index([normaId])
+  @@map("entradas_detectadas_registro_oficial")
 }
 
 model EventoNormaPublicada {

@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { validarConfiguracionArranque } from './configuracion/validar-configuracion-arranque';
 
@@ -8,7 +9,16 @@ import { validarConfiguracionArranque } from './configuracion/validar-configurac
 async function bootstrap(): Promise<void> {
   const configuracion = validarConfiguracionArranque();
 
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bodyParser: false,
+  });
+  app.useBodyParser('json', {
+    limit: configuracion.ingesta.limiteCuerpoJson,
+  });
+  app.useBodyParser('urlencoded', {
+    extended: true,
+    limit: configuracion.ingesta.limiteCuerpoJson,
+  });
   app.enableShutdownHooks();
   await app.listen(configuracion.puerto);
 }

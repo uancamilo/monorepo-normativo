@@ -35,13 +35,11 @@ describe('Auth (e2e memoria)', () => {
     return {
       numero: '123',
       titulo: 'Ley Orgánica de Prueba (login)',
-      contenido: '',
+      contenido: [],
       tipoNorma: 'Ley',
       institucionExpide: 'Asamblea Nacional',
-      fuente: 'https://www.registroficial.gob.ec/norma-login.pdf',
       estadoJuridico: 'VIGENTE',
       fechaExpedicion: '2025-01-01',
-      fechaPublicacionOficial: '2025-01-02',
     };
   }
 

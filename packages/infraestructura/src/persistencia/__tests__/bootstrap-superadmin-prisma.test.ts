@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from '@jest/globals';
-import { execFileSync } from 'node:child_process';
 import { IniciarSesion } from '@normativo/aplicacion';
 import { RolUsuario } from '@normativo/dominio';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -35,21 +34,6 @@ describirPrisma(
     beforeAll(async () => {
       databaseUrlPrevia = process.env.DATABASE_URL;
       process.env.DATABASE_URL = testDatabaseUrl;
-      try {
-        const prismaCli = require.resolve('prisma/build/index.js');
-        execFileSync(process.execPath, [prismaCli, 'db', 'push'], {
-          cwd: process.cwd(),
-          env: { ...process.env, DATABASE_URL: testDatabaseUrl },
-          stdio: 'pipe',
-        });
-      } catch (error) {
-        throw new Error(
-          'No se pudo aplicar el schema en la base de test. ¿Está PostgreSQL arriba? ' +
-            'Ejecuta: docker compose -f docker-compose.test.yml up -d. Detalle: ' +
-            (error instanceof Error ? error.message : String(error)),
-        );
-      }
-
       prisma = new PrismaService();
       await prisma.$connect();
     });

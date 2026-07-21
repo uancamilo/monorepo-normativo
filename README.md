@@ -71,6 +71,8 @@ Cada fase cierra con un commit y un tag anotado (`git tag -n`):
 - Fase 4E: bootstrap operativo del SUPERADMINISTRADOR inicial y política mínima de contraseñas.
 - Fase 4F: cambio de contraseña propia autenticado (`POST /auth/cambiar-contrasena`).
 - Fase 4G: gestión mínima de usuarios internos (`POST /usuarios/sistema`, solo SUPERADMINISTRADOR; roles EDITOR/ADMINISTRADOR).
+- Fase 4H: unicidad concurrente endurecida en la creación de usuarios internos.
+- Fase 5A: ingesta por lote del Registro Oficial en borradores (`POST /ingesta/registro-oficial/resumenes` y consulta de lotes, solo SUPERADMINISTRADOR) y flujo editorial sobre `/normas` (lista/detalle/corrección/publicación múltiple de borradores para EDITOR y SUPERADMINISTRADOR).
 
 ## Autenticación
 
@@ -100,6 +102,53 @@ del dominio. El header `x-usuario-id` quedó eliminado como mecanismo de identid
   crea usuarios EDITOR o ADMINISTRADOR con contraseña inicial (política mínima);
   responde 201 con datos públicos, 403 si el actor no es superadmin, 409 si el
   correo ya existe. Sin listar/editar/desactivar todavía.
+- **Ingesta del Registro Oficial** (Fase 5A, plano técnico):
+  `POST /ingesta/registro-oficial/resumenes` (Bearer de SUPERADMINISTRADOR)
+  recibe el lote mensual completo detectado del resumen/índice (1–1500 entradas
+  detectadas) y crea una norma en `BORRADOR` por cada entrada — nunca publica,
+  incluso si el scraping no detectó ningún campo (los campos quedan
+  vacíos/nulos, sin placeholders; `estadoJuridico` nace `VIGENTE`). El lote
+  conserva año/mes en `periodo`; cada entrada no los duplica y usa
+  `publicacion.fecha` para la fecha exacta detectada. La URL del
+  resumen mensual no es la fuente oficial: la fuente es `urlPdf` de la
+  `EdicionRegistroOficial` asociada y queda `null` mientras no esté resuelta.
+  La ingesta asocia esa edición como principal y nunca crea cambios.
+  `publicacion.fecha` y `fechaPublicacionOficial` usan estrictamente
+  `YYYY-MM-DD`: son días calendario persistidos como PostgreSQL `DATE`, sin
+  hora ni zona horaria.
+  Solo existe un lote por año y mes. La idempotencia usa el período y
+  `huellaLote`: un reenvío idéntico devuelve el resumen anterior con
+  `creado: false`; el mismo período con contenido diferente responde 409. El
+  límite inicial de 1500 puede ajustarse con `INGESTA_MAX_ENTRADAS` y el cuerpo
+  JSON con `HTTP_JSON_BODY_LIMIT` (8mb por defecto). La ingesta no compara entradas ni busca
+  posibles duplicados. `GET /ingesta/registro-oficial/lotes` y
+  `GET /ingesta/registro-oficial/lotes/:id` son control técnico del scraping:
+  solo SUPERADMINISTRADOR; el editor no navega por lotes (ADR 0008).
+- **Flujo editorial de normas** (Fase 5A, plano editorial; EDITOR y
+  SUPERADMINISTRADOR): `GET /normas?estadoEditorial=BORRADOR` lista los
+  borradores como array estándar, sin total embebido ni señales técnicas de
+  ingesta. Tanto el listado como `GET /normas/:id` incluyen, si la norma nació
+  de ingesta, `origenRegistroOficial`
+  (`urlResumenMensualRegistroOficial` + `segmentoCrudo`) para verificación
+  visual; el detalle agrega `contenido`. `estadoResolucionFuente` aparece en
+  normas `BORRADOR`, pero no en respuestas editoriales de normas `PUBLICADA`.
+  Las respuestas usan únicamente `edicionesRegistroOficial`: principal
+  primero y luego cambios por fecha oficial e ID; no exponen la FK interna ni
+  campos singulares de edición/fuente. Al reemplazar la principal, la anterior
+  se conserva como `CAMBIO` de forma transaccional. La publicación depende
+  solo de la principal; los cambios no la bloquean.
+  `PATCH /normas/:id` corrige/completa campos de un `BORRADOR` sin
+  publicarlo; `POST /normas/:id/publicar` y `POST /normas/publicar`
+  (múltiple, parcial: resultado por norma) exigen `titulo`, `tipoNorma`,
+  `institucionExpide`, `estadoJuridico` y una `EdicionRegistroOficial`
+  asociada cuya fuente esté disponible con resolución `RESUELTA` o `MANUAL`.
+  `numero`, `fechaExpedicion` y `contenido` no son obligatorios para publicar.
+- **Resolución automática de fuente no configurada**: el catálogo interno de
+  `EdicionRegistroOficial` y la corrección manual están disponibles, pero no
+  existe todavía integración con un catálogo oficial externo.
+  `POST /ediciones-registro-oficial/resolver-pendientes` responde
+  `503 CATALOGO_NO_DISPONIBLE` al SUPERADMINISTRADOR sin modificar las
+  ediciones `PENDIENTE`; ningún módulo ejecutable genera URLs sintéticas.
 - **Bootstrap operativo del SUPERADMINISTRADOR** (el seed es solo
   desarrollo/test): `npm run bootstrap:superadmin --workspace=@normativo/infraestructura`
   con `PERMITIR_BOOTSTRAP_SUPERADMIN=true`, `DATABASE_URL`,

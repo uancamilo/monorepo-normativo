@@ -14,7 +14,7 @@
     "bootstrap:superadmin": "node scripts/bootstrap-superadmin.js",
     "start": "node dist/main.js",
     "test": "jest --passWithNoTests",
-    "test:prisma": "jest --runInBand prisma",
+    "test:prisma": "node scripts/ejecutar-tests-prisma.js",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

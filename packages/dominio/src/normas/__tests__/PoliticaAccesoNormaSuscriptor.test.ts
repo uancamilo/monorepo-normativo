@@ -49,14 +49,13 @@ function crearNorma(id: string, opciones: OpcionesNorma = {}): Norma {
     id,
     numero: `RO-${id}`,
     titulo: `Norma ${id}`,
-    contenido: `Contenido de la norma ${id}`,
+    contenido: [`Contenido de la norma ${id}`],
     tipoNorma: 'Ley',
     institucionExpide: 'Asamblea Nacional',
-    fuente: `https://www.registroficial.gob.ec/${id}.pdf`,
     estadoJuridico: opciones.estadoJuridico ?? EstadoNorma.VIGENTE,
     estadoEditorial,
     fechaExpedicion: new Date('2025-01-01'),
-    fechaPublicacionOficial: new Date('2025-01-02'),
+    edicionRegistroOficialId: `edicion-${id}`,
     fechaPublicacionEnSistema:
       estadoEditorial === EstadoEditorialNorma.PUBLICADA
         ? new Date('2025-01-03')

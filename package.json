@@ -9,6 +9,7 @@
     "test:dominio": "npm run test --workspace=@normativo/dominio",
     "test:aplicacion": "npm run test --workspace=@normativo/aplicacion",
     "test:infraestructura": "npm run test --workspace=@normativo/infraestructura",
+    "test:prisma": "npm run test:prisma --workspace=@normativo/infraestructura",
     "typecheck": "npm run typecheck:dominio && npm run typecheck:aplicacion && npm run typecheck:infraestructura",
     "typecheck:dominio": "npm run typecheck --workspace=@normativo/dominio",
     "typecheck:aplicacion": "npm run typecheck --workspace=@normativo/aplicacion",

@@ -4,6 +4,7 @@ const databaseUrl =
   process.env.TEST_DATABASE_URL ??
   process.env.DATABASE_URL ??
   'postgresql://normativo:normativo@localhost:5432/normativo?schema=public';
+const shadowDatabaseUrl = process.env.SHADOW_DATABASE_URL;
 
 export default defineConfig({
   schema: 'prisma/schema.prisma',
@@ -12,5 +13,6 @@ export default defineConfig({
   },
   datasource: {
     url: databaseUrl,
+    ...(shadowDatabaseUrl === undefined ? {} : { shadowDatabaseUrl }),
   },
 });

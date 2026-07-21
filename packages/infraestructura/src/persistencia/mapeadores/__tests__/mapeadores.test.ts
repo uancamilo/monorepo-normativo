@@ -2,10 +2,15 @@ import { describe, expect, it } from '@jest/globals';
 import {
   EstadoEditorialNorma,
   EstadoNorma,
+  EstadoResolucionFuente,
   EstadoSuscripcion,
   RolUsuario,
 } from '@normativo/dominio';
-import { mapearNormaDesdePrisma } from '../mapearNorma';
+import {
+  mapearDatosEditorialesNormaPrisma,
+  mapearNormaDesdePrisma,
+} from '../mapearNorma';
+import { mapearEdicionRegistroOficialDesdePrisma } from '../mapearEdicionRegistroOficial';
 import { mapearUsuarioDesdePrisma } from '../mapearUsuario';
 import { mapearSuscripcionDesdePrisma } from '../mapearSuscripcion';
 
@@ -14,15 +19,31 @@ function filaNorma(overrides: Record<string, unknown> = {}) {
     id: 'norma-1',
     numero: null,
     titulo: 'Norma de prueba',
-    contenido: '',
+    contenido: [],
     tipoNorma: 'Ley',
     institucionExpide: 'Asamblea Nacional',
-    fuente: 'https://www.registroficial.gob.ec/norma-1.pdf',
     estadoJuridico: 'VIGENTE',
     estadoEditorial: 'BORRADOR',
     fechaExpedicion: new Date('2025-01-01T00:00:00.000Z'),
     fechaPublicacionOficial: new Date('2025-01-02T00:00:00.000Z'),
+    tipoPublicacionRegistroOficial: 'RO',
+    numeroPublicacionRegistroOficial: 500,
+    edicionRegistroOficialId: 'edicion-1',
     fechaPublicacionEnSistema: null,
+    createdAt: new Date('2025-01-01T00:00:00.000Z'),
+    updatedAt: new Date('2025-01-01T00:00:00.000Z'),
+    ...overrides,
+  };
+}
+
+function filaEdicion(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'edicion-1',
+    tipoPublicacionRegistroOficial: 'RO',
+    numeroPublicacionRegistroOficial: 500,
+    fechaPublicacionOficial: new Date('2025-01-02T00:00:00.000Z'),
+    urlPdf: 'https://www.registroficial.gob.ec/ediciones/ro-500.pdf',
+    estadoResolucionFuente: 'RESUELTA',
     createdAt: new Date('2025-01-01T00:00:00.000Z'),
     updatedAt: new Date('2025-01-01T00:00:00.000Z'),
     ...overrides,
@@ -61,6 +82,80 @@ describe('mapeadores desde Prisma (validación runtime de enums)', () => {
 
     expect(norma.estadoJuridico).toBe(EstadoNorma.VIGENTE);
     expect(norma.estadoEditorial).toBe(EstadoEditorialNorma.BORRADOR);
+  });
+
+  it('mapearNormaDesdePrisma acepta campos anulables de un borrador incompleto', () => {
+    const norma = mapearNormaDesdePrisma(
+      filaNorma({
+        titulo: '',
+        tipoNorma: '',
+        institucionExpide: '',
+        estadoJuridico: null,
+        fechaExpedicion: null,
+        fechaPublicacionOficial: null,
+        tipoPublicacionRegistroOficial: '',
+        numeroPublicacionRegistroOficial: null,
+        edicionRegistroOficialId: null,
+      }) as never,
+    );
+
+    expect(norma.titulo).toBe('');
+    expect(norma.estadoJuridico).toBeNull();
+    expect(norma.fechaExpedicion).toBeNull();
+    expect(norma.edicionRegistroOficialId).toBeNull();
+  });
+
+  it('mapearNormaDesdePrisma no reconstruye fuente ni fecha cruda como datos propios', () => {
+    const norma = mapearNormaDesdePrisma(filaNorma() as never);
+
+    expect('fuente' in norma).toBe(false);
+    expect('fechaPublicacionRegistroOficialCruda' in norma).toBe(false);
+    expect(norma.edicionRegistroOficialId).toBe('edicion-1');
+    expect(norma.contenido).toEqual([]);
+  });
+
+  it('mapearDatosEditorialesNormaPrisma excluye estado editorial, edición y fecha de publicación', () => {
+    const norma = mapearNormaDesdePrisma(filaNorma() as never);
+
+    const datos = mapearDatosEditorialesNormaPrisma(norma);
+
+    expect(datos).toEqual({
+      numero: null,
+      titulo: 'Norma de prueba',
+      contenido: [],
+      tipoNorma: 'Ley',
+      institucionExpide: 'Asamblea Nacional',
+      estadoJuridico: 'VIGENTE',
+      fechaExpedicion: new Date('2025-01-01T00:00:00.000Z'),
+    });
+    expect(datos).not.toHaveProperty('id');
+    expect(datos).not.toHaveProperty('estadoEditorial');
+    expect(datos).not.toHaveProperty('edicionRegistroOficialId');
+    expect(datos).not.toHaveProperty('fechaPublicacionEnSistema');
+  });
+
+  it('mapearEdicionRegistroOficialDesdePrisma reconstruye la edición', () => {
+    const edicion = mapearEdicionRegistroOficialDesdePrisma(
+      filaEdicion() as never,
+    );
+
+    expect(edicion.id).toBe('edicion-1');
+    expect(edicion.urlPdf).toBe(
+      'https://www.registroficial.gob.ec/ediciones/ro-500.pdf',
+    );
+    expect(edicion.estadoResolucionFuente).toBe(
+      EstadoResolucionFuente.RESUELTA,
+    );
+  });
+
+  it('mapearEdicionRegistroOficialDesdePrisma rechaza estadoResolucionFuente desconocido', () => {
+    expect(() =>
+      mapearEdicionRegistroOficialDesdePrisma(
+        filaEdicion({ estadoResolucionFuente: 'INVENTADO', urlPdf: null }) as never,
+      ),
+    ).toThrow(
+      /EdicionRegistroOficial\.estadoResolucionFuente \(id edicion-1\): 'INVENTADO'/,
+    );
   });
 
   it('mapearNormaDesdePrisma rechaza estadoJuridico desconocido identificando el registro', () => {

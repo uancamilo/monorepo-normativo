@@ -2,6 +2,7 @@ import { describe, it, expect } from '@jest/globals';
 import {
   EstadoEditorialNorma,
   EstadoNorma,
+  EstadoResolucionFuente,
   EstadoSuscripcion,
   Norma,
   RolUsuario,
@@ -9,9 +10,16 @@ import {
   Usuario,
 } from '@normativo/dominio';
 import { ConsultarContenidoNorma } from '../ConsultarContenidoNorma';
-import { RepositorioNormas } from '../../puertos/RepositorioNormas';
 import { RepositorioSuscripciones } from '../../puertos/RepositorioSuscripciones';
 import { RepositorioUsuarios } from '../../puertos/RepositorioUsuarios';
+import {
+  crearEdicionRegistroOficial,
+  RepositorioEdicionesRegistroOficialEnMemoriaFake,
+  RepositorioNormasEnMemoriaFake,
+} from './apoyo/fakes-normas-editorial';
+
+const URL_FUENTE_EDICION =
+  'https://www.registroficial.gob.ec/ediciones/ro-500.pdf';
 
 class RepositorioUsuariosEnMemoria implements RepositorioUsuarios {
   private readonly usuariosPorId = new Map<string, Usuario>();
@@ -22,22 +30,6 @@ class RepositorioUsuariosEnMemoria implements RepositorioUsuarios {
 
   async buscarPorId(id: string): Promise<Usuario | null> {
     return this.usuariosPorId.get(id) ?? null;
-  }
-}
-
-class RepositorioNormasEnMemoria implements RepositorioNormas {
-  private readonly normasPorId = new Map<string, Norma>();
-
-  agregar(norma: Norma): void {
-    this.normasPorId.set(norma.id, norma);
-  }
-
-  async buscarPorId(id: string): Promise<Norma | null> {
-    return this.normasPorId.get(id) ?? null;
-  }
-
-  async guardar(norma: Norma): Promise<void> {
-    this.normasPorId.set(norma.id, norma);
   }
 }
 
@@ -99,7 +91,7 @@ interface OpcionesNorma {
   id?: string;
   estadoJuridico?: EstadoNorma;
   estadoEditorial?: EstadoEditorialNorma;
-  contenido?: string;
+  contenido?: string[];
 }
 
 function crearNorma(opciones: OpcionesNorma = {}): Norma {
@@ -110,14 +102,13 @@ function crearNorma(opciones: OpcionesNorma = {}): Norma {
     id,
     numero: `RO-${id}`,
     titulo: `Norma ${id}`,
-    contenido: opciones.contenido ?? `Contenido de la norma ${id}`,
+    contenido: opciones.contenido ?? [`Contenido de la norma ${id}`],
     tipoNorma: 'Ley',
     institucionExpide: 'Asamblea Nacional',
-    fuente: `https://www.registroficial.gob.ec/${id}.pdf`,
     estadoJuridico: opciones.estadoJuridico ?? EstadoNorma.VIGENTE,
     estadoEditorial,
     fechaExpedicion: new Date('2025-01-01'),
-    fechaPublicacionOficial: new Date('2025-01-02'),
+    edicionRegistroOficialId: 'edicion-1',
     fechaPublicacionEnSistema:
       estadoEditorial === EstadoEditorialNorma.PUBLICADA
         ? new Date('2025-01-03')
@@ -128,24 +119,33 @@ function crearNorma(opciones: OpcionesNorma = {}): Norma {
 interface ContextoCasoUso {
   casoUso: ConsultarContenidoNorma;
   repositorioUsuarios: RepositorioUsuariosEnMemoria;
-  repositorioNormas: RepositorioNormasEnMemoria;
+  repositorioNormas: RepositorioNormasEnMemoriaFake;
   repositorioSuscripciones: RepositorioSuscripcionesEnMemoria;
+  repositorioEdiciones: RepositorioEdicionesRegistroOficialEnMemoriaFake;
 }
 
 function crearContexto(): ContextoCasoUso {
   const repositorioUsuarios = new RepositorioUsuariosEnMemoria();
-  const repositorioNormas = new RepositorioNormasEnMemoria();
+  const repositorioNormas = new RepositorioNormasEnMemoriaFake();
   const repositorioSuscripciones = new RepositorioSuscripcionesEnMemoria();
+  const repositorioEdiciones =
+    new RepositorioEdicionesRegistroOficialEnMemoriaFake();
+  repositorioEdiciones.agregar(
+    crearEdicionRegistroOficial({ urlPdf: URL_FUENTE_EDICION }),
+  );
   const casoUso = new ConsultarContenidoNorma({
     repositorioUsuarios,
     repositorioNormas,
     repositorioSuscripciones,
+    repositorioEdiciones,
+    consultorCambiosEdicion: repositorioNormas,
   });
   return {
     casoUso,
     repositorioUsuarios,
     repositorioNormas,
     repositorioSuscripciones,
+    repositorioEdiciones,
   };
 }
 
@@ -173,7 +173,7 @@ describe('ConsultarContenidoNorma', () => {
     expect(resultado.exitoso).toBe(true);
     if (resultado.exitoso) {
       expect(resultado.contenido.id).toBe(norma.id);
-      expect(resultado.contenido.contenido).toBe(norma.contenido);
+      expect(resultado.contenido.contenido).toEqual(norma.contenido);
     }
   });
 
@@ -274,6 +274,8 @@ describe('ConsultarContenidoNorma', () => {
       repositorioUsuarios: contexto.repositorioUsuarios,
       repositorioNormas: contexto.repositorioNormas,
       repositorioSuscripciones: repositorioSuscripcionesPermisivo,
+      repositorioEdiciones: contexto.repositorioEdiciones,
+      consultorCambiosEdicion: contexto.repositorioNormas,
     });
 
     const resultado = await casoUso.ejecutar({
@@ -447,12 +449,30 @@ describe('ConsultarContenidoNorma', () => {
         tieneContenidoCompleto: true,
         tipoNorma: norma.tipoNorma,
         institucionExpide: norma.institucionExpide,
-        fuente: norma.fuente,
         estadoJuridico: norma.estadoJuridico,
-        fechaExpedicion: norma.fechaExpedicion,
-        fechaPublicacionOficial: norma.fechaPublicacionOficial,
+        fechaExpedicion: '2025-01-01',
+        edicionesRegistroOficial: [
+          {
+            tipoRelacion: 'PRINCIPAL',
+            id: 'edicion-1',
+            tipoPublicacionRegistroOficial: 'RO',
+            numeroPublicacionRegistroOficial: 500,
+            fechaPublicacionOficial: '2026-05-02',
+            fuente: URL_FUENTE_EDICION,
+          },
+        ],
       });
-      expect(resultado.contenido.fuente).toBe(norma.fuente);
+      // Nunca campos singulares de edición en la salida del suscriptor.
+      for (const singular of [
+        'fuente',
+        'fechaPublicacionOficial',
+        'estadoResolucionFuente',
+        'origenRegistroOficial',
+        'estadoEditorial',
+        'fechaPublicacionEnSistema',
+      ]) {
+        expect(resultado.contenido).not.toHaveProperty(singular);
+      }
     }
   });
 
@@ -479,7 +499,9 @@ describe('ConsultarContenidoNorma', () => {
       expect(Object.keys(resultado.contenido)).not.toContain(
         'fechaPublicacionEnSistema',
       );
-      expect(resultado.contenido.fuente).toBe(norma.fuente);
+      expect(resultado.contenido.edicionesRegistroOficial[0].fuente).toBe(
+        URL_FUENTE_EDICION,
+      );
     }
   });
 
@@ -513,7 +535,7 @@ describe('ConsultarContenidoNorma', () => {
     const suscripcion = crearSuscripcion({
       correoHabilitado: usuario.obtenerCorreo(),
     });
-    const norma = crearNorma({ contenido: 'Texto completo de la norma' });
+    const norma = crearNorma({ contenido: ['Texto completo de la norma'] });
 
     contexto.repositorioUsuarios.agregar(usuario);
     contexto.repositorioNormas.agregar(norma);
@@ -531,16 +553,78 @@ describe('ConsultarContenidoNorma', () => {
     }
   });
 
-  it.each(['', '   '])(
-    'marca tieneContenidoCompleto en false cuando una norma PUBLICADA tiene contenido "%s"',
-    async (contenido) => {
+  it('marca tieneContenidoCompleto en false cuando una norma PUBLICADA tiene contenido []', async () => {
+    const contexto = crearContexto();
+    const usuario = crearUsuario();
+    const suscripcion = crearSuscripcion({
+      correoHabilitado: usuario.obtenerCorreo(),
+    });
+    const norma = crearNorma({ contenido: [] });
+
+    contexto.repositorioUsuarios.agregar(usuario);
+    contexto.repositorioNormas.agregar(norma);
+    contexto.repositorioSuscripciones.agregar(suscripcion);
+
+    const resultado = await contexto.casoUso.ejecutar({
+      usuarioAutenticadoId: usuario.obtenerId(),
+      normaId: norma.id,
+      fechaReferencia,
+    });
+
+    expect(resultado.exitoso).toBe(true);
+    if (resultado.exitoso) {
+      expect(resultado.contenido.tieneContenidoCompleto).toBe(false);
+      expect(resultado.contenido.contenido).toEqual([]);
+      expect(resultado.contenido.edicionesRegistroOficial[0].fuente).toBe(
+        URL_FUENTE_EDICION,
+      );
+    }
+  });
+
+  it.each([RolUsuario.SUSCRIPTOR, RolUsuario.ADMINISTRADOR])(
+    '%s con suscripción ve principal y solo cambios publicables, sin estados internos',
+    async (rol) => {
       const contexto = crearContexto();
-      const usuario = crearUsuario();
+      const usuario = crearUsuario({ id: `usuario-${rol}`, rol });
+      const norma = crearNorma({ id: `norma-${rol}` });
       const suscripcion = crearSuscripcion({
+        id: `suscripcion-${rol}`,
         correoHabilitado: usuario.obtenerCorreo(),
       });
-      const norma = crearNorma({ contenido });
-
+      const cambios = [
+        crearEdicionRegistroOficial({
+          id: 'cambio-resuelto',
+          numeroPublicacionRegistroOficial: 501,
+          fechaPublicacionOficial: new Date('2026-06-01'),
+          urlPdf: 'https://registroficial.gob.ec/cambio-resuelto.pdf',
+          estadoResolucionFuente: EstadoResolucionFuente.RESUELTA,
+        }),
+        crearEdicionRegistroOficial({
+          id: 'cambio-manual',
+          numeroPublicacionRegistroOficial: 502,
+          fechaPublicacionOficial: new Date('2026-07-01'),
+          urlPdf: 'https://registroficial.gob.ec/cambio-manual.pdf',
+          estadoResolucionFuente: EstadoResolucionFuente.MANUAL,
+        }),
+        crearEdicionRegistroOficial({
+          id: 'cambio-pendiente',
+          numeroPublicacionRegistroOficial: 503,
+          fechaPublicacionOficial: new Date('2026-08-01'),
+          urlPdf: null,
+          estadoResolucionFuente: EstadoResolucionFuente.PENDIENTE,
+        }),
+        crearEdicionRegistroOficial({
+          id: 'cambio-conflictivo',
+          numeroPublicacionRegistroOficial: 504,
+          fechaPublicacionOficial: new Date('2026-09-01'),
+          urlPdf: null,
+          estadoResolucionFuente: EstadoResolucionFuente.CONFLICTIVA,
+        }),
+      ];
+      for (const cambio of cambios) {
+        contexto.repositorioEdiciones.agregar(cambio);
+        contexto.repositorioNormas.agregarCambio(norma.id, cambio.id);
+      }
       contexto.repositorioUsuarios.agregar(usuario);
       contexto.repositorioNormas.agregar(norma);
       contexto.repositorioSuscripciones.agregar(suscripcion);
@@ -552,11 +636,20 @@ describe('ConsultarContenidoNorma', () => {
       });
 
       expect(resultado.exitoso).toBe(true);
-      if (resultado.exitoso) {
-        expect(resultado.contenido.tieneContenidoCompleto).toBe(false);
-        expect(resultado.contenido.contenido).toBe(contenido);
-        expect(resultado.contenido.fuente).toBe(norma.fuente);
-      }
+      if (!resultado.exitoso) return;
+      expect(
+        resultado.contenido.edicionesRegistroOficial.map((edicion) => [
+          edicion.tipoRelacion,
+          edicion.id,
+        ]),
+      ).toEqual([
+        ['PRINCIPAL', 'edicion-1'],
+        ['CAMBIO', 'cambio-resuelto'],
+        ['CAMBIO', 'cambio-manual'],
+      ]);
+      expect(resultado.contenido).not.toHaveProperty('estadoResolucionFuente');
+      expect(resultado.contenido).not.toHaveProperty('origenRegistroOficial');
+      expect(resultado.contenido).not.toHaveProperty('edicionRegistroOficialId');
     },
   );
 });

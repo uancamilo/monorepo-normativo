@@ -2,73 +2,24 @@ import { describe, it, expect } from '@jest/globals';
 import {
   EstadoEditorialNorma,
   EstadoNorma,
+  EstadoResolucionFuente,
   Norma,
   RolUsuario,
   Usuario,
 } from '@normativo/dominio';
 import { PublicarNorma } from '../PublicarNorma';
-import { RepositorioNormas } from '../../puertos/RepositorioNormas';
-import { RepositorioUsuarios } from '../../puertos/RepositorioUsuarios';
-import {
-  EventoNormaPublicada,
-  PublicadorEventosNormas,
-} from '../../puertos/PublicadorEventosNormas';
+import { EventoNormaPublicada } from '../../puertos/PublicadorEventosNormas';
 import { UnidadDeTrabajoPublicacionNorma } from '../../puertos/UnidadDeTrabajoPublicacionNorma';
-
-class RepositorioUsuariosEnMemoria implements RepositorioUsuarios {
-  private readonly usuariosPorId = new Map<string, Usuario>();
-
-  agregar(usuario: Usuario): void {
-    this.usuariosPorId.set(usuario.obtenerId(), usuario);
-  }
-
-  async buscarPorId(id: string): Promise<Usuario | null> {
-    return this.usuariosPorId.get(id) ?? null;
-  }
-}
-
-class RepositorioNormasEnMemoria implements RepositorioNormas {
-  private readonly normasPorId = new Map<string, Norma>();
-  guardadas: Norma[] = [];
-
-  agregar(norma: Norma): void {
-    this.normasPorId.set(norma.id, norma);
-  }
-
-  async buscarPorId(id: string): Promise<Norma | null> {
-    return this.normasPorId.get(id) ?? null;
-  }
-
-  async guardar(norma: Norma): Promise<void> {
-    this.normasPorId.set(norma.id, norma);
-    this.guardadas.push(norma);
-  }
-}
-
-class PublicadorEventosEnMemoria implements PublicadorEventosNormas {
-  eventos: EventoNormaPublicada[] = [];
-
-  async publicarNormaPublicada(evento: EventoNormaPublicada): Promise<void> {
-    this.eventos.push(evento);
-  }
-}
-
-class UnidadDeTrabajoPublicacionNormaEnMemoria
-  implements UnidadDeTrabajoPublicacionNorma
-{
-  constructor(
-    private readonly repositorioNormas: RepositorioNormasEnMemoria,
-    private readonly publicadorEventosNormas: PublicadorEventosNormas,
-  ) {}
-
-  async guardarNormaPublicadaConEvento(
-    normaPublicada: Norma,
-    evento: EventoNormaPublicada,
-  ): Promise<void> {
-    await this.repositorioNormas.guardar(normaPublicada);
-    await this.publicadorEventosNormas.publicarNormaPublicada(evento);
-  }
-}
+import {
+  crearEdicionRegistroOficial,
+  crearNormaEditorial,
+  crearUsuarioEditorial,
+  PublicadorEventosEnMemoriaFake,
+  RepositorioEdicionesRegistroOficialEnMemoriaFake,
+  RepositorioNormasEnMemoriaFake,
+  RepositorioUsuariosEnMemoriaFake,
+  UnidadDeTrabajoPublicacionNormaFake,
+} from './apoyo/fakes-normas-editorial';
 
 class UnidadDeTrabajoPublicacionFallida
   implements UnidadDeTrabajoPublicacionNorma
@@ -85,9 +36,55 @@ class UnidadDeTrabajoPublicacionFallida
   async guardarNormaPublicadaConEvento(
     normaPublicada: Norma,
     evento: EventoNormaPublicada,
-  ): Promise<void> {
+  ): Promise<never> {
     this.intentos.push({ normaPublicada, evento });
     throw this.error;
+  }
+}
+
+/** Simula perder la carrera: otra publicación concurrente ganó primero. */
+class UnidadDeTrabajoCarreraPerdida
+  implements UnidadDeTrabajoPublicacionNorma
+{
+  llamadas = 0;
+
+  async guardarNormaPublicadaConEvento(): Promise<{
+    publicada: false;
+    razon: 'NORMA_YA_PUBLICADA';
+  }> {
+    this.llamadas += 1;
+    return { publicada: false, razon: 'NORMA_YA_PUBLICADA' };
+  }
+}
+
+/**
+ * Simula la barrera atómica de la unidad de trabajo: la norma sigue en
+ * BORRADOR pero una modificación concurrente invalidó las precondiciones
+ * (campo obligatorio vaciado o edición cambiada a no publicable).
+ */
+class UnidadDeTrabajoModificadaConcurrentemente
+  implements UnidadDeTrabajoPublicacionNorma
+{
+  llamadas = 0;
+
+  async guardarNormaPublicadaConEvento(): Promise<{
+    publicada: false;
+    razon: 'NORMA_MODIFICADA_CONCURRENTEMENTE';
+  }> {
+    this.llamadas += 1;
+    return { publicada: false, razon: 'NORMA_MODIFICADA_CONCURRENTEMENTE' };
+  }
+}
+
+/** Confirma un contenido vigente distinto del observado antes de publicar. */
+class UnidadDeTrabajoContenidoVigente
+  implements UnidadDeTrabajoPublicacionNorma
+{
+  async guardarNormaPublicadaConEvento() {
+    return {
+      publicada: true as const,
+      tieneContenidoCompleto: true,
+    };
   }
 }
 
@@ -111,7 +108,7 @@ interface OpcionesNorma {
   id?: string;
   estadoJuridico?: EstadoNorma;
   estadoEditorial?: EstadoEditorialNorma;
-  contenido?: string;
+  contenido?: string[];
 }
 
 function crearNorma(opciones: OpcionesNorma = {}): Norma {
@@ -123,46 +120,48 @@ function crearNorma(opciones: OpcionesNorma = {}): Norma {
     id,
     numero: `RO-${id}`,
     titulo: `Norma ${id}`,
-    contenido: opciones.contenido ?? `Contenido de la norma ${id}`,
+    contenido: opciones.contenido ?? [`Contenido de la norma ${id}`],
     tipoNorma: 'Ley',
     institucionExpide: 'Asamblea Nacional',
-    fuente: `https://www.registroficial.gob.ec/${id}.pdf`,
     estadoJuridico: opciones.estadoJuridico ?? EstadoNorma.VIGENTE,
     estadoEditorial,
     fechaExpedicion: new Date('2025-01-01'),
-    fechaPublicacionOficial: new Date('2025-01-02'),
+    edicionRegistroOficialId: 'edicion-1',
     fechaPublicacionEnSistema: publicada ? new Date('2025-01-03') : null,
   });
 }
 
 interface ContextoCasoUso {
   casoUso: PublicarNorma;
-  repositorioUsuarios: RepositorioUsuariosEnMemoria;
-  repositorioNormas: RepositorioNormasEnMemoria;
-  publicador: PublicadorEventosEnMemoria;
-  unidadDeTrabajoPublicacionNorma: UnidadDeTrabajoPublicacionNormaEnMemoria;
+  repositorioUsuarios: RepositorioUsuariosEnMemoriaFake;
+  repositorioNormas: RepositorioNormasEnMemoriaFake;
+  repositorioEdiciones: RepositorioEdicionesRegistroOficialEnMemoriaFake;
+  publicador: PublicadorEventosEnMemoriaFake;
 }
 
 function crearContexto(): ContextoCasoUso {
-  const repositorioUsuarios = new RepositorioUsuariosEnMemoria();
-  const repositorioNormas = new RepositorioNormasEnMemoria();
-  const publicador = new PublicadorEventosEnMemoria();
-  const unidadDeTrabajoPublicacionNorma =
-    new UnidadDeTrabajoPublicacionNormaEnMemoria(
-      repositorioNormas,
-      publicador,
-    );
+  const repositorioUsuarios = new RepositorioUsuariosEnMemoriaFake();
+  const repositorioNormas = new RepositorioNormasEnMemoriaFake();
+  const repositorioEdiciones =
+    new RepositorioEdicionesRegistroOficialEnMemoriaFake();
+  const publicador = new PublicadorEventosEnMemoriaFake();
+  // La edición asociada por defecto es publicable (RESUELTA con urlPdf).
+  repositorioEdiciones.agregar(crearEdicionRegistroOficial());
   const casoUso = new PublicarNorma({
     repositorioUsuarios,
     repositorioNormas,
-    unidadDeTrabajoPublicacionNorma,
+    repositorioEdiciones,
+    unidadDeTrabajoPublicacionNorma: new UnidadDeTrabajoPublicacionNormaFake(
+      repositorioNormas,
+      publicador,
+    ),
   });
   return {
     casoUso,
     repositorioUsuarios,
     repositorioNormas,
+    repositorioEdiciones,
     publicador,
-    unidadDeTrabajoPublicacionNorma,
   };
 }
 
@@ -310,7 +309,7 @@ describe('PublicarNorma', () => {
     expect(contexto.publicador.eventos).toHaveLength(0);
   });
 
-  it('guarda la norma con estadoEditorial PUBLICADA y conserva estado jurídico y fuente', async () => {
+  it('guarda la norma PUBLICADA y conserva estado jurídico y edición asociada', async () => {
     const contexto = crearContexto();
     const usuario = crearUsuario();
     const norma = crearNorma({ estadoJuridico: EstadoNorma.REFORMADA });
@@ -329,13 +328,13 @@ describe('PublicarNorma', () => {
     expect(guardada.estadoEditorial).toBe(EstadoEditorialNorma.PUBLICADA);
     expect(guardada.fechaPublicacionEnSistema).toBe(fechaPublicacion);
     expect(guardada.estadoJuridico).toBe(EstadoNorma.REFORMADA);
-    expect(guardada.fuente).toBe(norma.fuente);
+    expect(guardada.edicionRegistroOficialId).toBe('edicion-1');
   });
 
-  it('retorna tieneContenidoCompleto true cuando hay contenido no vacío', async () => {
+  it('retorna tieneContenidoCompleto true cuando hay contenido estructurado', async () => {
     const contexto = crearContexto();
     const usuario = crearUsuario();
-    const norma = crearNorma({ contenido: 'Texto completo' });
+    const norma = crearNorma({ contenido: ['Texto completo'] });
     contexto.repositorioUsuarios.agregar(usuario);
     contexto.repositorioNormas.agregar(norma);
 
@@ -350,31 +349,57 @@ describe('PublicarNorma', () => {
     }
   });
 
-  it.each(['', '   '])(
-    'retorna tieneContenidoCompleto false cuando el contenido es "%s"',
-    async (contenido) => {
-      const contexto = crearContexto();
-      const usuario = crearUsuario();
-      const norma = crearNorma({ contenido });
-      contexto.repositorioUsuarios.agregar(usuario);
-      contexto.repositorioNormas.agregar(norma);
+  it('retorna tieneContenidoCompleto false cuando el contenido es []', async () => {
+    const contexto = crearContexto();
+    const usuario = crearUsuario();
+    const norma = crearNorma({ contenido: [] });
+    contexto.repositorioUsuarios.agregar(usuario);
+    contexto.repositorioNormas.agregar(norma);
 
-      const resultado = await contexto.casoUso.ejecutar({
-        usuarioAutenticadoId: usuario.obtenerId(),
-        normaId: norma.id,
-      });
+    const resultado = await contexto.casoUso.ejecutar({
+      usuarioAutenticadoId: usuario.obtenerId(),
+      normaId: norma.id,
+    });
 
-      expect(resultado.exitoso).toBe(true);
-      if (resultado.exitoso) {
-        expect(resultado.norma.tieneContenidoCompleto).toBe(false);
-      }
-    },
-  );
+    expect(resultado.exitoso).toBe(true);
+    if (resultado.exitoso) {
+      expect(resultado.norma.tieneContenidoCompleto).toBe(false);
+    }
+  });
+
+  it('devuelve tieneContenidoCompleto confirmado por la unidad de trabajo y no el de la copia obsoleta', async () => {
+    const repositorioUsuarios = new RepositorioUsuariosEnMemoriaFake();
+    const repositorioNormas = new RepositorioNormasEnMemoriaFake();
+    const repositorioEdiciones =
+      new RepositorioEdicionesRegistroOficialEnMemoriaFake();
+    repositorioEdiciones.agregar(crearEdicionRegistroOficial());
+    const casoUso = new PublicarNorma({
+      repositorioUsuarios,
+      repositorioNormas,
+      repositorioEdiciones,
+      unidadDeTrabajoPublicacionNorma: new UnidadDeTrabajoContenidoVigente(),
+    });
+    const usuario = crearUsuario();
+    const copiaSinContenido = crearNorma({ contenido: [] });
+    repositorioUsuarios.agregar(usuario);
+    repositorioNormas.agregar(copiaSinContenido);
+
+    const resultado = await casoUso.ejecutar({
+      usuarioAutenticadoId: usuario.obtenerId(),
+      normaId: copiaSinContenido.id,
+      fechaPublicacionEnSistema: fechaPublicacion,
+    });
+
+    expect(resultado.exitoso).toBe(true);
+    if (resultado.exitoso) {
+      expect(resultado.norma.tieneContenidoCompleto).toBe(true);
+    }
+  });
 
   it('publica el evento exactamente una vez con los datos esperados', async () => {
     const contexto = crearContexto();
     const usuario = crearUsuario();
-    const norma = crearNorma({ contenido: 'Texto completo' });
+    const norma = crearNorma({ contenido: ['Texto completo'] });
     contexto.repositorioUsuarios.agregar(usuario);
     contexto.repositorioNormas.agregar(norma);
 
@@ -392,10 +417,10 @@ describe('PublicarNorma', () => {
     });
   });
 
-  it('publica un evento con tieneContenidoCompleto false para contenido vacío', async () => {
+  it('publica un evento con tieneContenidoCompleto false para contenido []', async () => {
     const contexto = crearContexto();
     const usuario = crearUsuario();
-    const norma = crearNorma({ contenido: '   ' });
+    const norma = crearNorma({ contenido: [] });
     contexto.repositorioUsuarios.agregar(usuario);
     contexto.repositorioNormas.agregar(norma);
 
@@ -409,18 +434,82 @@ describe('PublicarNorma', () => {
     expect(contexto.publicador.eventos[0].tieneContenidoCompleto).toBe(false);
   });
 
+  it('devuelve NORMA_YA_PUBLICADA si la unidad de trabajo pierde la carrera de publicación', async () => {
+    const repositorioUsuarios = new RepositorioUsuariosEnMemoriaFake();
+    const repositorioNormas = new RepositorioNormasEnMemoriaFake();
+    const repositorioEdiciones =
+      new RepositorioEdicionesRegistroOficialEnMemoriaFake();
+    repositorioEdiciones.agregar(crearEdicionRegistroOficial());
+    const unidadDeTrabajoPublicacionNorma = new UnidadDeTrabajoCarreraPerdida();
+    const casoUso = new PublicarNorma({
+      repositorioUsuarios,
+      repositorioNormas,
+      repositorioEdiciones,
+      unidadDeTrabajoPublicacionNorma,
+    });
+    const usuario = crearUsuario();
+    const norma = crearNorma();
+    repositorioUsuarios.agregar(usuario);
+    repositorioNormas.agregar(norma);
+
+    const resultado = await casoUso.ejecutar({
+      usuarioAutenticadoId: usuario.obtenerId(),
+      normaId: norma.id,
+      fechaPublicacionEnSistema: fechaPublicacion,
+    });
+
+    expect(resultado).toEqual({ exitoso: false, razon: 'NORMA_YA_PUBLICADA' });
+    expect(unidadDeTrabajoPublicacionNorma.llamadas).toBe(1);
+  });
+
+  it('devuelve NORMA_MODIFICADA_CONCURRENTEMENTE si la unidad detecta que la norma dejó de cumplir las precondiciones', async () => {
+    const repositorioUsuarios = new RepositorioUsuariosEnMemoriaFake();
+    const repositorioNormas = new RepositorioNormasEnMemoriaFake();
+    const repositorioEdiciones =
+      new RepositorioEdicionesRegistroOficialEnMemoriaFake();
+    repositorioEdiciones.agregar(crearEdicionRegistroOficial());
+    const unidadDeTrabajoPublicacionNorma =
+      new UnidadDeTrabajoModificadaConcurrentemente();
+    const casoUso = new PublicarNorma({
+      repositorioUsuarios,
+      repositorioNormas,
+      repositorioEdiciones,
+      unidadDeTrabajoPublicacionNorma,
+    });
+    const usuario = crearUsuario();
+    const norma = crearNorma();
+    repositorioUsuarios.agregar(usuario);
+    repositorioNormas.agregar(norma);
+
+    const resultado = await casoUso.ejecutar({
+      usuarioAutenticadoId: usuario.obtenerId(),
+      normaId: norma.id,
+      fechaPublicacionEnSistema: fechaPublicacion,
+    });
+
+    expect(resultado).toEqual({
+      exitoso: false,
+      razon: 'NORMA_MODIFICADA_CONCURRENTEMENTE',
+    });
+    expect(unidadDeTrabajoPublicacionNorma.llamadas).toBe(1);
+  });
+
   it('propaga el error si falla la unidad transaccional y no deja la norma publicada ni evento', async () => {
-    const repositorioUsuarios = new RepositorioUsuariosEnMemoria();
-    const repositorioNormas = new RepositorioNormasEnMemoria();
+    const repositorioUsuarios = new RepositorioUsuariosEnMemoriaFake();
+    const repositorioNormas = new RepositorioNormasEnMemoriaFake();
+    const repositorioEdiciones =
+      new RepositorioEdicionesRegistroOficialEnMemoriaFake();
+    repositorioEdiciones.agregar(crearEdicionRegistroOficial());
     const unidadDeTrabajoPublicacionNorma =
       new UnidadDeTrabajoPublicacionFallida();
     const casoUso = new PublicarNorma({
       repositorioUsuarios,
       repositorioNormas,
+      repositorioEdiciones,
       unidadDeTrabajoPublicacionNorma,
     });
     const usuario = crearUsuario();
-    const norma = crearNorma({ contenido: 'Texto completo' });
+    const norma = crearNorma({ contenido: ['Texto completo'] });
     repositorioUsuarios.agregar(usuario);
     repositorioNormas.agregar(norma);
 
@@ -443,5 +532,147 @@ describe('PublicarNorma', () => {
       fechaPublicacionEnSistema: fechaPublicacion,
       tieneContenidoCompleto: true,
     });
+  });
+});
+
+describe('PublicarNorma — obligatorios de publicación', () => {
+  function crearContextoEditorial() {
+    const repositorioUsuarios = new RepositorioUsuariosEnMemoriaFake();
+    const repositorioNormas = new RepositorioNormasEnMemoriaFake();
+    const repositorioEdiciones =
+      new RepositorioEdicionesRegistroOficialEnMemoriaFake();
+    const publicador = new PublicadorEventosEnMemoriaFake();
+    repositorioEdiciones.agregar(crearEdicionRegistroOficial());
+    const casoUso = new PublicarNorma({
+      repositorioUsuarios,
+      repositorioNormas,
+      repositorioEdiciones,
+      unidadDeTrabajoPublicacionNorma: new UnidadDeTrabajoPublicacionNormaFake(
+        repositorioNormas,
+        publicador,
+      ),
+    });
+    repositorioUsuarios.agregar(crearUsuarioEditorial(RolUsuario.EDITOR));
+    return { casoUso, repositorioNormas, repositorioEdiciones, publicador };
+  }
+
+  it.each([
+    [{ tipoNorma: '' }, 'TIPO_NORMA_REQUERIDO'],
+    [{ titulo: '' }, 'TITULO_REQUERIDO'],
+    [{ institucionExpide: '' }, 'INSTITUCION_EXPIDE_REQUERIDA'],
+    [{ estadoJuridico: null }, 'ESTADO_JURIDICO_REQUERIDO'],
+    [
+      { edicionRegistroOficialId: null },
+      'EDICION_REGISTRO_OFICIAL_REQUERIDA',
+    ],
+  ] as Array<[Record<string, unknown>, string]>)(
+    'bloquea la publicación con %j -> %s',
+    async (overrides, razonEsperada) => {
+      const { casoUso, repositorioNormas, publicador } = crearContextoEditorial();
+      repositorioNormas.agregar(crearNormaEditorial(overrides));
+
+      const resultado = await casoUso.ejecutar({
+        usuarioAutenticadoId: 'usuario-EDITOR',
+        normaId: 'norma-1',
+      });
+
+      expect(resultado).toEqual({ exitoso: false, razon: razonEsperada });
+      const persistida = await repositorioNormas.buscarPorId('norma-1');
+      expect(persistida?.estaPublicada()).toBe(false);
+      expect(publicador.eventos).toHaveLength(0);
+    },
+  );
+
+  it('bloquea la publicación si la edición asociada no existe', async () => {
+    const { casoUso, repositorioNormas, publicador } = crearContextoEditorial();
+    repositorioNormas.agregar(
+      crearNormaEditorial({ edicionRegistroOficialId: 'edicion-fantasma' }),
+    );
+
+    const resultado = await casoUso.ejecutar({
+      usuarioAutenticadoId: 'usuario-EDITOR',
+      normaId: 'norma-1',
+    });
+
+    expect(resultado).toEqual({
+      exitoso: false,
+      razon: 'EDICION_REGISTRO_OFICIAL_REQUERIDA',
+    });
+    expect(publicador.eventos).toHaveLength(0);
+  });
+
+  it.each([
+    EstadoResolucionFuente.PENDIENTE,
+    EstadoResolucionFuente.NO_ENCONTRADA,
+    EstadoResolucionFuente.CONFLICTIVA,
+  ])(
+    'bloquea la publicación con FUENTE_REQUERIDA si la edición está %s (urlPdf null)',
+    async (estadoResolucionFuente) => {
+      const { casoUso, repositorioNormas, repositorioEdiciones, publicador } =
+        crearContextoEditorial();
+      repositorioEdiciones.agregar(
+        crearEdicionRegistroOficial({
+          urlPdf: null,
+          estadoResolucionFuente,
+        }),
+      );
+      repositorioNormas.agregar(crearNormaEditorial());
+
+      const resultado = await casoUso.ejecutar({
+        usuarioAutenticadoId: 'usuario-EDITOR',
+        normaId: 'norma-1',
+      });
+
+      expect(resultado).toEqual({ exitoso: false, razon: 'FUENTE_REQUERIDA' });
+      const persistida = await repositorioNormas.buscarPorId('norma-1');
+      expect(persistida?.estaPublicada()).toBe(false);
+      expect(publicador.eventos).toHaveLength(0);
+    },
+  );
+
+  it.each([EstadoResolucionFuente.RESUELTA, EstadoResolucionFuente.MANUAL])(
+    'permite publicar con la fuente de la edición en estado %s',
+    async (estadoResolucionFuente) => {
+      const { casoUso, repositorioNormas, repositorioEdiciones } =
+        crearContextoEditorial();
+      repositorioEdiciones.agregar(
+        crearEdicionRegistroOficial({ estadoResolucionFuente }),
+      );
+      repositorioNormas.agregar(crearNormaEditorial());
+
+      const resultado = await casoUso.ejecutar({
+        usuarioAutenticadoId: 'usuario-EDITOR',
+        normaId: 'norma-1',
+      });
+
+      expect(resultado.exitoso).toBe(true);
+    },
+  );
+
+  it('numero vacío, fechaExpedicion null y contenido [] no bloquean la publicación', async () => {
+    const { casoUso, repositorioNormas } = crearContextoEditorial();
+    repositorioNormas.agregar(
+      crearNormaEditorial({
+        numero: null,
+        fechaExpedicion: null,
+        contenido: [],
+      }),
+    );
+
+    const resultado = await casoUso.ejecutar({
+      usuarioAutenticadoId: 'usuario-EDITOR',
+      normaId: 'norma-1',
+      fechaPublicacionEnSistema: new Date('2026-06-01'),
+    });
+
+    expect(resultado.exitoso).toBe(true);
+    if (resultado.exitoso) {
+      expect(resultado.norma.estadoEditorial).toBe(
+        EstadoEditorialNorma.PUBLICADA,
+      );
+      expect(resultado.norma.fechaPublicacionEnSistema).toEqual(
+        new Date('2026-06-01'),
+      );
+    }
   });
 });

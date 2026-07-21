@@ -2,53 +2,27 @@ import { describe, it, expect } from '@jest/globals';
 import {
   EstadoEditorialNorma,
   EstadoNorma,
-  Norma,
+  EstadoResolucionFuente,
   RolUsuario,
   Usuario,
 } from '@normativo/dominio';
 import { RegistrarNorma } from '../RegistrarNorma';
 import type { SolicitudRegistrarNorma } from '../RegistrarNorma';
-import { RepositorioNormas } from '../../puertos/RepositorioNormas';
-import { RepositorioUsuarios } from '../../puertos/RepositorioUsuarios';
 import { GeneradorIds } from '../../puertos/GeneradorIds';
+import {
+  crearEdicionRegistroOficial,
+  RepositorioEdicionesRegistroOficialEnMemoriaFake,
+  RepositorioNormasEnMemoriaFake,
+  RepositorioUsuariosEnMemoriaFake,
+} from './apoyo/fakes-normas-editorial';
 
-class RepositorioUsuariosEnMemoria implements RepositorioUsuarios {
-  private readonly usuariosPorId = new Map<string, Usuario>();
-
-  agregar(usuario: Usuario): void {
-    this.usuariosPorId.set(usuario.obtenerId(), usuario);
-  }
-
-  async buscarPorId(id: string): Promise<Usuario | null> {
-    return this.usuariosPorId.get(id) ?? null;
-  }
-}
-
-class RepositorioNormasEnMemoria implements RepositorioNormas {
-  private readonly normasPorId = new Map<string, Norma>();
-  guardadas: Norma[] = [];
-
-  agregar(norma: Norma): void {
-    this.normasPorId.set(norma.id, norma);
-  }
-
-  async buscarPorId(id: string): Promise<Norma | null> {
-    return this.normasPorId.get(id) ?? null;
-  }
-
-  async guardar(norma: Norma): Promise<void> {
-    this.normasPorId.set(norma.id, norma);
-    this.guardadas.push(norma);
-  }
-}
-
-class GeneradorIdsFake implements GeneradorIds {
+class GeneradorIdsSecuencial implements GeneradorIds {
   llamadas = 0;
-  constructor(private readonly id: string = 'id-generado-1') {}
+  constructor(private readonly prefijo: string = 'id-generado') {}
 
   generar(): string {
     this.llamadas += 1;
-    return this.id;
+    return `${this.prefijo}-${this.llamadas}`;
   }
 }
 
@@ -76,30 +50,38 @@ function crearSolicitud(
     titulo: 'Ley Orgánica de Prueba',
     tipoNorma: 'Ley',
     institucionExpide: 'Asamblea Nacional',
-    fuente: 'https://www.registroficial.gob.ec/norma.pdf',
     fechaExpedicion: new Date('2025-01-01'),
-    fechaPublicacionOficial: new Date('2025-01-02'),
     ...parcial,
   };
 }
 
 interface ContextoCasoUso {
   casoUso: RegistrarNorma;
-  repositorioUsuarios: RepositorioUsuariosEnMemoria;
-  repositorioNormas: RepositorioNormasEnMemoria;
-  generadorIds: GeneradorIdsFake;
+  repositorioUsuarios: RepositorioUsuariosEnMemoriaFake;
+  repositorioNormas: RepositorioNormasEnMemoriaFake;
+  repositorioEdiciones: RepositorioEdicionesRegistroOficialEnMemoriaFake;
+  generadorIds: GeneradorIdsSecuencial;
 }
 
-function crearContexto(idGenerado = 'id-generado-1'): ContextoCasoUso {
-  const repositorioUsuarios = new RepositorioUsuariosEnMemoria();
-  const repositorioNormas = new RepositorioNormasEnMemoria();
-  const generadorIds = new GeneradorIdsFake(idGenerado);
+function crearContexto(prefijoId = 'id-generado'): ContextoCasoUso {
+  const repositorioUsuarios = new RepositorioUsuariosEnMemoriaFake();
+  const repositorioNormas = new RepositorioNormasEnMemoriaFake();
+  const repositorioEdiciones =
+    new RepositorioEdicionesRegistroOficialEnMemoriaFake();
+  const generadorIds = new GeneradorIdsSecuencial(prefijoId);
   const casoUso = new RegistrarNorma({
     repositorioUsuarios,
     repositorioNormas,
+    repositorioEdiciones,
     generadorIds,
   });
-  return { casoUso, repositorioUsuarios, repositorioNormas, generadorIds };
+  return {
+    casoUso,
+    repositorioUsuarios,
+    repositorioNormas,
+    repositorioEdiciones,
+    generadorIds,
+  };
 }
 
 describe('RegistrarNorma', () => {
@@ -211,33 +193,18 @@ describe('RegistrarNorma', () => {
     },
   );
 
-  it.each(['', '   '])(
-    'devuelve SOLICITUD_INVALIDA si fuente es "%s"',
-    async (fuente) => {
-      const contexto = crearContexto();
-      contexto.repositorioUsuarios.agregar(crearUsuario());
-
-      const resultado = await contexto.casoUso.ejecutar(
-        crearSolicitud({ fuente }),
-      );
-
-      expect(resultado).toEqual({ exitoso: false, razon: 'SOLICITUD_INVALIDA' });
-    },
-  );
-
-  it('devuelve SOLICITUD_INVALIDA si fuente no es una URL válida', async () => {
+  it('la solicitud ya no acepta fuente como dato propio de la norma', async () => {
     const contexto = crearContexto();
     contexto.repositorioUsuarios.agregar(crearUsuario());
 
-    const resultado = await contexto.casoUso.ejecutar(
-      crearSolicitud({ fuente: 'no-es-una-url' }),
-    );
+    const resultado = await contexto.casoUso.ejecutar(crearSolicitud());
 
-    expect(resultado).toEqual({ exitoso: false, razon: 'SOLICITUD_INVALIDA' });
-    expect(contexto.repositorioNormas.guardadas).toHaveLength(0);
+    expect(resultado.exitoso).toBe(true);
+    const guardada = contexto.repositorioNormas.guardadas[0];
+    expect('fuente' in guardada).toBe(false);
   });
 
-  it('devuelve SOLICITUD_INVALIDA si fechaExpedicion es inválida', async () => {
+  it('devuelve SOLICITUD_INVALIDA si fechaExpedicion informada es inválida', async () => {
     const contexto = crearContexto();
     contexto.repositorioUsuarios.agregar(crearUsuario());
 
@@ -248,31 +215,103 @@ describe('RegistrarNorma', () => {
     expect(resultado).toEqual({ exitoso: false, razon: 'SOLICITUD_INVALIDA' });
   });
 
-  it('devuelve SOLICITUD_INVALIDA si fechaPublicacionOficial es inválida', async () => {
+  it('permite registrar sin fechaExpedicion', async () => {
     const contexto = crearContexto();
     contexto.repositorioUsuarios.agregar(crearUsuario());
 
     const resultado = await contexto.casoUso.ejecutar(
-      crearSolicitud({ fechaPublicacionOficial: new Date('fecha-inválida') }),
+      crearSolicitud({ fechaExpedicion: null }),
     );
 
-    expect(resultado).toEqual({ exitoso: false, razon: 'SOLICITUD_INVALIDA' });
+    expect(resultado.exitoso).toBe(true);
+    expect(contexto.repositorioNormas.guardadas[0].fechaExpedicion).toBeNull();
   });
 
-  it('devuelve SOLICITUD_INVALIDA si fechaPublicacionOficial es anterior a fechaExpedicion', async () => {
+  it('devuelve SOLICITUD_INVALIDA si la triple completa trae fechaPublicacionOficial inválida', async () => {
     const contexto = crearContexto();
     contexto.repositorioUsuarios.agregar(crearUsuario());
 
     const resultado = await contexto.casoUso.ejecutar(
       crearSolicitud({
-        fechaExpedicion: new Date('2025-01-10'),
-        fechaPublicacionOficial: new Date('2025-01-05'),
+        tipoPublicacionRegistroOficial: 'RO',
+        numeroPublicacionRegistroOficial: 500,
+        fechaPublicacionOficial: new Date('fecha-inválida'),
       }),
     );
 
     expect(resultado).toEqual({ exitoso: false, razon: 'SOLICITUD_INVALIDA' });
     expect(contexto.repositorioNormas.guardadas).toHaveLength(0);
   });
+
+  it.each<[string, Partial<SolicitudRegistrarNorma>]>([
+    [
+      'solo tipo',
+      { tipoPublicacionRegistroOficial: 'RO' },
+    ],
+    [
+      'solo número',
+      { numeroPublicacionRegistroOficial: 500 },
+    ],
+    [
+      'solo fecha',
+      { fechaPublicacionOficial: new Date('2025-01-02') },
+    ],
+    [
+      'tipo + número sin fecha',
+      {
+        tipoPublicacionRegistroOficial: 'RO',
+        numeroPublicacionRegistroOficial: 500,
+      },
+    ],
+    [
+      'tipo + fecha sin número',
+      {
+        tipoPublicacionRegistroOficial: 'RO',
+        fechaPublicacionOficial: new Date('2025-01-02'),
+      },
+    ],
+    [
+      'número + fecha sin tipo',
+      {
+        numeroPublicacionRegistroOficial: 500,
+        fechaPublicacionOficial: new Date('2025-01-02'),
+      },
+    ],
+  ])(
+    'devuelve SOLICITUD_INVALIDA con triple parcial (%s)',
+    async (_caso, parcial) => {
+      const contexto = crearContexto();
+      contexto.repositorioUsuarios.agregar(crearUsuario());
+
+      const resultado = await contexto.casoUso.ejecutar(
+        crearSolicitud(parcial),
+      );
+
+      expect(resultado).toEqual({ exitoso: false, razon: 'SOLICITUD_INVALIDA' });
+      expect(contexto.repositorioNormas.guardadas).toHaveLength(0);
+      expect(contexto.repositorioEdiciones.guardadas).toHaveLength(0);
+    },
+  );
+
+  it.each([0, -3, 2.5])(
+    'devuelve SOLICITUD_INVALIDA si el número de la triple es %s',
+    async (numeroPublicacionRegistroOficial) => {
+      const contexto = crearContexto();
+      contexto.repositorioUsuarios.agregar(crearUsuario());
+
+      const resultado = await contexto.casoUso.ejecutar(
+        crearSolicitud({
+          tipoPublicacionRegistroOficial: 'RO',
+          numeroPublicacionRegistroOficial,
+          fechaPublicacionOficial: new Date('2025-01-02'),
+        }),
+      );
+
+      expect(resultado).toEqual({ exitoso: false, razon: 'SOLICITUD_INVALIDA' });
+      expect(contexto.repositorioNormas.guardadas).toHaveLength(0);
+      expect(contexto.repositorioEdiciones.guardadas).toHaveLength(0);
+    },
+  );
 
   it('registra estado jurídico VIGENTE si no se informa', async () => {
     const contexto = crearContexto();
@@ -317,12 +356,12 @@ describe('RegistrarNorma', () => {
     expect(guardada.fechaPublicacionEnSistema).toBeNull();
   });
 
-  it('permite registrar con contenido vacío', async () => {
+  it('permite registrar con contenido [] y lo reporta como incompleto', async () => {
     const contexto = crearContexto();
     contexto.repositorioUsuarios.agregar(crearUsuario());
 
     const resultado = await contexto.casoUso.ejecutar(
-      crearSolicitud({ contenido: '' }),
+      crearSolicitud({ contenido: [] }),
     );
 
     expect(resultado.exitoso).toBe(true);
@@ -332,36 +371,21 @@ describe('RegistrarNorma', () => {
     expect(contexto.repositorioNormas.guardadas).toHaveLength(1);
   });
 
-  it('permite registrar con contenido solo de espacios', async () => {
-    const contexto = crearContexto();
-    contexto.repositorioUsuarios.agregar(crearUsuario());
-
-    const resultado = await contexto.casoUso.ejecutar(
-      crearSolicitud({ contenido: '   ' }),
-    );
-
-    expect(resultado.exitoso).toBe(true);
-    if (resultado.exitoso) {
-      expect(resultado.norma.tieneContenidoCompleto).toBe(false);
-    }
-    expect(contexto.repositorioNormas.guardadas).toHaveLength(1);
-  });
-
-  it('omitir contenido lo guarda como cadena vacía', async () => {
+  it('omitir contenido lo guarda como []', async () => {
     const contexto = crearContexto();
     contexto.repositorioUsuarios.agregar(crearUsuario());
 
     await contexto.casoUso.ejecutar(crearSolicitud());
 
-    expect(contexto.repositorioNormas.guardadas[0].contenido).toBe('');
+    expect(contexto.repositorioNormas.guardadas[0].contenido).toEqual([]);
   });
 
-  it('retorna tieneContenidoCompleto true cuando el contenido tiene texto', async () => {
+  it('retorna tieneContenidoCompleto true cuando el contenido tiene elementos', async () => {
     const contexto = crearContexto();
     contexto.repositorioUsuarios.agregar(crearUsuario());
 
     const resultado = await contexto.casoUso.ejecutar(
-      crearSolicitud({ contenido: 'Texto completo de la norma' }),
+      crearSolicitud({ contenido: ['Texto completo de la norma'] }),
     );
 
     expect(resultado.exitoso).toBe(true);
@@ -379,9 +403,113 @@ describe('RegistrarNorma', () => {
     expect(contexto.generadorIds.llamadas).toBe(1);
     expect(resultado.exitoso).toBe(true);
     if (resultado.exitoso) {
-      expect(resultado.norma.id).toBe('id-determinístico');
+      expect(resultado.norma.id).toBe('id-determinístico-1');
     }
-    expect(contexto.repositorioNormas.guardadas[0].id).toBe('id-determinístico');
+    expect(contexto.repositorioNormas.guardadas[0].id).toBe(
+      'id-determinístico-1',
+    );
+  });
+
+  it('sin la triple de publicación la norma queda sin edición asociada', async () => {
+    const contexto = crearContexto();
+    contexto.repositorioUsuarios.agregar(crearUsuario());
+
+    const resultado = await contexto.casoUso.ejecutar(crearSolicitud());
+
+    expect(resultado.exitoso).toBe(true);
+    if (resultado.exitoso) {
+      expect(resultado.norma.edicionesRegistroOficial).toEqual([]);
+      expect(resultado.norma).not.toHaveProperty('edicionRegistroOficialId');
+    }
+    expect(contexto.repositorioEdiciones.guardadas).toHaveLength(0);
+  });
+
+  it('con la triple completa crea la EdicionRegistroOficial PENDIENTE y asocia la norma', async () => {
+    const contexto = crearContexto();
+    contexto.repositorioUsuarios.agregar(crearUsuario());
+
+    const resultado = await contexto.casoUso.ejecutar(
+      crearSolicitud({
+        tipoPublicacionRegistroOficial: 'SRO',
+        numeroPublicacionRegistroOficial: 700,
+        fechaPublicacionOficial: new Date('2025-01-02'),
+      }),
+    );
+
+    expect(resultado.exitoso).toBe(true);
+    expect(contexto.repositorioEdiciones.guardadas).toHaveLength(1);
+    const edicion = contexto.repositorioEdiciones.guardadas[0];
+    expect(edicion.tipoPublicacionRegistroOficial).toBe('SRO');
+    expect(edicion.numeroPublicacionRegistroOficial).toBe(700);
+    expect(edicion.fechaPublicacionOficial.toISOString()).toBe(
+      '2025-01-02T00:00:00.000Z',
+    );
+    expect(edicion.urlPdf).toBeNull();
+    expect(edicion.estadoResolucionFuente).toBe(
+      EstadoResolucionFuente.PENDIENTE,
+    );
+    expect(contexto.repositorioNormas.guardadas[0].edicionRegistroOficialId).toBe(
+      edicion.id,
+    );
+    if (resultado.exitoso) {
+      expect(resultado.norma.edicionesRegistroOficial).toEqual([
+        {
+          tipoRelacion: 'PRINCIPAL',
+          id: edicion.id,
+          tipoPublicacionRegistroOficial: 'SRO',
+          numeroPublicacionRegistroOficial: 700,
+          fechaPublicacionOficial: '2025-01-02',
+          fuente: null,
+        },
+      ]);
+      expect(resultado.norma).not.toHaveProperty('edicionRegistroOficialId');
+    }
+  });
+
+  it('normaliza la fecha de la edición cuando aplicación recibe un Date con hora', async () => {
+    const contexto = crearContexto();
+    contexto.repositorioUsuarios.agregar(crearUsuario());
+
+    const resultado = await contexto.casoUso.ejecutar(
+      crearSolicitud({
+        tipoPublicacionRegistroOficial: 'RO',
+        numeroPublicacionRegistroOficial: 701,
+        fechaPublicacionOficial: new Date('2025-01-02T18:30:00.000Z'),
+      }),
+    );
+
+    expect(resultado.exitoso).toBe(true);
+    expect(
+      contexto.repositorioEdiciones.guardadas[0].fechaPublicacionOficial.toISOString(),
+    ).toBe('2025-01-02T00:00:00.000Z');
+  });
+
+  it('reutiliza la edición existente con la misma clave lógica', async () => {
+    const contexto = crearContexto();
+    contexto.repositorioUsuarios.agregar(crearUsuario());
+    contexto.repositorioEdiciones.agregar(
+      crearEdicionRegistroOficial({
+        id: 'edicion-existente',
+        tipoPublicacionRegistroOficial: 'RO',
+        numeroPublicacionRegistroOficial: 500,
+        fechaPublicacionOficial: new Date('2025-01-02'),
+      }),
+    );
+
+    const resultado = await contexto.casoUso.ejecutar(
+      crearSolicitud({
+        tipoPublicacionRegistroOficial: 'RO',
+        numeroPublicacionRegistroOficial: 500,
+        fechaPublicacionOficial: new Date('2025-01-02'),
+      }),
+    );
+
+    expect(resultado.exitoso).toBe(true);
+    // No se crea una edición nueva ni se toca la existente.
+    expect(contexto.repositorioEdiciones.guardadas).toHaveLength(0);
+    expect(contexto.repositorioNormas.guardadas[0].edicionRegistroOficialId).toBe(
+      'edicion-existente',
+    );
   });
 
   it('guarda exactamente una norma cuando la solicitud es válida', async () => {

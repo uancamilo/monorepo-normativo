@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
-import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
@@ -48,21 +48,6 @@ describirPrisma(
       process.env.PERSISTENCIA = 'prisma';
       process.env.DATABASE_URL = testDatabaseUrl;
 
-      try {
-        const prismaCli = require.resolve('prisma/build/index.js');
-        execFileSync(process.execPath, [prismaCli, 'db', 'push'], {
-          cwd: process.cwd(),
-          env: { ...process.env, DATABASE_URL: testDatabaseUrl },
-          stdio: 'pipe',
-        });
-      } catch (error) {
-        throw new Error(
-          'No se pudo aplicar el schema en la base de test. ¿Está PostgreSQL arriba? ' +
-            'Ejecuta: docker compose -f docker-compose.test.yml up -d. Detalle: ' +
-            (error instanceof Error ? error.message : String(error)),
-        );
-      }
-
       prisma = new PrismaService();
       await prisma.$connect();
       await aplicarChecksPrisma(prisma);
@@ -80,6 +65,11 @@ describirPrisma(
     });
 
     afterAll(async () => {
+      // Restaura credenciales incluso si el test de cambio de contraseña falla
+      // después de persistir el hash nuevo.
+      if (prisma) {
+        await sembrar(prisma);
+      }
       await prisma?.usuario.deleteMany({ where: { id: 'usuario-sin-password' } });
       await app?.close();
       await prisma?.$disconnect();
@@ -101,6 +91,9 @@ describirPrisma(
       expect(loginEditor.status).toBe(200);
       expect(loginEditor.body.tokenType).toBe('Bearer');
       const autorizacionEditor = `Bearer ${loginEditor.body.accessToken}`;
+      const sufijo = randomUUID().slice(0, 8);
+      const numeroEdicion = 1_000_000_000 + (Number.parseInt(sufijo, 16) % 1_000_000_000);
+      const urlPdf = `https://www.registroficial.gob.ec/norma-login-prisma-${sufijo}.pdf`;
 
       const registro = await request(app.getHttpServer())
         .post('/normas')
@@ -108,16 +101,44 @@ describirPrisma(
         .send({
           numero: '456',
           titulo: 'Ley de Prueba (login Prisma)',
-          contenido: 'Texto completo',
+          contenido: ['Texto completo'],
           tipoNorma: 'Ley',
           institucionExpide: 'Asamblea Nacional',
-          fuente: 'https://www.registroficial.gob.ec/norma-login-prisma.pdf',
           estadoJuridico: 'VIGENTE',
           fechaExpedicion: '2025-01-01',
           fechaPublicacionOficial: '2025-01-02',
+          tipoPublicacionRegistroOficial: 'RO',
+          numeroPublicacionRegistroOficial: numeroEdicion,
         });
       expect(registro.status).toBe(201);
       const normaId: string = registro.body.id;
+      expect(registro.body).not.toHaveProperty('edicionRegistroOficialId');
+      const edicionId: string = registro.body.edicionesRegistroOficial[0].id;
+      expect(edicionId).toEqual(expect.any(String));
+
+      // Registrar la norma crea/reutiliza la edición PENDIENTE. La fuente se
+      // corrige en la edición y queda MANUAL antes de publicar.
+      const correccionFuente = await request(app.getHttpServer())
+        .patch(`/ediciones-registro-oficial/${edicionId}/fuente`)
+        .set('Authorization', autorizacionEditor)
+        .send({ urlPdf });
+      expect(correccionFuente.status).toBe(200);
+      expect(correccionFuente.body.estadoResolucionFuente).toBe('MANUAL');
+      expect(correccionFuente.body.urlPdf).toBe(urlPdf);
+
+      const normaEnBd = await prisma.norma.findUnique({
+        where: { id: normaId },
+        include: { edicionRegistroOficial: true },
+      });
+      expect(normaEnBd?.contenido).toEqual(['Texto completo']);
+      expect(normaEnBd?.edicionRegistroOficialId).toBe(edicionId);
+      expect(normaEnBd?.edicionRegistroOficial).toEqual(
+        expect.objectContaining({
+          id: edicionId,
+          urlPdf,
+          estadoResolucionFuente: 'MANUAL',
+        }),
+      );
 
       const publicacion = await request(app.getHttpServer())
         .post(`/normas/${normaId}/publicar`)

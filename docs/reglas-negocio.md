@@ -150,27 +150,35 @@ Estados actuales:
 
 ### Reglas vigentes
 
-- Una norma tiene `id`, `numero`, `titulo`, `contenido`, `tipoNorma`, `institucionExpide`, `fuente`, `estadoJuridico`, `estadoEditorial`, `fechaExpedicion`, `fechaPublicacionOficial` y `fechaPublicacionEnSistema`.
+- Una norma tiene `id`, `numero`, `titulo`, `contenido`, `tipoNorma`, `institucionExpide`, `estadoJuridico`, `estadoEditorial`, `fechaExpedicion`, una FK interna nullable `edicionRegistroOficialId` que representa exclusivamente su edición principal y `fechaPublicacionEnSistema`. Puede tener además cero o más ediciones de cambio en una relación persistente separada.
 - `id` no puede estar vacío ni contener únicamente espacios.
-- `titulo` no puede estar vacío ni contener únicamente espacios.
-- `tipoNorma` no puede estar vacío ni contener únicamente espacios.
-- `institucionExpide` no puede estar vacía ni contener únicamente espacios.
-- `fuente` no puede estar vacía ni contener únicamente espacios.
-- `fuente` debe ser una URL válida.
-- `id`, `titulo`, `tipoNorma`, `institucionExpide` y `fuente` se normalizan mediante `trim()`.
+- Mientras la norma está en `BORRADOR`, cualquier campo detectable puede estar vacío o nulo: el scraping puede fallar en la detección de todos los campos y el editor los completa después (manualmente o con ayuda posterior de LLM). No se usan placeholders artificiales (`SIN_CLASIFICAR`, `SIN_DETERMINAR`, títulos inventados).
+- `titulo`, `tipoNorma` e `institucionExpide` son `string` que pueden quedar vacíos en `BORRADOR`; se normalizan mediante `trim()`.
 - `numero` es opcional.
 - Si `numero` viene vacío o contiene únicamente espacios, se guarda como `null`.
 - Si `numero` viene informado, se normaliza mediante `trim()`.
-- `contenido` sigue siendo un `string` libre en el modelo actual y no tiene validaciones de dominio adicionales.
-- `fechaExpedicion` debe ser una fecha válida.
-- `fechaPublicacionOficial` debe ser una fecha válida.
-- `fechaPublicacionOficial` puede ser igual o posterior a `fechaExpedicion`.
-- `fechaPublicacionOficial` no puede ser anterior a `fechaExpedicion`.
+- `contenido` es un arreglo de textos (`string[]`) y puede estar vacío tanto en `BORRADOR` como en `PUBLICADA`.
+- `fechaExpedicion` es opcional (`null`); cuando existe debe ser una fecha válida y no es obligatoria para publicar. Es un **día jurídico**, no un instante: los contratos HTTP aceptan y devuelven exclusivamente `YYYY-MM-DD` (o `null`) en entrada (`POST /normas`, `PATCH /normas/:id`) y en salida (vistas editoriales, detalle y contenido de suscriptor por igual); horas, offsets y fechas imposibles se rechazan. `fechaPublicacionEnSistema` sí es un instante y conserva `DateTime`/timestamp.
+- La triple `tipoPublicacionRegistroOficial` + `numeroPublicacionRegistroOficial` + `fechaPublicacionOficial` y la fuente `urlPdf` pertenecen exclusivamente a `EdicionRegistroOficial`. Las vistas pueden proyectarlas, pero `Norma` no las posee.
+- `fechaPublicacionOficial` es un día calendario, no un instante: los contratos externos aceptan exclusivamente `YYYY-MM-DD`, aplicación la representa a medianoche UTC y PostgreSQL la persiste como `DATE`. Horas, offsets, formatos flexibles y fechas imposibles se rechazan para que la triple identifique inequívocamente una edición.
+- La norma no tiene campo `anio`: año/mes pertenecen al resumen mensual/lote de ingesta (`periodoAnio`, `periodoMes`); si la UI necesita el año, se deriva de las fechas jurídicas.
 - `fechaPublicacionEnSistema` debe ser una fecha válida cuando exista.
-- Si `estadoEditorial` es `PUBLICADA`, debe existir `fechaPublicacionEnSistema`.
+- Si `estadoEditorial` es `PUBLICADA`, debe existir `fechaPublicacionEnSistema` y los obligatorios de publicación deben estar completos (ver "Obligatorios para publicar").
 - Si `estadoEditorial` no es `PUBLICADA`, `fechaPublicacionEnSistema` queda en `null`, aunque se proporcione otro valor al construir la entidad.
 - `estaVisibleParaSuscriptores()` devuelve `true` cuando `estadoEditorial` es `PUBLICADA`.
 - `estaPublicada()` se mantiene como alias interno de compatibilidad y también depende del flujo editorial, no del estado jurídico.
+
+### Obligatorios para publicar
+
+Para pasar una norma de `BORRADOR` a `PUBLICADA`, `Norma.camposFaltantesParaPublicar()` valida:
+
+- `tipoNorma` (`TIPO_NORMA_REQUERIDO`)
+- `titulo` (`TITULO_REQUERIDO`)
+- `institucionExpide` (`INSTITUCION_EXPIDE_REQUERIDA`)
+- `estadoJuridico` (`ESTADO_JURIDICO_REQUERIDO`)
+- asociación a una `EdicionRegistroOficial` (`EDICION_REGISTRO_OFICIAL_REQUERIDA`)
+
+Además, el caso de uso exige que la edición asociada tenga una fuente válida para publicar: `urlPdf` presente y resolución `RESUELTA` o `MANUAL`; en caso contrario retorna `FUENTE_REQUERIDA`. No son obligatorios para publicar `numero`, `fechaExpedicion` ni `contenido`. La publicación individual y la múltiple aplican el mismo contrato.
 
 Estado jurídico actual (`EstadoNorma`):
 
@@ -197,15 +205,16 @@ Reglas de visibilidad:
 
 Reglas de fuente:
 
-- `fuente` es obligatoria y debe ser una URL válida.
-- `fuente` no identifica de forma única a una norma.
-- Un mismo PDF o URL del Registro Oficial puede contener varias normas.
-- Varias normas pueden compartir la misma `fuente`.
-- No se implementa deduplicación por `fuente`.
+- La fuente oficial es `EdicionRegistroOficial.urlPdf`, la URL del PDF de la edición donde está publicada la norma.
+- `urlResumenMensualRegistroOficial` NO es la fuente: es la URL del resumen/índice mensual usado para detectar entradas y pertenece al lote de ingesta. Nunca se usa como fallback de `EdicionRegistroOficial.urlPdf`.
+- `urlPdf` puede estar en `null` mientras la edición está pendiente de resolución.
+- Para publicar, la norma debe estar asociada a una edición con `urlPdf` válida y estado de resolución `RESUELTA` o `MANUAL`.
+- La fuente no identifica de forma única a una norma: una misma edición puede contener varias normas.
+- No se implementa deduplicación de normas por `urlPdf`.
 
 Reglas de tipo de norma:
 
-- `tipoNorma` es obligatorio y se normaliza mediante `trim()`.
+- `tipoNorma` puede quedar vacío en `BORRADOR`, es obligatorio para publicar y se normaliza mediante `trim()`.
 - `tipoNorma` queda como `string` porque el catálogo normativo ecuatoriano se cerrará en una fase posterior.
 - Más adelante puede evolucionar a enum, catálogo o entidad.
 
@@ -237,13 +246,14 @@ Reglas jurídicas confirmadas:
 - `EDITOR` y `SUPERADMINISTRADOR` pueden registrar normas.
 - `ADMINISTRADOR` y `SUSCRIPTOR` no pueden registrar normas; reciben `ACCESO_DENEGADO`.
 - La autorización se resuelve con la política de aplicación `PoliticaGestionEditorialNorma.puedeRegistrarNormas`, que depende solo de dominio (`Usuario`, `RolUsuario`).
-- Registrar permite contenido vacío: una norma con `contenido` vacío o solo espacios puede registrarse.
+- Registrar permite contenido vacío: una norma con `contenido: []` puede registrarse.
 - Si no se informa `estadoJuridico`, la norma se registra como `VIGENTE`. Si se informa `REFORMADA` o `DEROGADA`, se conserva ese valor.
+- La triple de edición (`tipoPublicacionRegistroOficial` + `numeroPublicacionRegistroOficial` + `fechaPublicacionOficial`) es **todo o nada**: los tres ausentes registran la norma sin principal (`edicionRegistroOficialId = null` internamente y `edicionesRegistroOficial: []` en HTTP); los tres presentes y válidos crean o reutilizan la `EdicionRegistroOficial` principal. Cualquier triple parcial —o con número no entero positivo o fecha inválida— retorna `SOLICITUD_INVALIDA` sin guardar nada. El número debe ser entero positivo y la fecha un día calendario válido. Registrar nunca fabrica fuente ni URL ficticia, y no crea ediciones de cambio.
 - Registrar asigna `estadoEditorial = BORRADOR` y deja `fechaPublicacionEnSistema` en `null`.
 - Registrar no publica la norma, no cambia el estado editorial a `PUBLICADA` y no emite el evento `PublicadorEventosNormas`.
 - Registrar no sincroniza Algolia ni indexa la norma en la búsqueda pública.
 - El id de la norma se genera mediante el puerto de aplicación `GeneradorIds`, que evita acoplar la aplicación a `crypto`, UUID o base de datos. En aplicación no existe adaptador real; en Fase 3A infraestructura provee `GeneradorIdsSecuencial` como adaptador en memoria. En tests de aplicación se usa un fake determinístico.
-- Si la solicitud es inválida (campos mínimos vacíos, fechas inválidas, `fuente` no es URL válida o `fechaPublicacionOficial` anterior a `fechaExpedicion`), retorna `SOLICITUD_INVALIDA` y no guarda nada.
+- Si la solicitud es inválida (campos mínimos vacíos, fechas inválidas o datos inválidos para identificar una edición), retorna `SOLICITUD_INVALIDA` y no guarda nada.
 - `RegistrarNorma`, `PublicarNorma` y `ConsultarContenidoNorma` conforman el flujo mínimo actual de aplicación: `RegistrarNorma -> PublicarNorma -> ConsultarContenidoNorma`.
 - Nota técnica (Fase 3A, actualizada en Fases 4A/4B/4E): este flujo se expone por HTTP desde `packages/infraestructura` con NestJS. Desde la Fase 4A la identidad usa `Authorization: Bearer <token>` (JWT firmado) en lugar del header simulado `x-usuario-id`; desde la Fase 4B el token se obtiene con `POST /auth/login` (correo + contraseña verificada contra hash scrypt). El token solo identifica al usuario y los permisos siguen resolviéndose con el `Usuario` del dominio. El SUPERADMINISTRADOR inicial se aprovisiona con el bootstrap operativo de la Fase 4E (script controlado con confirmación explícita; el seed es solo desarrollo/test). No cambia ninguna regla de negocio. Detalle en `docs/arquitectura/vision-arquitectura.md`, ADR 0005, ADR 0006 y ADR 0007.
 
@@ -253,19 +263,38 @@ Reglas jurídicas confirmadas:
 - `EDITOR` y `SUPERADMINISTRADOR` pueden publicar normas.
 - `ADMINISTRADOR` y `SUSCRIPTOR` no pueden publicar normas; reciben `ACCESO_DENEGADO`.
 - La autorización se resuelve con la política de aplicación `PoliticaGestionEditorialNorma`, que depende solo de dominio (`Usuario`, `RolUsuario`).
-- Publicar no exige contenido completo: una norma con `contenido` vacío o solo espacios puede publicarse.
+- Publicar no exige contenido completo: una norma con `contenido: []` puede publicarse. Tampoco exige `numero` ni `fechaExpedicion`.
+- Publicar exige los obligatorios de publicación (ver sección 5); si falta alguno, el caso de uso retorna la razón explícita correspondiente (`TITULO_REQUERIDO`, `FUENTE_REQUERIDA`, etc.) y no publica. En HTTP esas razones responden 409.
 - Publicar asigna `fechaPublicacionEnSistema`. Si la solicitud no la entrega, el caso de uso usa la fecha actual.
 - Publicar cambia únicamente el estado editorial a `PUBLICADA`; no cambia el estado jurídico.
 - La publicación es idempotente respecto a normas ya publicadas: una norma ya `PUBLICADA` retorna `NORMA_YA_PUBLICADA`.
+- Existe publicación múltiple (`PublicarNormas`, `POST /normas/publicar` con `normaIds`): mismas reglas y mismos roles que la individual, con semántica parcial. Una norma inválida no bloquea a las demás; la respuesta reporta el resultado por norma (`publicada: true` o `publicada: false` con `razon`: obligatorio faltante, `NORMA_NO_ENCONTRADA`, `NORMA_YA_PUBLICADA` o `NORMA_MODIFICADA_CONCURRENTEMENTE`).
 - Al publicar, el caso de uso delega en el puerto de aplicación `UnidadDeTrabajoPublicacionNorma` la persistencia de la norma `PUBLICADA` y el registro del evento de publicación.
 - Ese evento representa la señal automática de que una norma fue publicada y habilita la sincronización futura del índice público (Algolia). En este hito solo existe el puerto/evento de aplicación; no se implementa Algolia real, SDK ni adaptador.
 - En infraestructura Prisma/PostgreSQL, la publicación usa una transacción para que la norma `PUBLICADA` y el evento se guarden de forma atómica.
 - Si falla el guardado de la norma o el registro del evento dentro de esa transacción, no debe quedar una norma `PUBLICADA` sin evento ni un evento sin norma publicada.
+- La transición a `PUBLICADA` está condicionada en persistencia a que la norma siga en `BORRADOR` y escribe únicamente `estadoEditorial` y `fechaPublicacionEnSistema`: publicar nunca reescribe título, número, contenido, institución, estado jurídico, fecha de expedición ni edición con la copia leída, por lo que no pisa una corrección editorial concurrente.
+- Ante dos publicaciones concurrentes de la misma norma, exactamente una gana; la otra pierde la carrera en la actualización condicionada y la unidad de trabajo lo reporta como resultado tipado que el caso de uso traduce a `NORMA_YA_PUBLICADA` (HTTP 409, nunca un error crudo de infraestructura ni un 500). Queda un solo evento de publicación.
+- La validación previa del caso de uso no reemplaza la barrera atómica de persistencia: la transición a `PUBLICADA` exige, en la misma actualización condicionada y sobre el estado persistido vigente, que la norma conserve sus obligatorios de publicación (`tipoNorma`, `titulo`, `institucionExpide`, `estadoJuridico`) y siga asociada a una edición **principal** publicable (`RESUELTA` o `MANUAL` con `urlPdf`). Las ediciones de cambio no bloquean la publicación ni necesitan fuente para que la norma pueda publicarse.
+- Si una modificación concurrente (corrección que vacía un obligatorio o cambio hacia una edición no publicable) invalida la publicación después de la validación del caso de uso, la unidad de trabajo devuelve `NORMA_MODIFICADA_CONCURRENTEMENTE` (HTTP 409): la norma permanece en `BORRADOR`, no se crea evento y el cliente debe releer la norma y reintentar. La razón no detalla el campo afectado; esa validación pertenece a dominio/aplicación.
+- Una corrección concurrente que deja la norma publicable (por ejemplo, cambia el título por otro válido, o la reasocia a otra edición publicable) no bloquea la publicación: la norma se publica conservando los valores persistidos vigentes y el evento refleja el contenido persistido (no la copia leída por el caso de uso).
+- En publicación múltiple, una norma que pierde esa carrera o resulta modificada concurrentemente se reporta individualmente (`publicada: false` con `razon: NORMA_YA_PUBLICADA` o `razon: NORMA_MODIFICADA_CONCURRENTEMENTE`) y las normas restantes continúan procesándose en orden; solo los fallos desconocidos de infraestructura se propagan.
 - En infraestructura real, la sincronización con Algolia no debe depender de una llamada directa a Algolia después de guardar la norma.
 - La solución aprobada para producción será un patrón outbox transaccional: guardar la norma `PUBLICADA` y registrar el evento pendiente en una outbox dentro de la misma transacción.
 - La entrega posterior a Algolia, cola u otro consumidor debe ser asíncrona, reintentable, observable y ejecutada por infraestructura/adaptadores.
 - El dominio no debe conocer outbox, colas ni Algolia. La aplicación debe seguir dependiendo de puertos.
-- El método de dominio `Norma.publicar(fechaPublicacionEnSistema)` es inmutable: devuelve una nueva instancia `PUBLICADA` conservando id, metadata, fuente, contenido y estado jurídico, sin lógica de autorización.
+- El método de dominio `Norma.publicar(fechaPublicacionEnSistema)` es inmutable: devuelve una nueva instancia `PUBLICADA` conservando id, metadata propia, asociación a la edición, contenido y estado jurídico, sin lógica de autorización ni validación de la triple de la edición.
+
+### Flujo editorial sobre normas en borrador (Fase 5A)
+
+El editor trabaja con Normas en `BORRADOR`; no revisa lotes ni audita el scraping (los lotes son control técnico exclusivo del `SUPERADMINISTRADOR`, sección 14).
+
+- Lista editorial: `ConsultarNormas` / `GET /normas?estadoEditorial=BORRADOR`. Acceso: `EDITOR` y `SUPERADMINISTRADOR`; `ADMINISTRADOR` y `SUSCRIPTOR` reciben 403; sin token, 401. La respuesta es un array JSON estándar de normas, sin total embebido, lotes, métricas ni señales técnicas de ingesta. Cuando una norma nació de ingesta incluye `origenRegistroOficial`. La trazabilidad de publicación se expone únicamente como `edicionesRegistroOficial`: principal primero y cambios por fecha oficial ascendente e ID; una norma sin principal devuelve `[]`. No se exponen `edicionRegistroOficialId`, `fuente`, `fechaPublicacionOficial`, `tipoPublicacionRegistroOficial` ni `numeroPublicacionRegistroOficial` como campos singulares. `estadoResolucionFuente` de la principal se proyecta únicamente mientras la norma está en `BORRADOR`; una norma `PUBLICADA` no lo expone.
+- Detalle editorial: `ConsultarNorma` / `GET /normas/:id`. Mismos roles que la lista. Devuelve los datos estándar de la norma más `contenido` y la misma referencia `origenRegistroOficial` del listado cuando corresponde, incluso después de publicar. No expone señales técnicas de ingesta. El contrato de lectura del `SUSCRIPTOR` no incluye `origenRegistroOficial`.
+- Corrección: `ActualizarNorma` / `PATCH /normas/:id`. Solo `EDITOR` y `SUPERADMINISTRADOR`, solo normas en `BORRADOR` (una `PUBLICADA` responde `NORMA_NO_EDITABLE`, 409). Permite completar o corregir `tipoNorma`, `numero`, `titulo`, `institucionExpide`, `fechaExpedicion`, `estadoJuridico` y `contenido`. La triple y la fuente se gestionan en `EdicionRegistroOficial`, no por este endpoint. Los campos ausentes del body no cambian; `null` o vacío limpian los campos anulables. Actualizar no publica ni toca datos internos de ingesta.
+- La corrección se persiste con una actualización condicionada a que la norma siga en `BORRADOR` y solo escribe los datos editoriales: una corrección basada en una lectura obsoleta nunca revierte una norma publicada concurrentemente (responde `NORMA_NO_EDITABLE`, 409) y el caso de uso nunca devuelve como éxito una proyección que no fue persistida.
+- Cambio de principal: `CambiarEdicionNorma` / `PATCH /normas/:id/edicion-registro-oficial`. Solo `EDITOR` y `SUPERADMINISTRADOR`. El body conserva `edicionRegistroOficialId` porque identifica la nueva principal, pero la respuesta usa `edicionesRegistroOficial`. Si la norma no tenía principal, la asigna sin crear un cambio; si ya era la principal, es idempotente; si reemplaza otra, conserva la anterior como `CAMBIO`, retira la nueva de cambios si estaba allí y actualiza la FK de forma atómica. Una norma en `BORRADOR` puede cambiar a cualquier edición existente; una `PUBLICADA` solo a una principal publicable. El cambio se condiciona al estado editorial leído. Todavía no existen endpoints para agregar o retirar cambios ni se modelan norma reformadora, artículos afectados o tipo jurídico de reforma.
+- Publicación individual (`POST /normas/:id/publicar`) y múltiple (`POST /normas/publicar`): ver "Publicación de normas".
 
 ## 6. Acceso al contenido completo
 
@@ -286,12 +315,12 @@ La política vigente de dominio para decidir el acceso al contenido completo de 
 Salida de `ConsultarContenidoNorma`:
 
 - La salida exitosa de `ConsultarContenidoNorma` incluye un indicador `tieneContenidoCompleto: boolean`.
-- Si `contenido.trim().length > 0`, entonces `tieneContenidoCompleto = true`.
-- Si `contenido.trim().length === 0`, entonces `tieneContenidoCompleto = false`.
-- Cuando `tieneContenidoCompleto = false`, el cliente debe usar la metadata y la URL `fuente` para mostrar el PDF de la fuente oficial incrustado. El sistema no inventa ni simula contenido completo.
+- Si `contenido.length > 0`, entonces `tieneContenidoCompleto = true`.
+- Si `contenido.length === 0`, entonces `tieneContenidoCompleto = false`.
+- Cuando `tieneContenidoCompleto = false`, el cliente puede usar la principal de `edicionesRegistroOficial` para mostrar el PDF de la fuente oficial. El sistema no inventa ni simula contenido completo.
 - Este indicador no crea un nuevo estado editorial ni un nuevo estado de contenido. `PUBLICADA` significa visibilidad editorial, no necesariamente texto completo enriquecido. Una norma `PUBLICADA` puede tener `contenido` vacío.
-- `ConsultarContenidoNorma` representa la consulta de contenido visible para el suscriptor. Devuelve contenido y metadata normativa visible (`id`, `numero`, `titulo`, `contenido`, `tieneContenidoCompleto`, `tipoNorma`, `institucionExpide`, `fuente`, `estadoJuridico`, `fechaExpedicion`, `fechaPublicacionOficial`), pero no metadata interna/editorial.
-- `fuente` sí es visible para el suscriptor porque es la fuente normativa oficial.
+- `ConsultarContenidoNorma` representa la consulta de contenido visible para cualquier usuario cuya suscripción activa habilite su correo, independientemente del rol global. Devuelve metadata normativa y `edicionesRegistroOficial`: la principal y únicamente cambios `RESUELTA` o `MANUAL` con `urlPdf`. Oculta cambios pendientes, no encontrados, conflictivos o sin URL.
+- El contenido no expone campos singulares de edición/fuente, `estadoResolucionFuente`, `origenRegistroOficial`, `fechaPublicacionEnSistema` ni `estadoEditorial`. `ADMINISTRADOR` sin suscripción continúa recibiendo 403.
 - `ConsultarContenidoNorma` no expone `fechaPublicacionEnSistema` al suscriptor, porque es metadata interna/editorial/auditoría. Si se necesita exponerla más adelante, será mediante un caso de uso editorial interno separado (por ejemplo `ConsultarNormaEditorial`), no en la consulta de contenido del suscriptor.
 - `estadoEditorial` tampoco se expone en la salida de `ConsultarContenidoNorma`.
 
@@ -535,3 +564,76 @@ Esta sección documenta únicamente la Fase 1 del pipeline de ingesta normativa:
   - el enriquecimiento posterior del contenido desde la fuente oficial.
 
 El enriquecimiento del contenido completo desde la fuente oficial específica corresponde a una fase posterior y no se documenta en detalle en este hito.
+
+## 14. Ingesta por lote del Registro Oficial (Fase 5A)
+
+Esta sección documenta la ingesta implementada en la Fase 5A: el backend recibe de un extractor externo el lote mensual de entradas ya detectadas desde el resumen/índice del Registro Oficial y crea normas en `BORRADOR`. No implementa scraping real, parser de PDF, LLM, OCR, colas ni curaduría editable. Detalle arquitectónico en ADR 0008.
+
+### Endpoint y autorización
+
+Los lotes y sus endpoints son control técnico del proceso de scraping (idempotencia, trazabilidad): son exclusivos del `SUPERADMINISTRADOR`. El flujo editorial vive en `/normas` y se documenta en la sección 5; el editor no navega por lotes.
+
+- `POST /ingesta/registro-oficial/resumenes` recibe el lote; exige Bearer.
+- Solo `SUPERADMINISTRADOR` puede ejecutar la ingesta (caso de uso `IngerirResumenRegistroOficial`, política `PoliticaIngestaRegistroOficial`).
+- `EDITOR`, `ADMINISTRADOR`, `SUSCRIPTOR` y actores inexistentes reciben acceso denegado (403 genérico, sin pistas).
+- Solo `SUPERADMINISTRADOR` puede consultar lotes (`GET /ingesta/registro-oficial/lotes`) y un lote completo con sus entradas (`GET /ingesta/registro-oficial/lotes/:id`). `EDITOR`, `ADMINISTRADOR` y `SUSCRIPTOR` reciben 403. Solo lectura: sin edición, sin descarte, sin fusión, sin resolver duplicados y sin publicar.
+
+### Lote
+
+- El lote representa un resumen mensual completo del Registro Oficial con: `id`, `huellaLote`, `periodoAnio`, `periodoMes`, `fechaEjecucion`, `urlResumenMensualRegistroOficial`, `versionExtractor` y `entradasDetectadas`.
+- El lote no tiene `fuente`: el endpoint ya es específico de Registro Oficial.
+- El lote no persiste `creadoPorUsuarioId`: por ahora solo existe un SUPERADMINISTRADOR operativo y no se implementa auditoría parcial de creador.
+- El lote no persiste métricas. Las respuestas derivan únicamente `totalEntradasDetectadas` y `totalConAdvertencias` desde sus entradas.
+- Límite operativo inicial: entre 1 y 1500 entradas detectadas. El máximo es configurable en infraestructura; un lote vacío responde `SOLICITUD_INVALIDA` y uno que exceda el máximo responde `LIMITE_ENTRADAS_INGESTA_EXCEDIDO` (HTTP 413).
+- El extractor acumula el resumen mensual completo y realiza un único envío cuando termina. No existen partes, estados de ejecución ni tablas de staging en esta fase.
+- El `POST` responde un resumen del lote y `creado`; las entradas completas se consultan mediante `GET /ingesta/registro-oficial/lotes/:id`.
+- Las posiciones de las entradas deben ser enteros no negativos y únicos dentro del lote; si no, el lote completo es inválido (error estructural del extractor).
+
+### Idempotencia
+
+- Se calcula y persiste una `huellaLote` estable del contenido (servicio puro `CalculadoraHuellaLote`; no depende del orden de claves ni del orden de llegada de entradas).
+- La huella incluye período, `urlResumenMensualRegistroOficial`, `versionExtractor` y entradas detectadas.
+- Solo puede existir un lote por `periodoAnio` + `periodoMes`; PostgreSQL impone la garantía con un `UNIQUE` compuesto.
+- Mismo período + misma huella: devuelve el resumen del lote mensual existente con `creado: false`, sin crear normas nuevas.
+- Mismo período + huella distinta: `EJECUCION_INGESTA_CONFLICTIVA` (HTTP 409); una corrección del resumen requerirá en el futuro un flujo explícito, nunca sobrescritura automática.
+- La garantía fuerte ante carreras es el `UNIQUE` de (`periodo_anio`, `periodo_mes`); el conflicto concurrente se re-resuelve con la misma semántica de idempotencia.
+
+### Entradas detectadas
+
+- Cada entrada conserva la trazabilidad necesaria: `id`, `posicion`, `normaId`, `segmentoCrudo`, `metadataExtraccion`, `advertencias`, `confianza` y `fechaCreacion`.
+- La entrada no duplica un campo `anio`: el año y el mes identifican al lote mediante `periodoAnio` y `periodoMes`, mientras que `publicacion.fecha` representa la fecha exacta detectada de la edición oficial.
+- La ingesta no descarta entradas detectadas: cada una origina una `Norma` en `BORRADOR`.
+- Prisma puede conservar `loteId` y campos auxiliares de detección como detalles relacionales; HTTP expone las entradas anidadas dentro del lote.
+
+### Resultado derivado de detección
+
+- Cada entrada consultada incluye `resultadoDeteccion`, derivado y no persistido como estado editorial.
+- `ENTRADA_CON_ADVERTENCIAS`: si la entrada contiene al menos una advertencia.
+- `ENTRADA_DETECTADA`: si no contiene advertencias.
+- Todas las normas creadas por ingesta nacen en `BORRADOR` y pasan por el flujo editorial; no se agrega otra señal redundante para indicar esa revisión.
+
+### Creación de normas
+
+- Toda entrada detectada crea una `Norma` en estado editorial `BORRADOR`, incluso si el scraping falló en la detección de todos los campos. La ingesta nunca publica; no existe estado `DETECTADA`.
+- `estadoJuridico` nace `VIGENTE` por defecto.
+- Los campos propios de `Norma` no detectados quedan vacíos o nulos según su tipo, sin placeholders artificiales: título no detectado → `titulo` vacío; tipo no detectado → `tipoNorma` vacío; institución no detectada → `institucionExpide` vacía. La entrada del lote conserva advertencias de trazabilidad (`TITULO_NO_DETECTADO`, `INSTITUCION_NO_DETECTADA`, `EDICION_REGISTRO_OFICIAL_NO_DETERMINADA`, etc.), pero esas señales no se copian a la norma.
+- `urlResumenMensualRegistroOficial` nunca se usa como fuente oficial. El extractor mensual no envía ni detecta la URL del PDF fuente. Cuando la entrada contiene la triple completa se crea o reutiliza una `EdicionRegistroOficial`: una edición nueva nace con `urlPdf = null`, mientras una edición preexistente conserva la fuente que ya tuviera resuelta o corregida. La ingesta la asocia exclusivamente como principal; no crea asociaciones de cambio. La FK singular se mantiene interna y las respuestas usan la colección canónica `edicionesRegistroOficial`.
+- `fechaExpedicion` no se infiere: queda `null` hasta que el editor la complete.
+- El contenido queda vacío: el enriquecimiento con texto completo y metadata jurídica adicional es de fases posteriores.
+- El editor rellena los campos faltantes desde el flujo editorial (`GET /normas?estadoEditorial=BORRADOR`, `GET /normas/:id`, `PATCH /normas/:id`) y publica cuando la norma cumple los obligatorios de publicación.
+- El catálogo interno de `EdicionRegistroOficial` no equivale a una integración
+  con el catálogo oficial externo. Mientras esa integración no esté
+  configurada, `POST /ediciones-registro-oficial/resolver-pendientes` responde
+  `503 CATALOGO_NO_DISPONIBLE` al `SUPERADMINISTRADOR` y no modifica ninguna
+  edición. En particular, no fabrica URLs y no convierte la ausencia de
+  integración en `NO_ENCONTRADA`.
+
+### Alcance de la detección
+
+- La fecha de publicación detectada por el extractor es el ancla que delimita cada entrada del resumen mensual; cada entrada crea una `Norma` en `BORRADOR`.
+- La ingesta no compara cada entrada contra las normas existentes ni analiza posibles duplicados. La unicidad operativa se protege en el nivel correcto: un único lote por período mensual e idempotencia mediante `huellaLote`.
+- Si en el futuro la operación demuestra la necesidad de deduplicación jurídica, se diseñará como un proceso editorial separado; no forma parte de la ingesta masiva de Fase 5A.
+
+### Fuera de alcance (Fase 5A)
+
+Scraping real, parser PDF, descarga de índice, scraper WordPress/AJAX, integración con el catálogo oficial externo, resolución automática real de `fuente`, BullMQ/Redis, LLM, OCR, frontend, descarte, fusión, resolver duplicados, publicar automáticamente, roles dinámicos, gestión comercial y auditoría administrativa formal. El catálogo interno de `EdicionRegistroOficial`, la corrección editorial y la publicación (individual y múltiple) sí están implementados; la resolución automática permanece indisponible de forma explícita hasta incorporar un adaptador oficial.

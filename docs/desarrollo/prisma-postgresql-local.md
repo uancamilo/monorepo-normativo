@@ -67,6 +67,31 @@ DATABASE_URL="..." npm run prisma:migrate:deploy --workspace=@normativo/infraest
 > Un pipeline de despliegue que ejecute `prisma migrate deploy` debe instalar
 > devDependencies en esa etapa o usar `npx prisma`.
 
+> **`migration_lock.toml` forma parte de la cadena versionada.**
+> `prisma/migrations/migration_lock.toml` fija el proveedor (`postgresql`) y se
+> versiona junto con las migraciones; no debe editarse a mano. Prisma 7 exige
+> además una `datasource.shadowDatabaseUrl` para diferenciar un directorio de
+> migraciones con `prisma migrate diff --from-migrations`. `prisma.config.ts`
+> admite `SHADOW_DATABASE_URL` únicamente cuando se proporciona de forma
+> explícita; debe apuntar a una base local, separada y desechable, nunca a la
+> base principal ni a una base con datos que deban conservarse. La paridad se
+> comprueba con `--from-migrations prisma/migrations --to-schema
+> prisma/schema.prisma --exit-code`. Esta validación complementa la suite
+> `migraciones-fase-5a-prisma.test.ts`, `prisma migrate status` y el diff de
+> drift `--from-config-datasource --to-schema`.
+
+> **Seguridad de la migración histórica de fuentes**
+> (`20260712000000_migrar_fuentes_a_ediciones`): el backfill nunca descarta URLs
+> históricas. Si una triple (`tipo`/`numero`/`fecha`) reúne más de una URL
+> distinta, `prisma migrate deploy` **falla** con `INTEGRIDAD FASE 5A: ...
+> múltiples fuentes distintas` y revierte por completo; las columnas legacy y
+> sus URLs quedan intactas. Resuelva el conflicto dejando una única URL en los
+> datos legacy (`normas.fuente` y `entradas_detectadas_registro_oficial.url_fuente`)
+> y reintente el deploy. Prisma puede exigir marcar la ejecución fallida como
+> *rolled back* antes de reintentar. La migración jamás elige una URL
+> arbitrariamente; `CONFLICTIVA` sigue siendo un estado de runtime válido, pero
+> no justifica perder datos históricos durante la migración.
+
 ## 4. Ejecutar el seed
 
 El seed es **idempotente** (puede correrse varias veces sin duplicar) y solo
@@ -171,7 +196,7 @@ Ejemplo de flujo con `curl`:
 # Registrar (editor)
 curl -X POST localhost:3000/normas -H "Authorization: Bearer $TOKEN_EDITOR" \
   -H 'content-type: application/json' \
-  -d '{"titulo":"Ley","contenido":"","tipoNorma":"Ley","institucionExpide":"Asamblea","fuente":"https://x/y.pdf","estadoJuridico":"VIGENTE","fechaExpedicion":"2025-01-01","fechaPublicacionOficial":"2025-01-02"}'
+  -d '{"titulo":"Ley","contenido":[],"tipoNorma":"Ley","institucionExpide":"Asamblea","estadoJuridico":"VIGENTE","fechaExpedicion":null,"tipoPublicacionRegistroOficial":"RO","numeroPublicacionRegistroOficial":500,"fechaPublicacionOficial":"2025-01-02"}'
 
 # Publicar (editor) -> incluye fechaPublicacionEnSistema
 curl -X POST localhost:3000/normas/<ID>/publicar -H "Authorization: Bearer $TOKEN_EDITOR"
@@ -191,6 +216,16 @@ arriba y con schema aplicado:
 TEST_DATABASE_URL="postgresql://normativo:normativo@localhost:5433/normativo_test?schema=public" \
   npm run test:prisma --workspace=@normativo/infraestructura
 ```
+
+> **`test:prisma` valida antes de migrar.** El script corre a través del runner
+> `scripts/ejecutar-tests-prisma.js`, que **exige** `TEST_DATABASE_URL` y valida
+> que apunte a `normativo_test` en host local **antes** de ejecutar
+> `prisma migrate deploy`. `DATABASE_URL` **nunca** la sustituye: si
+> `TEST_DATABASE_URL` falta o es insegura, el proceso aborta sin tocar Prisma.
+> La validación reutiliza `scripts/validar-url-base-datos.js` (única fuente de
+> verdad) y la URL validada se pasa como `DATABASE_URL` solo a los procesos
+> hijos. Para una URL de test no local se requiere
+> `PERMITIR_TEST_DATABASE_URL_NO_LOCAL=true`.
 
 - Adaptadores: `src/persistencia/__tests__/prisma-adaptadores.test.ts`.
 - E2E HTTP Prisma: `src/__tests__/normas-prisma.e2e.test.ts` (usa
