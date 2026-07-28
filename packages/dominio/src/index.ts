@@ -32,7 +32,5 @@ export type {
   EdicionRegistroOficialProps,
 } from './normas/entidades/EdicionRegistroOficial';
 
-export { PoliticaAccesoNormaSuscriptor } from './normas/politicas/PoliticaAccesoNormaSuscriptor';
-export type { ContextoAccesoNormaSuscriptor } from './normas/politicas/PoliticaAccesoNormaSuscriptor';
 export { PoliticaAccesoContenidoNorma } from './normas/politicas/PoliticaAccesoContenidoNorma';
 export type { ContextoAccesoContenidoNorma } from './normas/politicas/PoliticaAccesoContenidoNorma';

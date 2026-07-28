@@ -111,14 +111,24 @@ export type UbicacionCarpetaRegistroOficial = {
  * no ausencia — el adaptador devuelve el fallo tipado
  * `COBERTURA_CATALOGO_NO_DISPONIBLE` y la edición permanece PENDIENTE. Nunca se
  * concluye "consulta exitosa sin candidatas" por falta de cobertura.
+ *
+ * `aniosExtra` permite ampliar la cobertura de años sin tocar código ni
+ * redesplegar (configurable vía `CATALOGO_REGISTRO_OFICIAL_ANIOS_EXTRA`) para
+ * el año-ID que el sitio le asigne a un año nuevo — un dato que solo se
+ * conoce viendo el sitio real cuando ese año exista. Es un parche operativo
+ * de urgencia, no reemplaza consolidar el año verificado en `YEAR_ID_POR_ANIO`
+ * con calma: por eso `YEAR_ID_POR_ANIO` siempre gana sobre `aniosExtra` si
+ * ambos definen el mismo año, para que una variable de entorno mal puesta
+ * jamás sobrescriba un dato ya verificado.
  */
 export function ubicarCarpetaRegistroOficial(
   tipoPublicacionRegistroOficial: string,
   anio: number,
   mes: number,
+  aniosExtra: Readonly<Record<number, number>> = {},
 ): UbicacionCarpetaRegistroOficial | null {
   const idCarpeta = ID_CARPETA_POR_ABREVIATURA[tipoPublicacionRegistroOficial];
-  const yearId = YEAR_ID_POR_ANIO[anio];
+  const yearId = YEAR_ID_POR_ANIO[anio] ?? aniosExtra[anio];
   const mesId = MES_ID_POR_MES[mes];
   const nombreMes = NOMBRE_MES[mes];
   if (

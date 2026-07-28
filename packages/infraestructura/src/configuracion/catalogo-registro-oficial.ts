@@ -46,6 +46,13 @@ export interface ConfiguracionCatalogoRegistroOficial {
   timeoutMs: number;
   maxConcurrencia: number;
   maxEdicionesPorEjecucion: number;
+  /**
+   * Extensión operativa de la taxonomía de años (ver
+   * `ubicarCarpetaRegistroOficial`): permite resolver un año nuevo del sitio
+   * oficial sin esperar a un redespliegue. Nunca sobrescribe un año ya
+   * verificado en `YEAR_ID_POR_ANIO`.
+   */
+  aniosExtra: Readonly<Record<number, number>>;
 }
 
 export function obtenerConfiguracionCatalogoRegistroOficial(
@@ -67,6 +74,7 @@ export function obtenerConfiguracionCatalogoRegistroOficial(
       timeoutMs: TIMEOUT_CATALOGO_POR_DEFECTO_MS,
       maxConcurrencia: CONCURRENCIA_PREDETERMINADA_RESOLUCION,
       maxEdicionesPorEjecucion: LIMITE_PREDETERMINADO_EDICIONES_RESOLUCION,
+      aniosExtra: {},
     };
   }
 
@@ -96,6 +104,9 @@ export function obtenerConfiguracionCatalogoRegistroOficial(
   const dominiosPdfPermitidos = validarDominiosPdf(
     entorno.CATALOGO_REGISTRO_OFICIAL_DOMINIOS_PDF,
   );
+  const aniosExtra = validarAniosExtra(
+    entorno.CATALOGO_REGISTRO_OFICIAL_ANIOS_EXTRA,
+  );
 
   return {
     habilitado: true,
@@ -104,6 +115,7 @@ export function obtenerConfiguracionCatalogoRegistroOficial(
     timeoutMs,
     maxConcurrencia,
     maxEdicionesPorEjecucion,
+    aniosExtra,
   };
 }
 
@@ -161,6 +173,51 @@ function validarDominiosPdf(valor: string | undefined): string[] {
     );
   }
   return dominios;
+}
+
+/**
+ * `CATALOGO_REGISTRO_OFICIAL_ANIOS_EXTRA`: parche operativo para resolver un
+ * año que el sitio oficial ya creó pero que todavía no está consolidado en
+ * `YEAR_ID_POR_ANIO`. Formato `"2027:2004,2028:2005"` (año:idDelSitio).
+ * Ausente o vacía -> sin extensión (comportamiento actual). Presente y mal
+ * formada -> fail-fast: es una decisión operativa deliberada, nunca debe
+ * quedar en un estado ambiguo o parcialmente aplicado.
+ */
+function validarAniosExtra(valor: string | undefined): Record<number, number> {
+  if (valor === undefined || valor.trim().length === 0) {
+    return {};
+  }
+  const clave = 'CATALOGO_REGISTRO_OFICIAL_ANIOS_EXTRA';
+  const resultado: Record<number, number> = {};
+  for (const par of valor.split(',')) {
+    const recortado = par.trim();
+    if (recortado.length === 0) {
+      continue;
+    }
+    const partes = recortado.split(':');
+    if (partes.length !== 2) {
+      throw new Error(
+        `${clave} debe tener el formato "anio:idDelSitio" separado por comas (ej. "2027:2004")`,
+      );
+    }
+    const anio = Number(partes[0].trim());
+    const idDelSitio = Number(partes[1].trim());
+    if (
+      !Number.isInteger(anio) ||
+      anio < 2001 ||
+      !Number.isInteger(idDelSitio) ||
+      idDelSitio <= 0
+    ) {
+      throw new Error(
+        `${clave} tiene un par inválido: "${recortado}" (el año debe ser entero >= 2001 y el id un entero positivo)`,
+      );
+    }
+    if (anio in resultado) {
+      throw new Error(`${clave} repite el año ${anio}`);
+    }
+    resultado[anio] = idDelSitio;
+  }
+  return resultado;
 }
 
 function validarEnteroEnRango(

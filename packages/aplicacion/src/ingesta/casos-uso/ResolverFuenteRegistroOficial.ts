@@ -211,6 +211,20 @@ export class ResolverFuenteRegistroOficial {
       };
     }
 
+    // Fail-closed: una sola candidata con URL no confiable invalida TODA la
+    // respuesta. Descartar en silencio la inválida y seguir con las demás
+    // permitiría resolver con datos parcialmente no verificables o, si no
+    // quedara ninguna candidata tras el descarte, confundir una respuesta no
+    // confiable con ausencia real (NO_ENCONTRADA). Ningún implementador del
+    // puerto puede convertir aquí un dato no confiable en un estado terminal.
+    if (consulta.candidatas.some((candidata) => !esUrlValida(candidata.urlPdf))) {
+      return {
+        edicionId: edicion.id,
+        procesada: false,
+        razon: 'RESPUESTA_CATALOGO_INVALIDA',
+      };
+    }
+
     const resuelta = decidirResolucion(edicion, consulta.candidatas);
     const persistencia =
       await this.repositorioEdiciones.guardarResolucionSiPendiente(resuelta);
@@ -313,21 +327,23 @@ export class ResolverFuenteRegistroOficial {
  * El catálogo se consulta por tipo + número + fecha; la fecha detectada
  * verifica la confianza de la coincidencia. Una discrepancia de fecha no
  * sobrescribe lo detectado: si genera ambigüedad, la edición queda CONFLICTIVA.
+ *
+ * Precondición: `candidatas` ya pasó el gate fail-closed de `resolverEdicion`
+ * (ninguna URL no confiable); esta función solo deduplica por URL exacta y
+ * decide, nunca vuelve a filtrar por validez.
  */
 function decidirResolucion(
   edicion: EdicionRegistroOficial,
   candidatas: EdicionCatalogoRegistroOficial[],
 ): EdicionRegistroOficial {
-  const validas = deduplicarPorUrl(
-    candidatas.filter((candidata) => esUrlValida(candidata.urlPdf)),
-  );
+  const candidatasUnicas = deduplicarPorUrl(candidatas);
 
-  if (validas.length === 0) {
+  if (candidatasUnicas.length === 0) {
     return edicion.marcarFuenteNoEncontrada();
   }
 
-  if (validas.length === 1) {
-    const unica = validas[0];
+  if (candidatasUnicas.length === 1) {
+    const unica = candidatasUnicas[0];
     const fechaCompatible =
       unica.fechaPublicacionOficial === null ||
       esMismaFecha(unica.fechaPublicacionOficial, edicion.fechaPublicacionOficial);
@@ -336,7 +352,7 @@ function decidirResolucion(
       : edicion.marcarFuenteConflictiva();
   }
 
-  const coincidentesPorFecha = validas.filter(
+  const coincidentesPorFecha = candidatasUnicas.filter(
     (candidata) =>
       candidata.fechaPublicacionOficial !== null &&
       esMismaFecha(
@@ -376,11 +392,26 @@ function esTextoVacio(valor: unknown): boolean {
   return typeof valor !== 'string' || valor.trim().length === 0;
 }
 
+/**
+ * Contrato mínimo y estable que aplicación puede validar sin conocer
+ * infraestructura: la URL debe ser interpretable y usar protocolo `https:`
+ * (http, ftp, file, javascript y cualquier otro protocolo se rechazan; ni
+ * siquiera localhost se acepta como fuente PDF persistible). Esto es
+ * defensa en profundidad, no un duplicado de la allowlist real: la
+ * allowlist de dominios oficiales, el manejo de redirects, tamaño de
+ * respuesta, timeout y el resto de la defensa SSRF viven exclusivamente en
+ * infraestructura (`CatalogoRegistroOficialHttp`). Aplicación no conoce
+ * dominios concretos, no implementa una allowlist de hosts y no importa
+ * configuración ni infraestructura; solo evita que un implementador futuro
+ * o defectuoso del puerto `CatalogoRegistroOficial` convierta una URL con
+ * forma o protocolo no confiable en un estado terminal persistido.
+ */
 function esUrlValida(valor: string): boolean {
+  let url: URL;
   try {
-    new URL(valor);
-    return true;
+    url = new URL(valor);
   } catch {
     return false;
   }
+  return url.protocol === 'https:';
 }

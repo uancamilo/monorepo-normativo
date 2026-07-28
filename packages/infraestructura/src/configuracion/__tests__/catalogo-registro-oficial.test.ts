@@ -26,6 +26,7 @@ describe('obtenerConfiguracionCatalogoRegistroOficial', () => {
       timeoutMs: 15_000,
       maxConcurrencia: 4,
       maxEdicionesPorEjecucion: 50,
+      aniosExtra: {},
     });
   });
 
@@ -42,6 +43,10 @@ describe('obtenerConfiguracionCatalogoRegistroOficial', () => {
       'allowlist vacía',
       { CATALOGO_REGISTRO_OFICIAL_DOMINIOS_PDF: ' , ' },
     ],
+    [
+      'años extra mal formados',
+      { CATALOGO_REGISTRO_OFICIAL_ANIOS_EXTRA: '2027-2004' },
+    ],
   ])(
     'deshabilitado ignora una variable opcional residual con %s (no impide el arranque)',
     (_nombre, residual) => {
@@ -57,6 +62,7 @@ describe('obtenerConfiguracionCatalogoRegistroOficial', () => {
         timeoutMs: 15_000,
         maxConcurrencia: 4,
         maxEdicionesPorEjecucion: 50,
+        aniosExtra: {},
       });
     },
   );
@@ -92,6 +98,40 @@ describe('obtenerConfiguracionCatalogoRegistroOficial', () => {
       'www.registroficial.gob.ec',
       'cdn.registroficial.gob.ec',
     ]);
+  });
+
+  it('sin años extra devuelve un mapa vacío (comportamiento actual sin cambios)', () => {
+    const config = obtenerConfiguracionCatalogoRegistroOficial({
+      CATALOGO_REGISTRO_OFICIAL_HABILITADO: 'true',
+      CATALOGO_REGISTRO_OFICIAL_BASE_URL: BASE,
+    });
+
+    expect(config.aniosExtra).toEqual({});
+  });
+
+  it('permite extender la taxonomía de años vía configuración', () => {
+    const config = obtenerConfiguracionCatalogoRegistroOficial({
+      CATALOGO_REGISTRO_OFICIAL_HABILITADO: 'true',
+      CATALOGO_REGISTRO_OFICIAL_BASE_URL: BASE,
+      CATALOGO_REGISTRO_OFICIAL_ANIOS_EXTRA: '2027:2004, 2028:2005',
+    });
+
+    expect(config.aniosExtra).toEqual({ 2027: 2004, 2028: 2005 });
+  });
+
+  it.each([
+    ['formato sin dos partes', '2027-2004'],
+    ['año no entero', 'dos-mil-veintisiete:2004'],
+    ['id no positivo', '2027:0'],
+    ['año repetido', '2027:2004,2027:2005'],
+  ])('años extra inválidos (%s) fallan en el arranque', (_nombre, valor) => {
+    expect(() =>
+      obtenerConfiguracionCatalogoRegistroOficial({
+        CATALOGO_REGISTRO_OFICIAL_HABILITADO: 'true',
+        CATALOGO_REGISTRO_OFICIAL_BASE_URL: BASE,
+        CATALOGO_REGISTRO_OFICIAL_ANIOS_EXTRA: valor,
+      }),
+    ).toThrow(/ANIOS_EXTRA/);
   });
 
   it('habilitado permite http solo en localhost (pruebas locales)', () => {

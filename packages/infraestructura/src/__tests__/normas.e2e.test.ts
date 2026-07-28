@@ -414,7 +414,7 @@ describe('Normas (e2e)', () => {
     expect(consulta.status).toBe(403);
   });
 
-  it('SUSCRIPTOR autenticado sin cuenta/suscripción recibe 403 en contenido y catálogo', async () => {
+  it('SUSCRIPTOR autenticado sin cuenta/suscripción recibe 403 en contenido y catálogo, y el mismo 403 en contenido ante un id inexistente (protección contra enumeración)', async () => {
     const usuarioId = 'usuario-suscriptor-sin-cuenta';
     const repositorioUsuarios = app.get<RepositorioUsuariosEnMemoria>(
       TOKEN_REPOSITORIO_USUARIOS,
@@ -443,11 +443,29 @@ describe('Normas (e2e)', () => {
     const catalogo = await request(servidor())
       .get('/ediciones-registro-oficial')
       .set('Authorization', autorizacion);
+    const contenidoIdInexistente = await request(servidor())
+      .get('/normas/norma-que-nunca-existio/contenido')
+      .set('Authorization', autorizacion);
 
     expect(contenido.status).toBe(403);
     expect(contenido.body.message).toBe('Acceso denegado');
     expect(catalogo.status).toBe(403);
     expect(catalogo.body.message).toBe('Acceso denegado');
+
+    // Protección contra enumeración: un id inexistente nunca escala a un
+    // tratamiento distinto (404) frente a un actor sin acceso contractual.
+    // Mismo status, mismo cuerpo exacto (no solo mismo message) y ninguna
+    // razón interna de aplicación filtrada en ningún caso — incluida la que
+    // hoy sí distinguía el caso de norma inexistente antes de esta corrección.
+    expect(contenidoIdInexistente.status).toBe(403);
+    expect(contenidoIdInexistente.body.message).toBe('Acceso denegado');
+    expect(contenido.body).toEqual(contenidoIdInexistente.body);
+    for (const cuerpo of [contenido.body, contenidoIdInexistente.body]) {
+      const serializado = JSON.stringify(cuerpo);
+      expect(serializado).not.toContain('NORMA_NO_ENCONTRADA');
+      expect(serializado).not.toContain('SUSCRIPCION_NO_ENCONTRADA');
+      expect(serializado).not.toContain('ACCESO_DENEGADO');
+    }
   });
 
   it('sin token devuelve 401', async () => {
@@ -693,7 +711,6 @@ describe('Normas (e2e)', () => {
       '%s consulta el detalle de un borrador con contenido',
       async (usuarioId) => {
         const norma = await registrarYObtenerNorma();
-        const edicionPrincipal = edicionPrincipalDe(norma);
         const respuesta = await request(servidor())
           .get(`/normas/${norma.id}`)
           .set('Authorization', await autorizacionDe(usuarioId));

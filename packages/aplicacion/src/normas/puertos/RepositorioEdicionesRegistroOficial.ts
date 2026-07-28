@@ -53,5 +53,12 @@ export interface RepositorioEdicionesRegistroOficial {
   guardarResolucionSiPendiente(
     edicion: EdicionRegistroOficial,
   ): Promise<ResultadoGuardarResolucionFuenteRegistroOficial>;
+  /**
+   * Sobrescribe sin condición de estado. Reservado exclusivamente al flujo de
+   * corrección manual del editor (donde sobrescribir es la intención): saltea
+   * la protección compare-and-set de `guardarResolucionSiPendiente` y, usado
+   * fuera de ese flujo, puede pisar una resolución automática o manual
+   * concurrente. No usar desde la resolución automática de fuentes.
+   */
   guardar(edicion: EdicionRegistroOficial): Promise<void>;
 }

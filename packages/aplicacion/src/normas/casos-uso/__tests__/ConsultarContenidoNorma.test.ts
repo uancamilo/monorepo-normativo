@@ -223,10 +223,31 @@ describe('ConsultarContenidoNorma', () => {
     expect(resultado).toEqual({ exitoso: false, razon: 'USUARIO_NO_ENCONTRADO' });
   });
 
-  it('devuelve NORMA_NO_ENCONTRADA si no existe norma', async () => {
+  it('devuelve NORMA_NO_ENCONTRADA si un usuario interno consulta un id inexistente', async () => {
+    const contexto = crearContexto();
+    const usuario = crearUsuario({ rol: RolUsuario.SUPERADMINISTRADOR });
+    contexto.repositorioUsuarios.agregar(usuario);
+
+    const resultado = await contexto.casoUso.ejecutar({
+      usuarioAutenticadoId: usuario.obtenerId(),
+      normaId: 'n-inexistente',
+      fechaReferencia,
+    });
+
+    // Un usuario interno ya superó la frontera de acceso al servicio (no
+    // requiere suscripción), así que un 404 real aquí no revela nada que el
+    // actor no supiera ya sobre su propio acceso.
+    expect(resultado).toEqual({ exitoso: false, razon: 'NORMA_NO_ENCONTRADA' });
+  });
+
+  it('devuelve NORMA_NO_ENCONTRADA si un SUSCRIPTOR con acceso contractual válido consulta un id inexistente', async () => {
     const contexto = crearContexto();
     const usuario = crearUsuario();
+    const suscripcion = crearSuscripcion({
+      correoHabilitado: usuario.obtenerCorreo(),
+    });
     contexto.repositorioUsuarios.agregar(usuario);
+    contexto.repositorioSuscripciones.agregar(suscripcion);
 
     const resultado = await contexto.casoUso.ejecutar({
       usuarioAutenticadoId: usuario.obtenerId(),
@@ -237,7 +258,7 @@ describe('ConsultarContenidoNorma', () => {
     expect(resultado).toEqual({ exitoso: false, razon: 'NORMA_NO_ENCONTRADA' });
   });
 
-  it('devuelve SUSCRIPCION_NO_ENCONTRADA si no existe suscripción para el correo del usuario', async () => {
+  it('devuelve SUSCRIPCION_NO_ENCONTRADA si no existe suscripción para el correo del usuario, sin consultar Normas', async () => {
     const contexto = crearContexto();
     const usuario = crearUsuario();
     const norma = crearNorma();
@@ -254,9 +275,34 @@ describe('ConsultarContenidoNorma', () => {
       exitoso: false,
       razon: 'SUSCRIPCION_NO_ENCONTRADA',
     });
+    // La frontera de acceso al servicio se resuelve antes de tocar Normas:
+    // aunque la norma exista, nunca se llega a consultarla.
+    expect(contexto.repositorioNormas.consultasPorId).toEqual([]);
   });
 
-  it('devuelve ACCESO_DENEGADO si la suscripción no habilita el correo', async () => {
+  it('devuelve la misma razón (SUSCRIPCION_NO_ENCONTRADA) para un id de norma inexistente que para uno existente, sin consultar Normas', async () => {
+    const contexto = crearContexto();
+    const usuario = crearUsuario();
+    contexto.repositorioUsuarios.agregar(usuario);
+    // Deliberadamente NO se agrega ninguna norma: el id nunca existió.
+
+    const resultado = await contexto.casoUso.ejecutar({
+      usuarioAutenticadoId: usuario.obtenerId(),
+      normaId: 'n-que-nunca-existio',
+      fechaReferencia,
+    });
+
+    // Misma razón que el test anterior con norma existente: un SUSCRIPTOR
+    // sin suscripción no puede distinguir, por la razón devuelta, si el id
+    // que consultó corresponde a una norma real o no.
+    expect(resultado).toEqual({
+      exitoso: false,
+      razon: 'SUSCRIPCION_NO_ENCONTRADA',
+    });
+    expect(contexto.repositorioNormas.consultasPorId).toEqual([]);
+  });
+
+  it('devuelve ACCESO_DENEGADO si la suscripción no habilita el correo, sin consultar Normas', async () => {
     const contexto = crearContexto();
     const usuario = crearUsuario({ correo: 'usuario@test.com' });
     const norma = crearNorma();
@@ -287,35 +333,69 @@ describe('ConsultarContenidoNorma', () => {
     });
 
     expect(resultado).toEqual({ exitoso: false, razon: 'ACCESO_DENEGADO' });
+    expect(contexto.repositorioNormas.consultasPorId).toEqual([]);
   });
 
   it.each([
     EstadoSuscripcion.INACTIVA,
     EstadoSuscripcion.VENCIDA,
     EstadoSuscripcion.CANCELADA,
-  ])('devuelve ACCESO_DENEGADO si la suscripción está %s', async (estado) => {
-    const contexto = crearContexto();
-    const usuario = crearUsuario();
-    const norma = crearNorma();
-    const suscripcion = crearSuscripcion({
-      correoHabilitado: usuario.obtenerCorreo(),
-      estado,
-    });
+  ])(
+    'devuelve ACCESO_DENEGADO si la suscripción está %s, sin consultar Normas',
+    async (estado) => {
+      const contexto = crearContexto();
+      const usuario = crearUsuario();
+      const norma = crearNorma();
+      const suscripcion = crearSuscripcion({
+        correoHabilitado: usuario.obtenerCorreo(),
+        estado,
+      });
 
-    contexto.repositorioUsuarios.agregar(usuario);
-    contexto.repositorioNormas.agregar(norma);
-    contexto.repositorioSuscripciones.agregar(suscripcion);
+      contexto.repositorioUsuarios.agregar(usuario);
+      contexto.repositorioNormas.agregar(norma);
+      contexto.repositorioSuscripciones.agregar(suscripcion);
 
-    const resultado = await contexto.casoUso.ejecutar({
-      usuarioAutenticadoId: usuario.obtenerId(),
-      normaId: norma.id,
-      fechaReferencia,
-    });
+      const resultado = await contexto.casoUso.ejecutar({
+        usuarioAutenticadoId: usuario.obtenerId(),
+        normaId: norma.id,
+        fechaReferencia,
+      });
 
-    expect(resultado).toEqual({ exitoso: false, razon: 'ACCESO_DENEGADO' });
-  });
+      expect(resultado).toEqual({ exitoso: false, razon: 'ACCESO_DENEGADO' });
+      expect(contexto.repositorioNormas.consultasPorId).toEqual([]);
+    },
+  );
 
-  it('devuelve ACCESO_DENEGADO si la suscripción está fuera de vigencia', async () => {
+  it.each([
+    EstadoSuscripcion.INACTIVA,
+    EstadoSuscripcion.VENCIDA,
+    EstadoSuscripcion.CANCELADA,
+  ])(
+    'devuelve la misma razón (ACCESO_DENEGADO) para un id inexistente que para uno existente con suscripción %s, sin consultar Normas',
+    async (estado) => {
+      const contexto = crearContexto();
+      const usuario = crearUsuario();
+      const suscripcion = crearSuscripcion({
+        correoHabilitado: usuario.obtenerCorreo(),
+        estado,
+      });
+
+      contexto.repositorioUsuarios.agregar(usuario);
+      contexto.repositorioSuscripciones.agregar(suscripcion);
+      // Deliberadamente NO se agrega ninguna norma.
+
+      const resultado = await contexto.casoUso.ejecutar({
+        usuarioAutenticadoId: usuario.obtenerId(),
+        normaId: 'n-que-nunca-existio',
+        fechaReferencia,
+      });
+
+      expect(resultado).toEqual({ exitoso: false, razon: 'ACCESO_DENEGADO' });
+      expect(contexto.repositorioNormas.consultasPorId).toEqual([]);
+    },
+  );
+
+  it('devuelve ACCESO_DENEGADO si la suscripción está fuera de vigencia, sin consultar Normas', async () => {
     const contexto = crearContexto();
     const usuario = crearUsuario();
     const norma = crearNorma();
@@ -336,6 +416,30 @@ describe('ConsultarContenidoNorma', () => {
     });
 
     expect(resultado).toEqual({ exitoso: false, razon: 'ACCESO_DENEGADO' });
+    expect(contexto.repositorioNormas.consultasPorId).toEqual([]);
+  });
+
+  it('devuelve la misma razón (ACCESO_DENEGADO) para un id inexistente que para uno existente con suscripción fuera de vigencia, sin consultar Normas', async () => {
+    const contexto = crearContexto();
+    const usuario = crearUsuario();
+    const suscripcion = crearSuscripcion({
+      correoHabilitado: usuario.obtenerCorreo(),
+      fechaInicio: new Date('2026-01-01'),
+      fechaFin: new Date('2030-01-01'),
+    });
+
+    contexto.repositorioUsuarios.agregar(usuario);
+    contexto.repositorioSuscripciones.agregar(suscripcion);
+    // Deliberadamente NO se agrega ninguna norma.
+
+    const resultado = await contexto.casoUso.ejecutar({
+      usuarioAutenticadoId: usuario.obtenerId(),
+      normaId: 'n-que-nunca-existio',
+      fechaReferencia,
+    });
+
+    expect(resultado).toEqual({ exitoso: false, razon: 'ACCESO_DENEGADO' });
+    expect(contexto.repositorioNormas.consultasPorId).toEqual([]);
   });
 
   it.each([EstadoEditorialNorma.BORRADOR, EstadoEditorialNorma.EN_REVISION])(

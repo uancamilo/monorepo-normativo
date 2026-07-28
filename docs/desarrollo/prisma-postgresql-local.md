@@ -238,7 +238,7 @@ equivocada. Para escenarios excepcionales puede usarse
 
 ## 7. Flujo reproducible Prisma → Newman (Fase 5B)
 
-La colección `postman_fase_5b_resolucion_fuentes_registro_oficial.json` depende
+La colección `postman/fase_5b_resolucion_fuentes_registro_oficial.json` depende
 de los usuarios seed y de la contraseña de test `Password123!` (dato exclusivo
 de test, almacenado solo como hash). Sin un seed inmediatamente previo, los
 logins pueden responder 401 por el estado anterior de la base de test. El orden
@@ -268,7 +268,7 @@ CATALOGO_REGISTRO_OFICIAL_BASE_URL=http://localhost:3999 \
 # (esacc.corteconstitucional.gob.ec), que es la allowlist por defecto.
 
 # 5. Ejecutar Newman (reportes fuera del repositorio)
-npx newman run postman_fase_5b_resolucion_fuentes_registro_oficial.json \
+npx newman run postman/fase_5b_resolucion_fuentes_registro_oficial.json \
   --reporters cli,json \
   --reporter-json-export /tmp/resultados-postman-fase-5b.json
 

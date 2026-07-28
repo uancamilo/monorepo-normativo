@@ -76,6 +76,12 @@ export class RepositorioNormasEnMemoriaFake
   private readonly normasPorId = new Map<string, Norma>();
   private readonly cambiosPorNormaId = new Map<string, Set<string>>();
   readonly guardadas: Norma[] = [];
+  /**
+   * IDs consultados vía buscarPorId, en orden. Apoyo de pruebas: verifica que
+   * el repositorio de Normas no se consulte antes de superar la frontera de
+   * acceso al servicio (previene enumeración por 403/404).
+   */
+  readonly consultasPorId: string[] = [];
 
   agregar(norma: Norma): void {
     this.normasPorId.set(norma.id, norma);
@@ -103,6 +109,7 @@ export class RepositorioNormasEnMemoriaFake
   }
 
   async buscarPorId(id: string): Promise<Norma | null> {
+    this.consultasPorId.push(id);
     return this.normasPorId.get(id) ?? null;
   }
 

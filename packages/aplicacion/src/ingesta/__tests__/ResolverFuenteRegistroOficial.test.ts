@@ -715,6 +715,111 @@ describe('ResolverFuenteRegistroOficial', () => {
     ]);
   });
 
+  it('varias URLs válidas idénticas se deduplican antes de decidir', async () => {
+    agregarEdicionPendiente();
+    catalogo.registrar(
+      { tipoPublicacionRegistroOficial: 'RO', numeroPublicacionRegistroOficial: 500 },
+      [
+        { urlPdf: URL_PDF, fechaPublicacionOficial: null },
+        { urlPdf: URL_PDF, fechaPublicacionOficial: null },
+      ],
+    );
+
+    const resultado = await casoUso.ejecutar({
+      usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+    });
+
+    expect(resultado.exitoso).toBe(true);
+    if (!resultado.exitoso) return;
+    // Dos candidatas con la misma URL deduplican a una sola coincidencia:
+    // se resuelve, no queda CONFLICTIVA por un duplicado exacto.
+    expect(resultado.resultados[0]).toEqual({
+      edicionId: 'edicion-1',
+      procesada: true,
+      estadoResolucionFuente: EstadoResolucionFuente.RESUELTA,
+      urlPdf: URL_PDF,
+    });
+  });
+
+  describe('fail-closed ante URLs candidatas no confiables', () => {
+    async function esperarRespuestaCatalogoInvalida(
+      candidatas: { urlPdf: string; fechaPublicacionOficial: Date | null }[],
+    ) {
+      agregarEdicionPendiente();
+      catalogo.registrar(
+        { tipoPublicacionRegistroOficial: 'RO', numeroPublicacionRegistroOficial: 500 },
+        candidatas,
+      );
+
+      const resultado = await casoUso.ejecutar({
+        usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+      });
+
+      expect(resultado).toEqual({
+        exitoso: true,
+        resultados: [
+          {
+            edicionId: 'edicion-1',
+            procesada: false,
+            razon: 'RESPUESTA_CATALOGO_INVALIDA',
+          },
+        ],
+      });
+      const edicion = await repositorioEdiciones.buscarPorId('edicion-1');
+      expect(edicion?.estadoResolucionFuente).toBe(
+        EstadoResolucionFuente.PENDIENTE,
+      );
+      expect(edicion?.urlPdf).toBeNull();
+      // Ninguna escritura en el repositorio: guardarResolucionSiPendiente
+      // nunca se invoca ante una respuesta no confiable.
+      expect(repositorioEdiciones.guardadas).toHaveLength(0);
+    }
+
+    it('única candidata mal formada deja la edición PENDIENTE con RESPUESTA_CATALOGO_INVALIDA', async () => {
+      await esperarRespuestaCatalogoInvalida([
+        { urlPdf: 'no-es-una-url', fechaPublicacionOficial: null },
+      ]);
+    });
+
+    it('única candidata HTTP (incluso localhost) deja la edición PENDIENTE con RESPUESTA_CATALOGO_INVALIDA', async () => {
+      // Una candidata PDF persistible debe ser HTTPS: localhost solo es
+      // aceptable como URL BASE de un fixture de infraestructura, nunca como
+      // fuente persistida por aplicación.
+      await esperarRespuestaCatalogoInvalida([
+        {
+          urlPdf: 'http://localhost:3999/documento.pdf',
+          fechaPublicacionOficial: null,
+        },
+      ]);
+    });
+
+    it('protocolo no permitido (ftp:) deja la edición PENDIENTE con RESPUESTA_CATALOGO_INVALIDA', async () => {
+      await esperarRespuestaCatalogoInvalida([
+        {
+          urlPdf: 'ftp://catalogo.test/documento.pdf',
+          fechaPublicacionOficial: null,
+        },
+      ]);
+    });
+
+    it('mezcla de candidata válida e inválida invalida toda la respuesta sin aprovechar la válida', async () => {
+      await esperarRespuestaCatalogoInvalida([
+        { urlPdf: URL_PDF, fechaPublicacionOficial: null },
+        { urlPdf: 'url-invalida', fechaPublicacionOficial: null },
+      ]);
+    });
+
+    it('todas las candidatas inválidas (dos formas distintas) no producen NO_ENCONTRADA', async () => {
+      await esperarRespuestaCatalogoInvalida([
+        { urlPdf: 'no-es-una-url', fechaPublicacionOficial: null },
+        {
+          urlPdf: 'javascript:alert(1)',
+          fechaPublicacionOficial: null,
+        },
+      ]);
+    });
+  });
+
   it('el límite de la solicitud nunca supera el máximo configurado', async () => {
     for (const [indice, fecha] of ['2026-05-01', '2026-05-02', '2026-05-03'].entries()) {
       repositorioEdiciones.agregar(

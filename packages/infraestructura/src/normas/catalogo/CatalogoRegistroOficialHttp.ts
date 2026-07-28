@@ -49,6 +49,11 @@ export type ConfiguracionCatalogoRegistroOficialHttp = {
   ttlCacheMs?: number;
   /** Máximo de entradas en caché. Inyectable en tests. */
   maxEntradasCache?: number;
+  /**
+   * Extensión operativa de años vía `CATALOGO_REGISTRO_OFICIAL_ANIOS_EXTRA`
+   * (ver `ubicarCarpetaRegistroOficial`). Nunca sobrescribe un año verificado.
+   */
+  aniosExtra?: Readonly<Record<number, number>>;
 };
 
 type FetchLike = typeof fetch;
@@ -116,6 +121,7 @@ export class CatalogoRegistroOficialHttp implements CatalogoRegistroOficial {
   private readonly esperar: Esperar;
   private readonly ahora: Ahora;
   private readonly cache: CacheCarpetaMes;
+  private readonly aniosExtra: Readonly<Record<number, number>>;
 
   constructor(
     configuracion: ConfiguracionCatalogoRegistroOficialHttp,
@@ -128,6 +134,7 @@ export class CatalogoRegistroOficialHttp implements CatalogoRegistroOficial {
     );
     this.timeoutMs = configuracion.timeoutMs;
     this.maxBytesRespuesta = configuracion.maxBytesRespuesta;
+    this.aniosExtra = configuracion.aniosExtra ?? {};
     this.fetchImpl = fetchImpl;
     this.ahora = opciones.ahora ?? Date.now;
     this.esperar =
@@ -148,6 +155,7 @@ export class CatalogoRegistroOficialHttp implements CatalogoRegistroOficial {
       consulta.tipoPublicacionRegistroOficial,
       fecha.getUTCFullYear(),
       fecha.getUTCMonth() + 1,
+      this.aniosExtra,
     );
     // Taxonomía no cubierta NO implica que la edición no exista: es
     // incertidumbre, no ausencia. La edición permanece PENDIENTE.

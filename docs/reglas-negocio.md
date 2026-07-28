@@ -298,7 +298,7 @@ El editor trabaja con Normas en `BORRADOR`; no revisa lotes ni audita el scrapin
 
 ## 6. Acceso al contenido completo
 
-La política `PoliticaAccesoServicio` centraliza la frontera entre usuarios internos y usuarios sujetos a suscripción. `PoliticaAccesoContenidoNorma` la combina con la precondición de que la norma esté `PUBLICADA`. La política `PoliticaAccesoNormaSuscriptor` queda como política heredada marcada con `@deprecated` y restringida expresamente al rol `SUSCRIPTOR`.
+La política `PoliticaAccesoServicio` centraliza la frontera entre usuarios internos y usuarios sujetos a suscripción. `PoliticaAccesoContenidoNorma` la combina con la precondición de que la norma esté `PUBLICADA`.
 
 - `SUPERADMINISTRADOR`, `ADMINISTRADOR` y `EDITOR` son usuarios internos y consultan contenido de normas `PUBLICADA` sin suscripción.
 - `SUSCRIPTOR` puede iniciar sesión sin suscripción, pero las consultas protegidas por acceso contractual devuelven 403 si no pertenece a una cuenta con suscripción válida.
@@ -377,7 +377,7 @@ Límites de esta política:
 - Si el visitante no está autenticado, el sistema debe redirigirlo a login.
 - El sistema debe conservar la intención de navegación para volver al detalle solicitado después del login.
 - Después del login, el sistema debe validar acceso antes de mostrar el contenido completo.
-- Si el usuario está autenticado pero no tiene una suscripción activa y vigente que habilite su correo normalizado, debe mostrarse una pantalla de acceso restringido.
+- Si un `SUSCRIPTOR` está autenticado pero no tiene una suscripción activa y vigente que habilite su correo normalizado, debe mostrarse una pantalla de acceso restringido (los usuarios internos no están sujetos a esta condición; ver sección 6).
 
 ### Algolia como índice derivado
 
@@ -486,10 +486,9 @@ Todavía no existen en el modelo:
 | Suscripciones | `docs/reglas-negocio.md` | `packages/dominio/src/suscripciones/__tests__/Suscripcion.test.ts` | `packages/dominio/src/suscripciones/entidades/Suscripcion.ts` |
 | Normas | `docs/reglas-negocio.md` | `packages/dominio/src/normas/__tests__/Norma.test.ts` | `packages/dominio/src/normas/entidades/Norma.ts` |
 | Acceso a normas (vigente) | `docs/reglas-negocio.md` | `packages/dominio/src/normas/__tests__/PoliticaAccesoContenidoNorma.test.ts` | `packages/dominio/src/normas/politicas/PoliticaAccesoContenidoNorma.ts` |
-| Acceso a normas (heredado) | `docs/reglas-negocio.md` | `packages/dominio/src/normas/__tests__/PoliticaAccesoNormaSuscriptor.test.ts` | `packages/dominio/src/normas/politicas/PoliticaAccesoNormaSuscriptor.ts` |
 | Validaciones compartidas | `docs/reglas-negocio.md` | `packages/dominio/src/compartido/validaciones/__tests__/texto.test.ts` | `packages/dominio/src/compartido/validaciones/texto.ts` |
 
-Nota: `PoliticaAccesoServicio` y `PoliticaAccesoContenidoNorma` representan la regla vigente. `PoliticaAccesoNormaSuscriptor` se conserva como política heredada (`@deprecated`) y restringida al flujo contractual de `SUSCRIPTOR`. Los usuarios internos no requieren suscripción; `SUSCRIPTOR` requiere correo habilitado en una cuenta con suscripción activa y vigente.
+Nota: `PoliticaAccesoServicio` y `PoliticaAccesoContenidoNorma` representan la regla vigente. Los usuarios internos no requieren suscripción; `SUSCRIPTOR` requiere correo habilitado en una cuenta con suscripción activa y vigente.
 
 ## 12. Procedimiento para cambiar una regla
 

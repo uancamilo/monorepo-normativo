@@ -23,7 +23,6 @@ import { RepositorioEdicionesRegistroOficialPrisma } from '../RepositorioEdicion
 import { RepositorioIngestaRegistroOficialPrisma } from '../RepositorioIngestaRegistroOficialPrisma';
 import { RepositorioSuscripcionesPrisma } from '../RepositorioSuscripcionesPrisma';
 import { GeneradorIdsUuid } from '../GeneradorIdsUuid';
-import { PublicadorEventosNormasPrisma } from '../PublicadorEventosNormasPrisma';
 import { UnidadDeTrabajoPublicacionNormaPrisma } from '../UnidadDeTrabajoPublicacionNormaPrisma';
 import { obtenerTestDatabaseUrlDesdeEntorno } from '../../prisma/validar-url-base-datos-test';
 
@@ -208,7 +207,6 @@ describirPrisma(
     it('RepositorioNormasPrisma guarda BORRADOR con contenido vacío, busca y actualiza a PUBLICADA', async () => {
       const repositorio = new RepositorioNormasPrisma(prisma);
       const fechaExpedicion = new Date('2025-01-01T00:00:00.000Z');
-      const fechaPublicacionOficial = new Date('2025-01-02T00:00:00.000Z');
       const fechaPublicacionEnSistema = new Date('2025-06-01T00:00:00.000Z');
       const norma = new Norma({
         id: 'norma-1',
@@ -351,27 +349,6 @@ describirPrisma(
           },
         }),
       ).rejects.toThrow();
-    });
-
-    it('PublicadorEventosNormasPrisma persiste evento sin llamar servicios externos', async () => {
-      const repositorio = new RepositorioNormasPrisma(prisma);
-      await repositorio.guardar(crearNormaBorrador('norma-1'));
-      const publicador = new PublicadorEventosNormasPrisma(prisma);
-      const fechaPublicacionEnSistema = new Date('2025-06-01T00:00:00.000Z');
-
-      await publicador.publicarNormaPublicada({
-        normaId: 'norma-1',
-        fechaPublicacionEnSistema,
-        tieneContenidoCompleto: true,
-      });
-
-      const eventos = await prisma.eventoNormaPublicada.findMany();
-      expect(eventos).toHaveLength(1);
-      expect(eventos[0].normaId).toBe('norma-1');
-      expect(eventos[0].fechaPublicacionEnSistema).toEqual(
-        fechaPublicacionEnSistema,
-      );
-      expect(eventos[0].tieneContenidoCompleto).toBe(true);
     });
 
     it('UnidadDeTrabajoPublicacionNormaPrisma guarda norma PUBLICADA y evento en una transacción', async () => {

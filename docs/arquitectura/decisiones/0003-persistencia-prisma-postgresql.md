@@ -86,7 +86,10 @@ Para mantener el hito pequeño en Fase 3B se adopta una tabla simple:
 
 - `eventos_normas_publicadas`.
 
-`PublicadorEventosNormasPrisma` guardaba ahí el evento emitido por `PublicarNorma`. No llama Algolia, no usa colas y no implementa worker.
+En Fase 3B, `PublicadorEventosNormasPrisma` guardaba ahí el evento emitido por
+`PublicarNorma`. El adaptador independiente fue retirado al quedar sustituido
+por la unidad de trabajo transaccional descrita a continuación. La escritura
+vigente no llama Algolia, no usa colas y no implementa worker.
 
 En Fase 3D, `PublicarNorma` deja de coordinar dos escrituras independientes y delega la persistencia crítica al puerto `UnidadDeTrabajoPublicacionNorma`. La implementación Prisma usa `prisma.$transaction` para:
 

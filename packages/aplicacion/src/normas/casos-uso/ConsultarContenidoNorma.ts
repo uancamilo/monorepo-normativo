@@ -105,20 +105,42 @@ export class ConsultarContenidoNorma {
       return { exitoso: false, razon: 'USUARIO_NO_ENCONTRADO' };
     }
 
-    const norma = await this.repositorioNormas.buscarPorId(solicitud.normaId);
-    if (norma === null) {
-      return { exitoso: false, razon: 'NORMA_NO_ENCONTRADA' };
-    }
-
+    // Frontera de acceso al servicio, resuelta ANTES de tocar el repositorio
+    // de Normas: un SUSCRIPTOR sin acceso contractual (sin suscripción,
+    // inactiva, no vigente, vencida o con correo no habilitado) no debe
+    // poder distinguir —por la razón devuelta ni por el repositorio
+    // consultado— si el normaId que pidió corresponde a una norma real o no.
+    // Los usuarios internos no requieren suscripción y no consultan ese
+    // repositorio (PoliticaAccesoServicio.puedeAcceder les concede acceso de
+    // inmediato).
     let suscripcion = null;
     if (this.politicaAccesoServicio.requiereSuscripcion(usuario)) {
       suscripcion =
         await this.repositorioSuscripciones.buscarPorCorreoHabilitado(
           usuario.obtenerCorreo(),
         );
-      if (suscripcion === null) {
-        return { exitoso: false, razon: 'SUSCRIPCION_NO_ENCONTRADA' };
-      }
+    }
+    const tieneAccesoAlServicio = this.politicaAccesoServicio.puedeAcceder({
+      usuario,
+      suscripcion,
+      fechaReferencia: solicitud.fechaReferencia,
+    });
+    if (!tieneAccesoAlServicio) {
+      return {
+        exitoso: false,
+        razon:
+          suscripcion === null
+            ? 'SUSCRIPCION_NO_ENCONTRADA'
+            : 'ACCESO_DENEGADO',
+      };
+    }
+
+    // Solo tras superar esa frontera se consulta la Norma: un id inexistente
+    // ahora es indistinguible, para un actor sin acceso, de cualquier otro
+    // motivo de denegación (ya no llega a este punto).
+    const norma = await this.repositorioNormas.buscarPorId(solicitud.normaId);
+    if (norma === null) {
+      return { exitoso: false, razon: 'NORMA_NO_ENCONTRADA' };
     }
 
     const permitido = this.politicaAcceso.puedeAcceder({

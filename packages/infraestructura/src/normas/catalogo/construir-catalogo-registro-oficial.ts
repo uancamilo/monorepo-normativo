@@ -21,5 +21,6 @@ export function construirCatalogoRegistroOficial(
     dominiosPdfPermitidos: configuracion.dominiosPdfPermitidos,
     timeoutMs: configuracion.timeoutMs,
     maxBytesRespuesta: MAX_BYTES_RESPUESTA_CATALOGO,
+    aniosExtra: configuracion.aniosExtra,
   });
 }

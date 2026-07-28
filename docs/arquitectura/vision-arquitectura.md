@@ -49,7 +49,6 @@ Contiene entidades, enums y políticas de negocio organizados por módulo funcio
 - `EdicionRegistroOficial.fechaPublicacionOficial` se modela como fecha calendario: contrato `YYYY-MM-DD`, representación canónica a medianoche UTC en las capas puras y columna PostgreSQL `DATE`. No admite hora ni zona horaria, lo que preserva la unicidad de la triple de edición.
 - `SUSCRIPTOR` no modifica normas. `EDITOR` y `SUPERADMINISTRADOR` pueden modificar contenido y metadata, pero no inventar reforma o derogatoria sin sustento jurídico.
 - La política canónica actual para decidir el acceso al contenido completo de una norma es `PoliticaAccesoContenidoNorma`.
-- `PoliticaAccesoNormaSuscriptor` queda como política heredada (`@deprecated`) que conserva la semántica basada en el rol global `SUSCRIPTOR`; debe usarse solo para compatibilidad y delega en `PoliticaAccesoContenidoNorma`.
 - Una norma puede pasar a `PUBLICADA` con metadata aprobada aunque todavía no tenga contenido completo. `Norma` permite `contenido` libre sin validar no vacío para soportar el poblamiento inicial descrito en la sección de pipeline de ingesta normativa.
 
 Estructura:
@@ -74,12 +73,10 @@ src/
     ├── enums/EstadoNorma.ts
     ├── enums/EstadoEditorialNorma.ts
     ├── politicas/
-    │   ├── PoliticaAccesoContenidoNorma.ts
-    │   └── PoliticaAccesoNormaSuscriptor.ts
+    │   └── PoliticaAccesoContenidoNorma.ts
     └── __tests__/
         ├── Norma.test.ts
-        ├── PoliticaAccesoContenidoNorma.test.ts
-        └── PoliticaAccesoNormaSuscriptor.test.ts
+        └── PoliticaAccesoContenidoNorma.test.ts
 ```
 
 ### Aplicación (`packages/aplicacion`)

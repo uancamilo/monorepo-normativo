@@ -7,7 +7,6 @@ import {
   RepositorioIngestaRegistroOficial,
   ResultadoGuardarIngesta,
 } from '@normativo/aplicacion';
-import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { mapearNormaADataPrisma } from './mapeadores/mapearNorma';
 import { mapearEdicionRegistroOficialADataPrisma } from './mapeadores/mapearEdicionRegistroOficial';

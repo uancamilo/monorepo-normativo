@@ -144,7 +144,10 @@ carpeta-mes y filtrar por número.
   `CATALOGO_REGISTRO_OFICIAL_HABILITADO`, `_BASE_URL`, `_DOMINIOS_PDF`
   (allowlist; por defecto el host real verificado de los PDFs,
   `esacc.corteconstitucional.gob.ec` — ver "Verificación contra el sitio
-  real"), `_TIMEOUT_MS`, `_MAX_CONCURRENCIA`, `_MAX_EDICIONES_POR_EJECUCION`.
+  real"), `_TIMEOUT_MS`, `_MAX_CONCURRENCIA`, `_MAX_EDICIONES_POR_EJECUCION`,
+  `_ANIOS_EXTRA` (parche operativo de la taxonomía de años, formato
+  `"anio:idDelSitio"` separado por comas; nunca sobrescribe un año ya
+  verificado en el código — ver "Cobertura de la taxonomía de años").
 
 - **Seguridad (SSRF).** La URL base proviene solo de configuración, nunca del
   request. Solo HTTPS (http exclusivamente en localhost, para pruebas). Timeout
@@ -197,6 +200,45 @@ suposición errada de la primera versión de esta ADR:
   tiempo. Si caducaran, las fuentes `RESUELTA` podrían romperse y habría que
   re-resolver o corregir manualmente; se aceptó como riesgo operativo
   observable antes de diseñar una mitigación.
+
+## Cobertura de la taxonomía de años
+
+`YEAR_ID_POR_ANIO` cubre 2001–2026: son IDs verificados del sitio, no una
+fórmula (el WordPress del Registro Oficial se los asigna por orden de
+creación de cada carpeta-año). Un año fuera de rango no es un error: es
+incertidumbre real, y `ubicarCarpetaRegistroOficial` devuelve `null` ->
+`COBERTURA_CATALOGO_NO_DISPONIBLE`, dejando la edición `PENDIENTE` (fail-
+closed, igual que cualquier otra incertidumbre de esta ADR).
+
+Dos mecanismos evitan que ese límite se convierta en un vacío operativo
+silencioso:
+
+- **Extensión por configuración (`CATALOGO_REGISTRO_OFICIAL_ANIOS_EXTRA`,
+  formato `"anio:idDelSitio"` separado por comas).** Cuando el sitio crea la
+  carpeta de un año nuevo, su ID solo se conoce viendo el sitio real en ese
+  momento; exigir un redespliegue de código para poder resolverlo sería
+  operativamente lento. La variable permite declarar ese ID como parche de
+  urgencia sin tocar código. La taxonomía verificada en código **siempre
+  gana** sobre `aniosExtra` para el mismo año: una variable mal puesta jamás
+  sobrescribe un dato ya verificado, solo puede llenar un vacío. Es un parche
+  temporal, no un reemplazo de consolidar el año en `YEAR_ID_POR_ANIO` con
+  calma.
+- **Alarma dura en CI (`registro-oficial-taxonomias.test.ts`), independiente
+  de `_ANIOS_EXTRA`.** Desde noviembre de cada año, un test falla si
+  `YEAR_ID_POR_ANIO` no cubre también el año siguiente. La prueba inspecciona
+  exclusivamente `YEAR_ID_POR_ANIO`: `_ANIOS_EXTRA` puede mantener el
+  servicio operativo ante una urgencia, pero **no satisface, silencia ni
+  reemplaza** esta alarma, porque la variable de entorno nunca modifica
+  `YEAR_ID_POR_ANIO`. La alarma se considera resuelta únicamente cuando el
+  año y su ID oficial verificado se incorporan a `YEAR_ID_POR_ANIO`; si
+  `_ANIOS_EXTRA` se activó para cubrir la urgencia, la deuda de consolidación
+  sigue abierta hasta ese momento. Esta exigencia mantiene la taxonomía
+  auditable, versionada y reproducible: el parche de entorno resuelve la
+  continuidad operativa inmediata, pero nunca se acepta como cierre
+  permanente de esa deuda. Antes de noviembre solo se exige cubrir el año en
+  curso: el sitio oficial recién crea la carpeta del año siguiente cerca de
+  su propio inicio, así que una alarma activa todo el año generaría ruido
+  sin dar tiempo útil de reacción.
 
 ## Consecuencias
 
