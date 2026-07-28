@@ -73,6 +73,7 @@ Cada fase cierra con un commit y un tag anotado (`git tag -n`):
 - Fase 4G: gestión mínima de usuarios internos (`POST /usuarios/sistema`, solo SUPERADMINISTRADOR; roles EDITOR/ADMINISTRADOR).
 - Fase 4H: unicidad concurrente endurecida en la creación de usuarios internos.
 - Fase 5A: ingesta por lote del Registro Oficial en borradores (`POST /ingesta/registro-oficial/resumenes` y consulta de lotes, solo SUPERADMINISTRADOR) y flujo editorial sobre `/normas` (lista/detalle/corrección/publicación múltiple de borradores para EDITOR y SUPERADMINISTRADOR).
+- Fase 5B: resolución controlada de fuentes contra el catálogo oficial del Registro Oficial (`POST /ediciones-registro-oficial/resolver-pendientes`, solo SUPERADMINISTRADOR): adaptador HTTP real deshabilitable, resultado discriminado del puerto, procesamiento acotado y seguridad SSRF (ADR 0009).
 
 ## Autenticación
 
@@ -143,12 +144,53 @@ del dominio. El header `x-usuario-id` quedó eliminado como mecanismo de identid
   `institucionExpide`, `estadoJuridico` y una `EdicionRegistroOficial`
   asociada cuya fuente esté disponible con resolución `RESUELTA` o `MANUAL`.
   `numero`, `fechaExpedicion` y `contenido` no son obligatorios para publicar.
-- **Resolución automática de fuente no configurada**: el catálogo interno de
-  `EdicionRegistroOficial` y la corrección manual están disponibles, pero no
-  existe todavía integración con un catálogo oficial externo.
-  `POST /ediciones-registro-oficial/resolver-pendientes` responde
-  `503 CATALOGO_NO_DISPONIBLE` al SUPERADMINISTRADOR sin modificar las
-  ediciones `PENDIENTE`; ningún módulo ejecutable genera URLs sintéticas.
+- **Resolución controlada de fuente** (Fase 5B; solo SUPERADMINISTRADOR):
+  `POST /ediciones-registro-oficial/resolver-pendientes` resuelve `urlPdf`
+  consultando el catálogo oficial del Registro Oficial (WordPress `admin-ajax`
+  por carpeta-mes) por tipo + número + fecha detectada. Cada edición
+  `PENDIENTE` sin URL se marca `RESUELTA` (coincidencia única y compatible),
+  `NO_ENCONTRADA` (consulta exitosa sin coincidencias) o `CONFLICTIVA` (varias
+  candidatas o fecha discrepante; nunca se elige arbitrariamente). Un fallo
+  del catálogo **no** cambia la edición, nunca se confunde con `NO_ENCONTRADA`
+  y conserva su clasificación real de extremo a extremo
+  (`CATALOGO_TEMPORALMENTE_NO_DISPONIBLE`, `RESPUESTA_CATALOGO_INVALIDA`,
+  `COBERTURA_CATALOGO_NO_DISPONIBLE` o `BUSQUEDA_CATALOGO_INCOMPLETA`): no
+  todos los fallos son transitorios, pero todos dejan la edición `PENDIENTE`.
+  Semántica **fail-closed**:
+  `NO_ENCONTRADA` es ausencia real; toda incertidumbre (taxonomía no cubierta,
+  HTML inesperado/mantenimiento, paginación truncada, URL coincidente inválida,
+  fecha imposible) conserva la edición `PENDIENTE`. Solo procesa ediciones
+  `PENDIENTE`: nunca sobrescribe `MANUAL` ni `RESUELTA`, y `NO_ENCONTRADA` o
+  `CONFLICTIVA` son terminales para la resolución automática (reprocesarlas
+  requerirá una futura operación explícita de reapertura; hoy la vía es la
+  corrección manual). Usa compare-and-set (solo escribe si sigue `PENDIENTE`
+  sin URL) y la fecha oficial detectada jamás se reemplaza. El cuerpo es
+  opcional y acotado (`edicionIds` o `limite`, mutuamente excluyentes —
+  enviar ambos → 400 —, propiedades adicionales → 400); la
+  respuesta resume `procesadas/resueltas/noEncontradas/conflictivas/omitidas/erroresCatalogo/erroresPorRazon`.
+  `erroresPorRazon` incluye siempre las cuatro razones del catálogo (aunque
+  valgan cero) y `erroresCatalogo` es exactamente su suma; no existe un
+  contador genérico `erroresTransitorios`.
+  El proceso está acotado por lote (máximo seguro configurable) y con
+  paralelismo limitado; no hay worker, cola ni background todavía. El adaptador
+  deduplica y cachea localmente cada carpeta-mes (TTL corto, acotada, sin Redis)
+  para no repetir la paginación por edición; `timeoutMs` es el presupuesto total
+  de la carpeta-mes (incluida la lectura completa de cada body, no por página) y
+  los reintentos son acotados (máx. 3/página, backoff local acotado; un
+  `Retry-After` válido se respeta completo y, si no cabe en el presupuesto, no
+  se reintenta). Límites máximos: timeout ≤ 30000 ms,
+  concurrencia ≤ 4, ediciones/ejecución ≤ 50 (fuera de rango ⇒ fail-fast).
+  La integración está **deshabilitada por defecto**: sin
+  `CATALOGO_REGISTRO_OFICIAL_HABILITADO=true` + `..._BASE_URL`, el endpoint
+  responde `503 CATALOGO_NO_DISPONIBLE` sin tocar ediciones. Deshabilitada,
+  las demás variables `CATALOGO_REGISTRO_OFICIAL_*` residuales se ignoran
+  (aunque sean inválidas) y la configuración vuelve con defaults seguros y
+  deterministas; solo un valor no booleano de `..._HABILITADO` impide el
+  arranque. Habilitada pero mal configurada, el arranque falla (fail-fast). Seguridad SSRF: la URL base
+  sale solo de configuración (nunca del request), solo HTTPS (http únicamente
+  en localhost), timeout y tamaño de respuesta acotados, redirects no seguidos
+  a ciegas y allowlist de dominio para las URLs PDF. Variables en
+  `packages/infraestructura/.env.example`. Ver ADR 0009.
 - **Bootstrap operativo del SUPERADMINISTRADOR** (el seed es solo
   desarrollo/test): `npm run bootstrap:superadmin --workspace=@normativo/infraestructura`
   con `PERMITIR_BOOTSTRAP_SUPERADMIN=true`, `DATABASE_URL`,

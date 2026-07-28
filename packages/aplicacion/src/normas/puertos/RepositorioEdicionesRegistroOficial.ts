@@ -31,6 +31,15 @@ export interface RepositorioEdicionesRegistroOficial {
     estados: EstadoResolucionFuente[],
   ): Promise<EdicionRegistroOficial[]>;
   /**
+   * Devuelve como máximo `limite` ediciones aún PENDIENTE y sin `urlPdf`,
+   * candidatas a resolución automática, en un orden determinista y estable
+   * (fecha oficial ascendente, luego id). Acota el trabajo de la resolución:
+   * nunca carga todas las pendientes cuando pueden ser miles.
+   */
+  listarPendientesSinFuente(
+    limite: number,
+  ): Promise<EdicionRegistroOficial[]>;
+  /**
    * Intenta crear y deja que la restricción UNIQUE de la clave lógica decida
    * carreras. Si otra operación ganó, recupera esa edición sin sobrescribirla.
    */

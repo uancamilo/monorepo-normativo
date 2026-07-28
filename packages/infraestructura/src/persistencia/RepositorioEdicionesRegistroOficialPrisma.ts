@@ -85,6 +85,23 @@ export class RepositorioEdicionesRegistroOficialPrisma
     return ediciones.map(mapearEdicionRegistroOficialDesdePrisma);
   }
 
+  async listarPendientesSinFuente(
+    limite: number,
+  ): Promise<EdicionRegistroOficial[]> {
+    if (limite <= 0) {
+      return [];
+    }
+    const ediciones = await this.prisma.edicionRegistroOficial.findMany({
+      where: {
+        estadoResolucionFuente: EstadoResolucionFuentePrisma.PENDIENTE,
+        urlPdf: null,
+      },
+      orderBy: [{ fechaPublicacionOficial: 'asc' }, { id: 'asc' }],
+      take: limite,
+    });
+    return ediciones.map(mapearEdicionRegistroOficialDesdePrisma);
+  }
+
   async crearORecuperar(
     edicion: EdicionRegistroOficial,
   ): Promise<ResultadoCrearORecuperarEdicionRegistroOficial> {

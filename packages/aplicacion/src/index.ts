@@ -16,6 +16,8 @@ export type {
   CatalogoRegistroOficial,
   ConsultaCatalogoRegistroOficial,
   EdicionCatalogoRegistroOficial,
+  RazonConsultaCatalogoFallida,
+  ResultadoConsultaCatalogoRegistroOficial,
 } from './normas/puertos/CatalogoRegistroOficial';
 export type { RepositorioSuscripciones } from './normas/puertos/RepositorioSuscripciones';
 export type {
@@ -212,7 +214,11 @@ export type {
   SolicitudConsultarLotesIngestaRegistroOficial,
 } from './ingesta/casos-uso/ConsultarLotesIngestaRegistroOficial';
 
-export { ResolverFuenteRegistroOficial } from './ingesta/casos-uso/ResolverFuenteRegistroOficial';
+export {
+  CONCURRENCIA_PREDETERMINADA_RESOLUCION,
+  LIMITE_PREDETERMINADO_EDICIONES_RESOLUCION,
+  ResolverFuenteRegistroOficial,
+} from './ingesta/casos-uso/ResolverFuenteRegistroOficial';
 export type {
   DependenciasResolverFuenteRegistroOficial,
   RazonResolverFuenteFallido,

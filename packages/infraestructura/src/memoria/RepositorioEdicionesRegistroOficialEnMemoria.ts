@@ -54,6 +54,26 @@ export class RepositorioEdicionesRegistroOficialEnMemoria
     );
   }
 
+  async listarPendientesSinFuente(
+    limite: number,
+  ): Promise<EdicionRegistroOficial[]> {
+    return [...this.edicionesPorId.values()]
+      .filter(
+        (edicion) =>
+          edicion.estadoResolucionFuente ===
+            EstadoResolucionFuente.PENDIENTE && edicion.urlPdf === null,
+      )
+      .sort((a, b) => {
+        const diferenciaFecha =
+          a.fechaPublicacionOficial.getTime() -
+          b.fechaPublicacionOficial.getTime();
+        return diferenciaFecha !== 0
+          ? diferenciaFecha
+          : a.id.localeCompare(b.id);
+      })
+      .slice(0, Math.max(0, limite));
+  }
+
   async crearORecuperar(
     edicion: EdicionRegistroOficial,
   ): Promise<ResultadoCrearORecuperarEdicionRegistroOficial> {

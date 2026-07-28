@@ -622,10 +622,11 @@ Los lotes y sus endpoints son control técnico del proceso de scraping (idempote
 - El contenido queda vacío: el enriquecimiento con texto completo y metadata jurídica adicional es de fases posteriores.
 - El editor rellena los campos faltantes desde el flujo editorial (`GET /normas?estadoEditorial=BORRADOR`, `GET /normas/:id`, `PATCH /normas/:id`) y publica cuando la norma cumple los obligatorios de publicación.
 - El catálogo interno de `EdicionRegistroOficial` no equivale a una integración
-  con el catálogo oficial externo. Mientras esa integración no esté
-  configurada, `POST /ediciones-registro-oficial/resolver-pendientes` responde
-  `503 CATALOGO_NO_DISPONIBLE` al `SUPERADMINISTRADOR` y no modifica ninguna
-  edición. En particular, no fabrica URLs y no convierte la ausencia de
+  con el catálogo oficial externo. La resolución automática de esa fuente se
+  documenta en la sección 15 (Fase 5B): mientras la integración no esté
+  habilitada y configurada, `POST /ediciones-registro-oficial/resolver-pendientes`
+  responde `503 CATALOGO_NO_DISPONIBLE` al `SUPERADMINISTRADOR` y no modifica
+  ninguna edición. En particular, no fabrica URLs y no convierte la ausencia de
   integración en `NO_ENCONTRADA`.
 
 ### Alcance de la detección
@@ -636,4 +637,87 @@ Los lotes y sus endpoints son control técnico del proceso de scraping (idempote
 
 ### Fuera de alcance (Fase 5A)
 
-Scraping real, parser PDF, descarga de índice, scraper WordPress/AJAX, integración con el catálogo oficial externo, resolución automática real de `fuente`, BullMQ/Redis, LLM, OCR, frontend, descarte, fusión, resolver duplicados, publicar automáticamente, roles dinámicos, gestión comercial y auditoría administrativa formal. El catálogo interno de `EdicionRegistroOficial`, la corrección editorial y la publicación (individual y múltiple) sí están implementados; la resolución automática permanece indisponible de forma explícita hasta incorporar un adaptador oficial.
+Scraping real, parser PDF, descarga de índice, scraper WordPress/AJAX, integración con el catálogo oficial externo, resolución automática real de `fuente`, BullMQ/Redis, LLM, OCR, frontend, descarte, fusión, resolver duplicados, publicar automáticamente, roles dinámicos, gestión comercial y auditoría administrativa formal. El catálogo interno de `EdicionRegistroOficial`, la corrección editorial y la publicación (individual y múltiple) sí están implementados. La resolución automática de la fuente contra el catálogo oficial se incorpora en la Fase 5B (sección 15).
+
+## 15. Resolución controlada de fuentes del Registro Oficial (Fase 5B)
+
+Esta sección documenta la resolución automática de `EdicionRegistroOficial.urlPdf` contra el catálogo oficial del Registro Oficial. Reemplaza el estado de la Fase 5A en que `resolver-pendientes` respondía siempre `503`. No implementa extracción de contenido del PDF, OCR, LLM, scraping del resumen mensual, worker, cola ni scheduler. Detalle arquitectónico en ADR 0009.
+
+### Endpoint y autorización
+
+- `POST /ediciones-registro-oficial/resolver-pendientes` (caso de uso `ResolverFuenteRegistroOficial`); exige Bearer.
+- Solo `SUPERADMINISTRADOR` puede ejecutarla. `EDITOR`, `ADMINISTRADOR`, `SUSCRIPTOR` y actores inexistentes reciben 403 genérico; sin token, 401.
+
+### Qué se procesa
+
+- Solo ediciones en estado `PENDIENTE` y con `urlPdf = null`. Los estados `MANUAL` y `RESUELTA` nunca se sobrescriben; `NO_ENCONTRADA` y `CONFLICTIVA` son terminales para la resolución automática y no se reprocesan ni se consultan contra el catálogo (reprocesarlas requerirá una futura operación explícita de reapertura/reencolado; hoy la vía para modificarlas es la corrección manual).
+- El cuerpo es opcional y estrictamente acotado: `edicionIds` (lista concreta) o `limite` (tope del lote de pendientes), mutuamente excluyentes — enviar ambos responde `SOLICITUD_INVALIDA` (400). Se rechazan propiedades adicionales (400) e ids duplicados o listas por encima del máximo seguro (`SOLICITUD_INVALIDA`, 400).
+- El proceso está acotado: sin `edicionIds` se toma un lote determinista (fecha oficial ascendente, luego id) de a lo sumo `CATALOGO_REGISTRO_OFICIAL_MAX_EDICIONES_POR_EJECUCION` pendientes; nunca se cargan todas. El `limite` de la solicitud nunca supera ese máximo. El paralelismo interno está limitado (`CATALOGO_REGISTRO_OFICIAL_MAX_CONCURRENCIA`); no hay background, cola ni worker.
+
+### Resultados por edición
+
+- Coincidencia oficial única y compatible (misma fecha, o el catálogo no informa fecha): `RESUELTA` con `urlPdf`.
+- Consulta oficial exitosa sin coincidencias: `NO_ENCONTRADA`, sin URL.
+- Varias candidatas válidas, o coincidencia única con fecha discrepante: `CONFLICTIVA`, sin URL. Nunca se elige una URL arbitrariamente.
+- Fallo del catálogo: **no** se cambia el estado persistido de la edición (permanece `PENDIENTE`) y el resultado conserva la razón exacta entregada por el puerto — `CATALOGO_TEMPORALMENTE_NO_DISPONIBLE` (red, timeout, HTTP 5xx), `RESPUESTA_CATALOGO_INVALIDA` (cuerpo no interpretable/confiable), `COBERTURA_CATALOGO_NO_DISPONIBLE` (taxonomía no cubierta) o `BUSQUEDA_CATALOGO_INCOMPLETA` (paginación truncada). Ningún fallo del catálogo equivale a `NO_ENCONTRADA` y no todos son transitorios: los estructurales y de cobertura se clasifican como tales.
+- La fecha oficial detectada durante la ingesta jamás se reemplaza: solo sirve para ubicar la carpeta-mes del catálogo y como criterio de confianza al desempatar.
+- Persistencia con compare-and-set: una resolución solo se guarda si la edición sigue `PENDIENTE` y sin URL; una corrección `MANUAL` o una resolución concurrente ganan la carrera y la resolución obsoleta se omite.
+
+### Semántica fail-closed: ausencia real vs. resultado no confiable
+
+`NO_ENCONTRADA` afirma que la edición **no existe** en el catálogo oficial. Solo se persiste cuando la consulta fue plenamente confiable: taxonomía cubierta, respuesta con estructura válida, paginación recorrida por completo y ninguna coincidencia descartada por datos o URLs inválidas. Cualquier incertidumbre deja la edición `PENDIENTE` y se reporta con su razón discriminada del catálogo, nunca como `NO_ENCONTRADA`:
+
+- **Taxonomía no cubierta** (tipo o período fuera del rango soportado, incluidos años posteriores a 2026): no puede afirmarse que la edición no exista. La edición permanece `PENDIENTE`.
+- **HTML inesperado o de mantenimiento** (respuesta 200 sin estructura reconocible de *cards* ni el marcador oficial de carpeta vacía): respuesta no confiable; la edición permanece `PENDIENTE`. No basta con que el texto contenga `<`.
+- **Paginación truncada**: si la respuesta anuncia más páginas y no se completó el recorrido por alcanzar el tope de páginas, la búsqueda es incompleta; la edición permanece `PENDIENTE` y no se usa ninguna candidata parcial.
+- **URL coincidente inválida o ausente** (una *card* que coincide en tipo y número pero sin enlace PDF, con URL vacía, malformada, no HTTPS o fuera de la allowlist): respuesta no confiable; no se descarta silenciosamente para concluir "sin resultados". La edición permanece `PENDIENTE`. Una *card* inválida que demostrablemente pertenece a **otro** número o tipo no impide resolver una edición distinta con *card* válida.
+- **Card ambigua** (una *card* reconocible cuyo número o tipo no puede determinarse): no puede descartarse que corresponda a la edición consultada; fail-closed, la edición permanece `PENDIENTE`.
+- **Fecha imposible** en una *card* coincidente (p. ej. 31 de febrero): no permite una resolución confiable; la edición permanece `PENDIENTE`. Las fechas se validan por *round-trip* y no se normalizan.
+- Una carpeta explícitamente vacía (marcador oficial) o *cards* válidas sin coincidencia de número **sí** son ausencia real → `NO_ENCONTRADA`.
+
+### Respuesta
+
+- Resumen operativo: `procesadas`, `resueltas`, `noEncontradas`, `conflictivas`, `omitidas` (fuente ya establecida o edición inexistente), `erroresCatalogo` y `erroresPorRazon`. Los fallos del catálogo nunca se ocultan como `NO_ENCONTRADA` ni bajo un genérico "transitorio": `erroresPorRazon` contiene **siempre** las cuatro claves (`CATALOGO_TEMPORALMENTE_NO_DISPONIBLE`, `RESPUESTA_CATALOGO_INVALIDA`, `COBERTURA_CATALOGO_NO_DISPONIBLE`, `BUSQUEDA_CATALOGO_INCOMPLETA`), aunque valgan cero, y `erroresCatalogo` es exactamente su suma. No existe `erroresTransitorios`. Ejemplo:
+
+  ```json
+  {
+    "procesadas": 4,
+    "resueltas": 0,
+    "noEncontradas": 0,
+    "conflictivas": 0,
+    "omitidas": 0,
+    "erroresCatalogo": 4,
+    "erroresPorRazon": {
+      "CATALOGO_TEMPORALMENTE_NO_DISPONIBLE": 1,
+      "RESPUESTA_CATALOGO_INVALIDA": 1,
+      "COBERTURA_CATALOGO_NO_DISPONIBLE": 1,
+      "BUSQUEDA_CATALOGO_INCOMPLETA": 1
+    }
+  }
+  ```
+- Indisponibilidad general antes de procesar (integración deshabilitada o incompleta): HTTP 503 `CATALOGO_NO_DISPONIBLE`, ninguna edición modificada.
+
+### Integración y configuración
+
+- Deshabilitada por defecto: sin `CATALOGO_REGISTRO_OFICIAL_HABILITADO=true` y `CATALOGO_REGISTRO_OFICIAL_BASE_URL`, el endpoint responde 503 y no consulta nada.
+- Deshabilitada, las demás variables `CATALOGO_REGISTRO_OFICIAL_*` se ignoran por completo (una variable residual inválida no impide el arranque) y la configuración devuelve defaults seguros y deterministas. Solo un valor no booleano de `..._HABILITADO` sigue fallando explícitamente.
+- Habilitada pero mal configurada (base URL, allowlist, timeout, concurrencia o máximo de ediciones inválidos): el arranque falla (fail-fast), sin secretos en el mensaje.
+- **Límites máximos seguros** (config fuera de rango con la integración habilitada ⇒ fail-fast): `CATALOGO_REGISTRO_OFICIAL_TIMEOUT_MS` entre 1000 y 30000 (default 15000); `CATALOGO_REGISTRO_OFICIAL_MAX_CONCURRENCIA` entre 1 y 4 (default 4); `CATALOGO_REGISTRO_OFICIAL_MAX_EDICIONES_POR_EJECUCION` entre 1 y 50 (default 50). Ajustar un máximo exige una razón técnica documentada.
+- La publicación de normas sigue dependiendo exclusivamente de la edición principal publicable (`RESUELTA` o `MANUAL` con `urlPdf`); las ediciones de cambio no bloquean. Las normas asociadas proyectan la fuente de la edición compartida sin persistir una copia.
+
+### Trato respetuoso al sitio oficial
+
+- **Deduplicación por carpeta-mes**: el adaptador cachea localmente la descarga de cada carpeta-año-mes durante un TTL corto y comparte una sola descarga entre solicitudes concurrentes de la misma carpeta-mes. Resolver muchas ediciones del mismo mes no repite la paginación completa por edición. La caché es local al adaptador, acotada en número de entradas, sin Redis ni persistencia, y **no** cachea fallos (un fallo transitorio puede reintentarse de inmediato). La caché no cruza a la aplicación: el puerto sigue puro.
+- **Presupuesto total de tiempo**: `timeoutMs` limita la búsqueda completa de una carpeta-mes — conexión, espera de headers, lectura completa de cada body, paginación, reintentos y esperas de backoff comparten el plazo —, no cada página por separado. Un body que queda detenido se aborta al vencer el plazo. Al vencer, se devuelve un fallo transitorio y la edición permanece `PENDIENTE`.
+- **Reintentos acotados**: como máximo 3 intentos por página, solo ante fallos transitorios (red, timeout con presupuesto restante, HTTP 408/425/429/500/502/503/504). Un `Retry-After` válido (segundos o fecha HTTP) se respeta completo — nunca se recorta al backoff máximo local —; si no cabe en el presupuesto restante, no se espera parcialmente ni se reintenta (fallo transitorio, edición `PENDIENTE`); uno ya vencido equivale a reintento inmediato. El backoff local exponencial acotado aplica solo cuando no hay `Retry-After` válido. Los 4xx no transitorios no se reintentan. No hay circuit breaker, worker, cola ni Redis en esta fase.
+- Tests y CI **no** consultan el sitio oficial: el adaptador se ejercita contra un servidor HTTP local controlado (unitario, E2E memoria y E2E Prisma) y la colección Newman corre contra un fixture HTTP local (`packages/infraestructura/scripts/fixture-catalogo-registro-oficial.js`) que emula el contrato `admin-ajax` mínimo; la única petición contra el sitio real es manual y está deshabilitada por defecto.
+
+### Seguridad (SSRF)
+
+- La URL base del catálogo proviene solo de configuración; nunca se acepta un host recibido del cliente.
+- Solo HTTPS (http únicamente en localhost, para pruebas locales); timeout explícito, tamaño de respuesta acotado y validación del formato antes de parsear.
+- Los redirects no se siguen a ciegas (un 3xx se trata como respuesta inválida). Las URLs PDF devueltas se validan contra una allowlist de dominios y deben ser HTTPS; se deduplican únicamente URLs idénticas. No se registran cuerpos completos ni secretos. Ante cualquier fallo, no se fabrica ninguna URL.
+
+### Fuera de alcance (Fase 5B)
+
+Extracción del contenido completo del PDF, OCR, LLM, scraping del resumen mensual, descarga masiva, Redis/BullMQ, workers, scheduler, publicación automática, relaciones jurídicas Norma–Norma y los filtros/paginación generales del catálogo.

@@ -248,6 +248,44 @@ describe('ResolverFuenteRegistroOficial', () => {
       });
       const edicion = await repositorioEdiciones.buscarPorId('edicion-1');
       expect(edicion?.urlPdf).toBe(URL_PDF);
+      expect(catalogo.consultas).toHaveLength(0);
+    },
+  );
+
+  it.each([
+    EstadoResolucionFuente.NO_ENCONTRADA,
+    EstadoResolucionFuente.CONFLICTIVA,
+  ])(
+    'una petición explícita por id sobre una edición %s devuelve FUENTE_YA_ESTABLECIDA sin consultar el catálogo',
+    async (estadoResolucionFuente) => {
+      repositorioEdiciones.agregar(
+        crearEdicionRegistroOficial({ urlPdf: null, estadoResolucionFuente }),
+      );
+      catalogo.registrar(
+        { tipoPublicacionRegistroOficial: 'RO', numeroPublicacionRegistroOficial: 500 },
+        [{ urlPdf: URL_PDF, fechaPublicacionOficial: null }],
+      );
+
+      const resultado = await casoUso.ejecutar({
+        usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+        edicionIds: ['edicion-1'],
+      });
+
+      expect(resultado).toEqual({
+        exitoso: true,
+        resultados: [
+          {
+            edicionId: 'edicion-1',
+            procesada: false,
+            razon: 'FUENTE_YA_ESTABLECIDA',
+          },
+        ],
+      });
+      expect(catalogo.consultas).toHaveLength(0);
+      const edicion = await repositorioEdiciones.buscarPorId('edicion-1');
+      expect(edicion?.estadoResolucionFuente).toBe(estadoResolucionFuente);
+      expect(edicion?.urlPdf).toBeNull();
+      expect(repositorioEdiciones.guardadas).toHaveLength(0);
     },
   );
 
@@ -271,6 +309,7 @@ describe('ResolverFuenteRegistroOficial', () => {
   it('no reintenta por id una edición NO_ENCONTRADA porque solo PENDIENTE puede actualizarse', async () => {
     agregarEdicionPendiente();
     await casoUso.ejecutar({ usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR' });
+    const consultasTrasPrimeraPasada = catalogo.consultas.length;
     catalogo.registrar(
       { tipoPublicacionRegistroOficial: 'RO', numeroPublicacionRegistroOficial: 500 },
       [{ urlPdf: URL_PDF, fechaPublicacionOficial: null }],
@@ -291,6 +330,9 @@ describe('ResolverFuenteRegistroOficial', () => {
         },
       ],
     });
+    // El reintento ni siquiera consulta el catálogo: la edición terminal se
+    // omite antes de cualquier llamada externa.
+    expect(catalogo.consultas).toHaveLength(consultasTrasPrimeraPasada);
     const edicion = await repositorioEdiciones.buscarPorId('edicion-1');
     expect(edicion?.estadoResolucionFuente).toBe(
       EstadoResolucionFuente.NO_ENCONTRADA,
@@ -310,7 +352,10 @@ describe('ResolverFuenteRegistroOficial', () => {
     catalogo.buscarEdiciones = async () => {
       notificarConsulta();
       await continuarConsulta;
-      return [{ urlPdf: URL_PDF, fechaPublicacionOficial: null }];
+      return {
+        exitoso: true,
+        candidatas: [{ urlPdf: URL_PDF, fechaPublicacionOficial: null }],
+      };
     };
 
     const resolucion = casoUso.ejecutar({
@@ -355,7 +400,12 @@ describe('ResolverFuenteRegistroOficial', () => {
     catalogo.buscarEdiciones = async () => {
       notificarConsulta();
       await continuarConsulta;
-      return [{ urlPdf: `${URL_PDF}?perdedora`, fechaPublicacionOficial: null }];
+      return {
+        exitoso: true,
+        candidatas: [
+          { urlPdf: `${URL_PDF}?perdedora`, fechaPublicacionOficial: null },
+        ],
+      };
     };
 
     const resolucion = casoUso.ejecutar({
@@ -438,9 +488,260 @@ describe('ResolverFuenteRegistroOficial', () => {
         edicionIds: ['edicion-1', '  '],
       },
     ],
+    [
+      'ids duplicados (tras recorte)',
+      {
+        usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+        edicionIds: ['edicion-1', ' edicion-1 '],
+      },
+    ],
+    [
+      'límite no entero',
+      { usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR', limite: 1.5 },
+    ],
+    [
+      'límite cero',
+      { usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR', limite: 0 },
+    ],
   ])('devuelve SOLICITUD_INVALIDA con %s', async (_nombre, solicitud) => {
     const resultado = await casoUso.ejecutar(solicitud);
 
     expect(resultado).toEqual({ exitoso: false, razon: 'SOLICITUD_INVALIDA' });
+  });
+
+  it('edicionIds y limite simultáneos son SOLICITUD_INVALIDA sin consultar usuarios, catálogo ni ediciones', async () => {
+    agregarEdicionPendiente();
+    catalogo.registrar(
+      { tipoPublicacionRegistroOficial: 'RO', numeroPublicacionRegistroOficial: 500 },
+      [{ urlPdf: URL_PDF, fechaPublicacionOficial: null }],
+    );
+
+    const resultado = await casoUso.ejecutar({
+      usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+      edicionIds: ['edicion-1'],
+      limite: 1,
+    });
+
+    expect(resultado).toEqual({ exitoso: false, razon: 'SOLICITUD_INVALIDA' });
+    // La validación estructural ocurre antes de tocar cualquier dependencia.
+    expect(repositorioUsuarios.busquedas).toHaveLength(0);
+    expect(catalogo.consultas).toHaveLength(0);
+    expect(repositorioEdiciones.guardadas).toHaveLength(0);
+    const edicion = await repositorioEdiciones.buscarPorId('edicion-1');
+    expect(edicion?.estadoResolucionFuente).toBe(
+      EstadoResolucionFuente.PENDIENTE,
+    );
+    expect(edicion?.urlPdf).toBeNull();
+  });
+
+  it('un lote de ids que supera el máximo configurado es SOLICITUD_INVALIDA', async () => {
+    const acotado = new ResolverFuenteRegistroOficial({
+      repositorioUsuarios,
+      repositorioEdiciones,
+      catalogoRegistroOficial: catalogo,
+      limiteMaximoEdiciones: 2,
+    });
+
+    const resultado = await acotado.ejecutar({
+      usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+      edicionIds: ['a', 'b', 'c'],
+    });
+
+    expect(resultado).toEqual({ exitoso: false, razon: 'SOLICITUD_INVALIDA' });
+  });
+
+  describe('fallo técnico del catálogo', () => {
+    const RAZONES_CATALOGO = [
+      'CATALOGO_TEMPORALMENTE_NO_DISPONIBLE' as const,
+      'RESPUESTA_CATALOGO_INVALIDA' as const,
+      'COBERTURA_CATALOGO_NO_DISPONIBLE' as const,
+      'BUSQUEDA_CATALOGO_INCOMPLETA' as const,
+    ];
+
+    it.each(RAZONES_CATALOGO)(
+      '%s conserva su razón exacta sin cambiar la edición a NO_ENCONTRADA',
+      async (razon) => {
+        agregarEdicionPendiente();
+        catalogo.registrarFallo(
+          { tipoPublicacionRegistroOficial: 'RO', numeroPublicacionRegistroOficial: 500 },
+          razon,
+        );
+
+        const resultado = await casoUso.ejecutar({
+          usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+        });
+
+        expect(resultado).toEqual({
+          exitoso: true,
+          resultados: [
+            {
+              edicionId: 'edicion-1',
+              procesada: false,
+              razon,
+            },
+          ],
+        });
+        const edicion = await repositorioEdiciones.buscarPorId('edicion-1');
+        expect(edicion?.estadoResolucionFuente).toBe(
+          EstadoResolucionFuente.PENDIENTE,
+        );
+        expect(edicion?.urlPdf).toBeNull();
+        expect(repositorioEdiciones.guardadas).toHaveLength(0);
+      },
+    );
+
+    it('un lote con fallos distintos conserva cada razón, el orden determinista y sigue procesando el resto', async () => {
+      // Cinco pendientes: cuatro fallan con razones distintas y la última
+      // resuelve. El orden de pendientes es fecha oficial ascendente.
+      const numeros = [500, 501, 502, 503, 504];
+      for (const [indice, numero] of numeros.entries()) {
+        repositorioEdiciones.agregar(
+          crearEdicionRegistroOficial({
+            id: `edicion-${numero}`,
+            numeroPublicacionRegistroOficial: numero,
+            fechaPublicacionOficial: new Date(`2026-05-0${indice + 1}`),
+            urlPdf: null,
+            estadoResolucionFuente: EstadoResolucionFuente.PENDIENTE,
+          }),
+        );
+      }
+      for (const [indice, razon] of RAZONES_CATALOGO.entries()) {
+        catalogo.registrarFallo(
+          {
+            tipoPublicacionRegistroOficial: 'RO',
+            numeroPublicacionRegistroOficial: numeros[indice],
+          },
+          razon,
+        );
+      }
+      catalogo.registrar(
+        { tipoPublicacionRegistroOficial: 'RO', numeroPublicacionRegistroOficial: 504 },
+        [{ urlPdf: URL_PDF, fechaPublicacionOficial: new Date('2026-05-05') }],
+      );
+
+      const resultado = await casoUso.ejecutar({
+        usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+      });
+
+      expect(resultado).toEqual({
+        exitoso: true,
+        resultados: [
+          { edicionId: 'edicion-500', procesada: false, razon: RAZONES_CATALOGO[0] },
+          { edicionId: 'edicion-501', procesada: false, razon: RAZONES_CATALOGO[1] },
+          { edicionId: 'edicion-502', procesada: false, razon: RAZONES_CATALOGO[2] },
+          { edicionId: 'edicion-503', procesada: false, razon: RAZONES_CATALOGO[3] },
+          {
+            edicionId: 'edicion-504',
+            procesada: true,
+            estadoResolucionFuente: EstadoResolucionFuente.RESUELTA,
+            urlPdf: URL_PDF,
+          },
+        ],
+      });
+      for (const numero of [500, 501, 502, 503]) {
+        const edicion = await repositorioEdiciones.buscarPorId(
+          `edicion-${numero}`,
+        );
+        expect(edicion?.estadoResolucionFuente).toBe(
+          EstadoResolucionFuente.PENDIENTE,
+        );
+        expect(edicion?.urlPdf).toBeNull();
+      }
+    });
+  });
+
+  it('una edición PENDIENTE sí consulta el catálogo, con la fecha oficial detectada (para ubicar el año/mes)', async () => {
+    agregarEdicionPendiente();
+
+    await casoUso.ejecutar({ usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR' });
+
+    expect(catalogo.consultas).toEqual([
+      {
+        tipoPublicacionRegistroOficial: 'RO',
+        numeroPublicacionRegistroOficial: 500,
+        fechaPublicacionOficial: new Date('2026-05-02'),
+      },
+    ]);
+  });
+
+  it('acota el lote de pendientes al máximo configurado y respeta el orden determinista', async () => {
+    // Tres pendientes con fechas distintas; el orden es fecha ascendente.
+    repositorioEdiciones.agregar(
+      crearEdicionRegistroOficial({
+        id: 'edicion-b',
+        numeroPublicacionRegistroOficial: 502,
+        fechaPublicacionOficial: new Date('2026-05-03'),
+        urlPdf: null,
+        estadoResolucionFuente: EstadoResolucionFuente.PENDIENTE,
+      }),
+    );
+    repositorioEdiciones.agregar(
+      crearEdicionRegistroOficial({
+        id: 'edicion-a',
+        numeroPublicacionRegistroOficial: 501,
+        fechaPublicacionOficial: new Date('2026-05-01'),
+        urlPdf: null,
+        estadoResolucionFuente: EstadoResolucionFuente.PENDIENTE,
+      }),
+    );
+    repositorioEdiciones.agregar(
+      crearEdicionRegistroOficial({
+        id: 'edicion-c',
+        numeroPublicacionRegistroOficial: 503,
+        fechaPublicacionOficial: new Date('2026-05-05'),
+        urlPdf: null,
+        estadoResolucionFuente: EstadoResolucionFuente.PENDIENTE,
+      }),
+    );
+    const acotado = new ResolverFuenteRegistroOficial({
+      repositorioUsuarios,
+      repositorioEdiciones,
+      catalogoRegistroOficial: catalogo,
+      limiteMaximoEdiciones: 2,
+      maxConcurrencia: 1,
+    });
+
+    const resultado = await acotado.ejecutar({
+      usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+    });
+
+    if (!resultado.exitoso) {
+      throw new Error('esperaba éxito');
+    }
+    // Solo las 2 primeras por fecha ascendente: edicion-a (05-01), edicion-b (05-03).
+    expect(resultado.resultados.map((r) => r.edicionId)).toEqual([
+      'edicion-a',
+      'edicion-b',
+    ]);
+  });
+
+  it('el límite de la solicitud nunca supera el máximo configurado', async () => {
+    for (const [indice, fecha] of ['2026-05-01', '2026-05-02', '2026-05-03'].entries()) {
+      repositorioEdiciones.agregar(
+        crearEdicionRegistroOficial({
+          id: `edicion-${indice}`,
+          numeroPublicacionRegistroOficial: 600 + indice,
+          fechaPublicacionOficial: new Date(fecha),
+          urlPdf: null,
+          estadoResolucionFuente: EstadoResolucionFuente.PENDIENTE,
+        }),
+      );
+    }
+    const acotado = new ResolverFuenteRegistroOficial({
+      repositorioUsuarios,
+      repositorioEdiciones,
+      catalogoRegistroOficial: catalogo,
+      limiteMaximoEdiciones: 2,
+    });
+
+    const resultado = await acotado.ejecutar({
+      usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+      limite: 100,
+    });
+
+    if (!resultado.exitoso) {
+      throw new Error('esperaba éxito');
+    }
+    expect(resultado.resultados).toHaveLength(2);
   });
 });

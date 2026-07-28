@@ -236,12 +236,73 @@ local permitido, los tests fallan a propósito para no escribir en una base
 equivocada. Para escenarios excepcionales puede usarse
 `PERMITIR_TEST_DATABASE_URL_NO_LOCAL=true`, pero no debe ser el flujo normal.
 
+## 7. Flujo reproducible Prisma → Newman (Fase 5B)
+
+La colección `postman_fase_5b_resolucion_fuentes_registro_oficial.json` depende
+de los usuarios seed y de la contraseña de test `Password123!` (dato exclusivo
+de test, almacenado solo como hash). Sin un seed inmediatamente previo, los
+logins pueden responder 401 por el estado anterior de la base de test. El orden
+es determinista y obligatorio:
+
+```bash
+# 1. Tests Prisma (validan y migran normativo_test; dejan la base usada por tests)
+TEST_DATABASE_URL="postgresql://normativo:normativo@localhost:5433/normativo_test?schema=public" \
+  npm run test:prisma --workspace=@normativo/infraestructura
+
+# 2. Restablecer el seed INMEDIATAMENTE ANTES de levantar el backend
+TEST_DATABASE_URL="postgresql://normativo:normativo@localhost:5433/normativo_test?schema=public" \
+  npm run prisma:seed --workspace=@normativo/infraestructura
+
+# 3. Levantar el fixture local del catálogo (contrato admin-ajax mínimo;
+#    nunca se consulta el sitio oficial). Se detiene con Ctrl+C / SIGTERM.
+node packages/infraestructura/scripts/fixture-catalogo-registro-oficial.js &
+
+# 4. Levantar el backend Prisma con el catálogo habilitado contra el fixture
+PERSISTENCIA=prisma \
+DATABASE_URL="postgresql://normativo:normativo@localhost:5433/normativo_test?schema=public" \
+CATALOGO_REGISTRO_OFICIAL_HABILITADO=true \
+CATALOGO_REGISTRO_OFICIAL_BASE_URL=http://localhost:3999 \
+CATALOGO_REGISTRO_OFICIAL_DOMINIOS_PDF=cdn.oficial.test \
+  npm run start --workspace=@normativo/infraestructura &
+
+# 5. Ejecutar Newman (reportes fuera del repositorio)
+npx newman run postman_fase_5b_resolucion_fuentes_registro_oficial.json \
+  --reporters cli,json \
+  --reporter-json-export /tmp/resultados-postman-fase-5b.json
+
+# 6. Detener exactamente los procesos iniciados (backend y fixture)
+```
+
+Notas:
+
+- El seed **no** se ejecuta automáticamente ni desde el arranque del backend ni
+  en producción; es un paso explícito de test/desarrollo.
+- `DATABASE_URL` nunca sustituye silenciosamente a `TEST_DATABASE_URL` en los
+  scripts de test/seed (ver sección 4 y el runner de `test:prisma`).
+- El fixture escucha en `127.0.0.1` (puerto `3999` por defecto, configurable con
+  `FIXTURE_CATALOGO_PUERTO`), sirve cards válidas para mayo 2026 (RO 700) y una
+  página de mantenimiento para cualquier otro mes; no es un servidor
+  persistente: se inicia y se detiene explícitamente para la corrida.
+- Con el catálogo deshabilitado (backend sin las variables `CATALOGO_*`), la
+  colección puede ejecutarse poniendo la variable `catalogoHabilitadoLocal=false`
+  para volver a comprobar el 503 `CATALOGO_NO_DISPONIBLE`.
+
 ## Fuera de alcance (por ahora)
 
-- Autenticación real (JWT/Passport/guards/sesiones).
+Ya implementado (no confundir con pendientes): la autenticación mínima con
+Bearer JWT existe desde la Fase 4 (login, cambio de contraseña propia y
+guards), y desde la Fase 5B existe la resolución HTTP controlada de la fuente
+(`urlPdf`) contra el catálogo oficial del Registro Oficial. El backend todavía
+**no** ejecuta el extractor/scraping mensual que descubre las entradas del
+resumen: recibe la salida de un extractor externo (Fase 5A).
+
+Sigue fuera de alcance:
+
+- Automatización o scheduler del extractor mensual (el scraping del resumen no
+  corre en el backend).
+- Worker o procesamiento en background.
 - Redis y colas.
-- Scraping.
 - Algolia.
 - Frontend.
-- Outbox transaccional completo (la tabla `eventos_normas_publicadas` es solo
-  almacenamiento simple del evento).
+- Procesamiento externo de eventos/outbox (la tabla `eventos_normas_publicadas`
+  sigue siendo solo almacenamiento simple del evento).

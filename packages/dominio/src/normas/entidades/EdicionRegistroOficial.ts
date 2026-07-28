@@ -104,9 +104,14 @@ export class EdicionRegistroOficial {
     );
   }
 
-  /** La resolución automática nunca sobrescribe una fuente ya establecida. */
+  /**
+   * La resolución automática procesa exclusivamente ediciones PENDIENTE:
+   * NO_ENCONTRADA y CONFLICTIVA son terminales para ella (reprocesarlas
+   * exigirá una futura operación explícita de reapertura) y RESUELTA o MANUAL
+   * nunca se sobrescriben.
+   */
   admiteResolucionAutomatica(): boolean {
-    return !ESTADOS_CON_FUENTE.includes(this.estadoResolucionFuente);
+    return this.estadoResolucionFuente === EstadoResolucionFuente.PENDIENTE;
   }
 
   /** Coincidencia única y confiable en el catálogo del Registro Oficial. */
@@ -139,7 +144,7 @@ export class EdicionRegistroOficial {
   private asegurarResolucionAutomaticaPermitida(): void {
     if (!this.admiteResolucionAutomatica()) {
       throw new Error(
-        'La resolución automática no puede sobrescribir una fuente RESUELTA o MANUAL',
+        'La resolución automática solo está permitida para una edición PENDIENTE',
       );
     }
   }

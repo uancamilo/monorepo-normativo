@@ -7,6 +7,10 @@ import {
   ConfiguracionIngesta,
   obtenerConfiguracionIngesta,
 } from './ingesta';
+import {
+  ConfiguracionCatalogoRegistroOficial,
+  obtenerConfiguracionCatalogoRegistroOficial,
+} from './catalogo-registro-oficial';
 
 export const PUERTO_POR_DEFECTO = 3000;
 
@@ -15,6 +19,7 @@ export interface ConfiguracionArranque {
   puerto: number;
   jwt: ConfiguracionJwt;
   ingesta: ConfiguracionIngesta;
+  catalogoRegistroOficial: ConfiguracionCatalogoRegistroOficial;
 }
 
 /**
@@ -43,6 +48,8 @@ export function validarConfiguracionArranque(
     puerto: validarPuerto(entorno.PUERTO),
     jwt: obtenerConfiguracionJwt(entorno),
     ingesta: obtenerConfiguracionIngesta(entorno),
+    catalogoRegistroOficial:
+      obtenerConfiguracionCatalogoRegistroOficial(entorno),
   };
 }
 

@@ -5,6 +5,8 @@ import {
   CatalogoRegistroOficial,
   ConsultaCatalogoRegistroOficial,
   EdicionCatalogoRegistroOficial,
+  RazonConsultaCatalogoFallida,
+  ResultadoConsultaCatalogoRegistroOficial,
 } from '../../../normas/puertos/CatalogoRegistroOficial';
 import {
   IngestaRegistroOficialAPersistir,
@@ -22,12 +24,15 @@ import { RepositorioEdicionesRegistroOficialEnMemoriaFake } from '../../../norma
 
 export class RepositorioUsuariosFake implements RepositorioUsuarios {
   private readonly usuariosPorId = new Map<string, Usuario>();
+  /** Observabilidad de pruebas: ids consultados, en orden. */
+  readonly busquedas: string[] = [];
 
   agregar(usuario: Usuario): void {
     this.usuariosPorId.set(usuario.obtenerId(), usuario);
   }
 
   async buscarPorId(id: string): Promise<Usuario | null> {
+    this.busquedas.push(id);
     return this.usuariosPorId.get(id) ?? null;
   }
 }
@@ -182,29 +187,58 @@ export class RepositorioIngestaRegistroOficialFake
   }
 }
 
-/** Catálogo del Registro Oficial configurable por (tipo, número). */
+type ClaveCatalogoFake = {
+  tipoPublicacionRegistroOficial: string;
+  numeroPublicacionRegistroOficial: number;
+};
+
+/**
+ * Catálogo del Registro Oficial configurable por (tipo, número). Devuelve el
+ * resultado discriminado del puerto: candidatas en una consulta exitosa o una
+ * razón de fallo técnico registrada.
+ */
 export class CatalogoRegistroOficialFake implements CatalogoRegistroOficial {
-  private readonly edicionesPorClave = new Map<
+  /** Observabilidad de pruebas: cada consulta recibida, en orden. */
+  readonly consultas: ConsultaCatalogoRegistroOficial[] = [];
+  private readonly candidatasPorClave = new Map<
     string,
     EdicionCatalogoRegistroOficial[]
   >();
+  private readonly fallosPorClave = new Map<
+    string,
+    RazonConsultaCatalogoFallida
+  >();
 
   registrar(
-    consulta: ConsultaCatalogoRegistroOficial,
+    clave: ClaveCatalogoFake,
     ediciones: EdicionCatalogoRegistroOficial[],
   ): void {
-    this.edicionesPorClave.set(claveCatalogo(consulta), ediciones);
+    this.candidatasPorClave.set(claveCatalogo(clave), ediciones);
+  }
+
+  /** Registra un fallo técnico del catálogo para una (tipo, número). */
+  registrarFallo(
+    clave: ClaveCatalogoFake,
+    razon: RazonConsultaCatalogoFallida,
+  ): void {
+    this.fallosPorClave.set(claveCatalogo(clave), razon);
   }
 
   async buscarEdiciones(
     consulta: ConsultaCatalogoRegistroOficial,
-  ): Promise<EdicionCatalogoRegistroOficial[]> {
-    return this.edicionesPorClave.get(claveCatalogo(consulta)) ?? [];
+  ): Promise<ResultadoConsultaCatalogoRegistroOficial> {
+    this.consultas.push(consulta);
+    const clave = claveCatalogo(consulta);
+    const razon = this.fallosPorClave.get(clave);
+    if (razon !== undefined) {
+      return { exitoso: false, razon };
+    }
+    return { exitoso: true, candidatas: this.candidatasPorClave.get(clave) ?? [] };
   }
 }
 
-function claveCatalogo(consulta: ConsultaCatalogoRegistroOficial): string {
-  return `${consulta.tipoPublicacionRegistroOficial}||${consulta.numeroPublicacionRegistroOficial}`;
+function claveCatalogo(clave: ClaveCatalogoFake): string {
+  return `${clave.tipoPublicacionRegistroOficial}||${clave.numeroPublicacionRegistroOficial}`;
 }
 
 export function crearUsuarioConRol(rol: RolUsuario, id = `usuario-${rol}`): Usuario {

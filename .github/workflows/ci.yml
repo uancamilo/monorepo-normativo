@@ -29,7 +29,11 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Versión mínima soportada (engines.node): Prisma 7.8 exige
+          # ^20.19 || ^22.12 || >=24.0 y ese mínimo también satisface
+          # cheerio/undici; CI corre sobre el mínimo para detectar
+          # incompatibilidades.
+          node-version: '20.19.0'
           cache: npm
 
       - name: Instalar dependencias

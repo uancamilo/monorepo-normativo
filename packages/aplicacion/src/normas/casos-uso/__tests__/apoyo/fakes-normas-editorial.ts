@@ -232,6 +232,19 @@ export class RepositorioEdicionesRegistroOficialEnMemoriaFake
     );
   }
 
+  async listarPendientesSinFuente(
+    limite: number,
+  ): Promise<EdicionRegistroOficial[]> {
+    return [...this.edicionesPorId.values()]
+      .filter(
+        (edicion) =>
+          edicion.estadoResolucionFuente ===
+            EstadoResolucionFuente.PENDIENTE && edicion.urlPdf === null,
+      )
+      .sort(ordenarPendientes)
+      .slice(0, Math.max(0, limite));
+  }
+
   async crearORecuperar(
     edicion: EdicionRegistroOficial,
   ): Promise<ResultadoCrearORecuperarEdicionRegistroOficial> {
@@ -270,6 +283,16 @@ export class RepositorioEdicionesRegistroOficialEnMemoriaFake
     this.edicionesPorId.set(edicion.id, edicion);
     this.guardadas.push(edicion);
   }
+}
+
+/** Orden determinista y estable: fecha oficial ascendente, luego id. */
+function ordenarPendientes(
+  a: EdicionRegistroOficial,
+  b: EdicionRegistroOficial,
+): number {
+  const diferenciaFecha =
+    a.fechaPublicacionOficial.getTime() - b.fechaPublicacionOficial.getTime();
+  return diferenciaFecha !== 0 ? diferenciaFecha : a.id.localeCompare(b.id);
 }
 
 export class ConsultorOrigenRegistroOficialFake

@@ -1,0 +1,2941 @@
+{
+ "info": {
+  "_postman_id": "fase-5b-resolucion-fuentes-registro-oficial",
+  "name": "Fase 5B - Resolución controlada de fuentes del Registro Oficial",
+  "description": "Fase 5B: resolución automática y controlada de la fuente (urlPdf) de las\nediciones del Registro Oficial contra el catálogo oficial.\n\nREQUISITOS DE EJECUCIÓN (orden determinista, obligatorio):\n1. PostgreSQL local con la base `normativo_test` y migraciones aplicadas\n   (por ejemplo, tras ejecutar `npm --workspace @normativo/infraestructura\n   run test:prisma` con TEST_DATABASE_URL apuntando a `normativo_test`).\n2. Seed ejecutado INMEDIATAMENTE ANTES de levantar el backend:\n   `npm --workspace @normativo/infraestructura run prisma:seed` contra\n   `normativo_test` (TEST_DATABASE_URL). Los logins usan los usuarios seed\n   con la contraseña de semilla `Password123!` (solo test, nunca real).\n3. Fixture local del catálogo levantado (node\n   packages/infraestructura/scripts/fixture-catalogo-registro-oficial.js) y\n   backend levantado con PERSISTENCIA=prisma, DATABASE_URL apuntando a\n   `normativo_test` y el catálogo habilitado contra el fixture (variables de\n   arriba). Al terminar, detener exactamente los procesos iniciados.\n4. Recién entonces ejecutar Newman. Sin el seed inmediatamente previo, los\n   logins pueden responder 401 por el estado anterior de la base de test.\n\nConserva todos los flujos de Fase 5A. La carpeta 09 agrega la resolución de\nfuentes. La corrida Newman normal usa el backend con el catálogo HABILITADO\ncontra el fixture HTTP local\npackages/infraestructura/scripts/fixture-catalogo-registro-oficial.js\n(CATALOGO_REGISTRO_OFICIAL_HABILITADO=true,\nCATALOGO_REGISTRO_OFICIAL_BASE_URL=http://localhost:3999,\nCATALOGO_REGISTRO_OFICIAL_DOMINIOS_PDF=cdn.oficial.test): comprueba\nautomáticamente el contrato 200 de resolver-pendientes sin consultar ningún\nsitio real. Para un backend SIN catálogo, poner la variable de colección\ncatalogoHabilitadoLocal=false: las peticiones del fixture se omiten y se\nvuelve a comprobar el 503 CATALOGO_NO_DISPONIBLE. Los permisos y la\nvalidación del contrato se ejercitan siempre.\n\nContrato del resumen de resolver-pendientes: `procesadas`, `resueltas`,\n`noEncontradas`, `conflictivas`, `omitidas`, `erroresCatalogo` y\n`erroresPorRazon` (siempre con las cuatro razones:\nCATALOGO_TEMPORALMENTE_NO_DISPONIBLE, RESPUESTA_CATALOGO_INVALIDA,\nCOBERTURA_CATALOGO_NO_DISPONIBLE, BUSQUEDA_CATALOGO_INCOMPLETA).\n`erroresCatalogo` es la suma de `erroresPorRazon`; no existe\n`erroresTransitorios`. Todo fallo del catálogo mantiene la edición\nPENDIENTE y nunca se persiste como NO_ENCONTRADA.\n\nPrueba manual real (NO en CI): levantar el backend con\nCATALOGO_REGISTRO_OFICIAL_HABILITADO=true y\nCATALOGO_REGISTRO_OFICIAL_BASE_URL=https://www.registroficial.gob.ec, poner\nla variable de colección ejecutarPruebaRealCatalogo=true y edicionPendienteRealId\ncon el id de una edición PENDIENTE existente. Solo entonces la última petición\nafirma 200 + el contrato anterior. Nunca se inventan URLs ni respuestas.",
+  "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+ },
+ "item": [
+  {
+   "name": "00 - Autenticación",
+   "item": [
+    {
+     "name": "Login SUPERADMINISTRADOR",
+     "event": [
+      {
+       "listen": "prerequest",
+       "script": {
+        "exec": [
+         "const ahora = Date.now();",
+         "const aleatorio = Math.floor(Math.random() * 1000000);",
+         "const slotMensual = Math.floor(Math.random() * (201 * 12));",
+         "const anio = 1900 + Math.floor(slotMensual / 12);",
+         "const mes = 1 + (slotMensual % 12);",
+         "const mesTexto = String(mes).padStart(2, '0');",
+         "const runId = `${ahora}-${aleatorio}`;",
+         "pm.collectionVariables.set('runId', runId);",
+         "pm.collectionVariables.set('periodoAnio', String(anio));",
+         "pm.collectionVariables.set('periodoMes', String(mes));",
+         "pm.collectionVariables.set('fechaPublicacionOficial', `${anio}-${mesTexto}-15`);",
+         "pm.collectionVariables.set('publicacionNumero', String(1000000000 + (ahora % 1000000000)));",
+         "pm.collectionVariables.set('fechaEdicionManual', `${anio}-${mesTexto}-16`);",
+         "pm.collectionVariables.set('numeroEdicionManual', String(2000000000 + (ahora % 100000000)));",
+         "pm.collectionVariables.set('fechaEdicionManualSegunda', `${anio}-${mesTexto}-17`);",
+         "pm.collectionVariables.set('numeroEdicionManualSegunda', String(2100000000 + (ahora % 40000000)));",
+         "pm.collectionVariables.set('urlResumen', `https://www.registroficial.gob.ec/resumen-${runId}.pdf`);",
+         "pm.collectionVariables.set('urlPdf', `https://www.registroficial.gob.ec/edicion-${runId}.pdf`);",
+         "pm.collectionVariables.set('urlEdicionManual', `https://www.registroficial.gob.ec/edicion-manual-${runId}.pdf`);",
+         "pm.collectionVariables.set('urlEdicionManualAlterna', `https://www.registroficial.gob.ec/edicion-manual-alterna-${runId}.pdf`);",
+         "pm.collectionVariables.set('urlEdicionManualSegunda', `https://www.registroficial.gob.ec/edicion-manual-segunda-${runId}.pdf`);",
+         "['loteId', 'normaIndividualId', 'normaInvalidaId', 'normaLoteId', 'normaSuperadminId', 'edicionId', 'edicionManualId', 'edicionManualSegundaId', 'edicionFixtureResueltaId', 'edicionFixtureFalloId'].forEach((nombre) => pm.collectionVariables.unset(nombre));"
+        ],
+        "type": "text/javascript"
+       }
+      },
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Login SUPERADMINISTRADOR responde 200', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "pm.test('Entrega Bearer token', () => {",
+         "  pm.expect(json.accessToken).to.be.a('string').and.not.empty;",
+         "  pm.expect(json.tokenType).to.eql('Bearer');",
+         "});",
+         "pm.collectionVariables.set('tokenSuperadmin', json.accessToken);"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"correo\": \"superadmin@test.com\",\n  \"contrasena\": \"Password123!\"\n}"
+      },
+      "url": "{{baseUrl}}/auth/login"
+     }
+    },
+    {
+     "name": "Login EDITOR",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Login EDITOR responde 200', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "pm.test('Entrega Bearer token', () => {",
+         "  pm.expect(json.accessToken).to.be.a('string').and.not.empty;",
+         "  pm.expect(json.tokenType).to.eql('Bearer');",
+         "});",
+         "pm.collectionVariables.set('tokenEditor', json.accessToken);"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"correo\": \"editor@test.com\",\n  \"contrasena\": \"Password123!\"\n}"
+      },
+      "url": "{{baseUrl}}/auth/login"
+     }
+    },
+    {
+     "name": "Login ADMINISTRADOR",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Login ADMINISTRADOR responde 200', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "pm.test('Entrega Bearer token', () => {",
+         "  pm.expect(json.accessToken).to.be.a('string').and.not.empty;",
+         "  pm.expect(json.tokenType).to.eql('Bearer');",
+         "});",
+         "pm.collectionVariables.set('tokenAdmin', json.accessToken);"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"correo\": \"admin@test.com\",\n  \"contrasena\": \"Password123!\"\n}"
+      },
+      "url": "{{baseUrl}}/auth/login"
+     }
+    },
+    {
+     "name": "Login SUSCRIPTOR",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Login SUSCRIPTOR responde 200', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "pm.test('Entrega Bearer token', () => {",
+         "  pm.expect(json.accessToken).to.be.a('string').and.not.empty;",
+         "  pm.expect(json.tokenType).to.eql('Bearer');",
+         "});",
+         "pm.collectionVariables.set('tokenSuscriptor', json.accessToken);"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"correo\": \"suscriptor@test.com\",\n  \"contrasena\": \"Password123!\"\n}"
+      },
+      "url": "{{baseUrl}}/auth/login"
+     }
+    }
+   ]
+  },
+  {
+   "name": "01 - Ingesta Registro Oficial",
+   "item": [
+    {
+     "name": "POST ingesta válida - crea normas BORRADOR",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Ingesta válida responde 201', () => pm.response.to.have.status(201));",
+         "const json = pm.response.json();",
+         "const lote = json.lote;",
+         "const clavesLote = ['fechaEjecucion','huellaLote','id','periodoAnio','periodoMes','totalConAdvertencias','totalEntradasDetectadas','urlResumenMensualRegistroOficial','versionExtractor'].sort();",
+         "pm.test('Es un lote mensual nuevo con cuatro entradas', () => {",
+         "  pm.expect(json.creado).to.eql(true);",
+         "  pm.expect(lote.totalEntradasDetectadas).to.eql(4);",
+         "  pm.expect(lote.totalConAdvertencias).to.eql(1);",
+         "  pm.expect(lote).not.to.have.property('entradasDetectadas');",
+         "});",
+         "pm.test('El POST devuelve únicamente el resumen del lote', () => {",
+         "  pm.expect(Object.keys(lote).sort()).to.eql(clavesLote);",
+         "});",
+         "pm.collectionVariables.set('loteId', lote.id);"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       },
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenSuperadmin}}",
+        "type": "text"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"periodo\": { \"anio\": {{periodoAnio}}, \"mes\": {{periodoMes}} },\n  \"urlResumenMensualRegistroOficial\": \"{{urlResumen}}\",\n  \"versionExtractor\": \"postman-5a-1.0.0\",\n  \"entradasDetectadas\": [\n    {\n      \"posicion\": 0,\n      \"tipo\": \"Acuerdo Ministerial\",\n      \"numero\": null,\n      \"titulo\": \"Norma individual {{runId}}\",\n      \"institucion\": \"Ministerio de Prueba\",\n      \"seccion\": \"Función Ejecutiva\",\n      \"publicacion\": { \"tipo\": \"RO\", \"numero\": {{publicacionNumero}}, \"fecha\": \"{{fechaPublicacionOficial}}\" },\n      \"segmentoCrudo\": \"Segmento de la norma individual {{runId}}\",\n      \"metadataExtraccion\": { \"pagina\": 1, \"fila\": 1 },\n      \"advertencias\": [],\n      \"confianza\": 0.98\n    },\n    {\n      \"posicion\": 1,\n      \"tipo\": \"Resolución\",\n      \"numero\": \"R-2\",\n      \"titulo\": null,\n      \"institucion\": \"Institución de Prueba\",\n      \"seccion\": null,\n      \"publicacion\": { \"tipo\": \"RO\", \"numero\": {{publicacionNumero}}, \"fecha\": \"{{fechaPublicacionOficial}}\" },\n      \"segmentoCrudo\": \"Segmento sin título {{runId}}\",\n      \"metadataExtraccion\": { \"pagina\": 1, \"fila\": 2 },\n      \"advertencias\": [],\n      \"confianza\": 0.72\n    },\n    {\n      \"posicion\": 2,\n      \"tipo\": \"Decreto Ejecutivo\",\n      \"numero\": \"D-3\",\n      \"titulo\": \"Norma para publicación múltiple {{runId}}\",\n      \"institucion\": \"Presidencia de Prueba\",\n      \"seccion\": \"Función Ejecutiva\",\n      \"publicacion\": { \"tipo\": \"RO\", \"numero\": {{publicacionNumero}}, \"fecha\": \"{{fechaPublicacionOficial}}\" },\n      \"segmentoCrudo\": \"Segmento para publicación múltiple {{runId}}\",\n      \"metadataExtraccion\": { \"pagina\": 1, \"fila\": 3 },\n      \"advertencias\": [],\n      \"confianza\": 0.91\n    },\n    {\n      \"posicion\": 3,\n      \"tipo\": \"Resolución Administrativa\",\n      \"numero\": \"SA-4\",\n      \"titulo\": \"Norma para superadministrador {{runId}}\",\n      \"institucion\": \"Institución de Prueba\",\n      \"seccion\": \"Función Ejecutiva\",\n      \"publicacion\": { \"tipo\": \"RO\", \"numero\": {{publicacionNumero}}, \"fecha\": \"{{fechaPublicacionOficial}}\" },\n      \"segmentoCrudo\": \"Segmento para superadministrador {{runId}}\",\n      \"metadataExtraccion\": { \"pagina\": 1, \"fila\": 4 },\n      \"advertencias\": [],\n      \"confianza\": 0.93\n    }\n  ]\n}"
+      },
+      "url": "{{baseUrl}}/ingesta/registro-oficial/resumenes"
+     }
+    },
+    {
+     "name": "POST reenvío idéntico - idempotencia mensual",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Reenvío idéntico responde 201', () => pm.response.to.have.status(201));",
+         "const json = pm.response.json();",
+         "pm.test('Reutiliza exactamente el lote anterior', () => {",
+         "  pm.expect(json.creado).to.eql(false);",
+         "  pm.expect(json.lote.id).to.eql(pm.collectionVariables.get('loteId'));",
+         "  pm.expect(json.lote.totalEntradasDetectadas).to.eql(4);",
+         "});"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       },
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenSuperadmin}}"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"periodo\": { \"anio\": {{periodoAnio}}, \"mes\": {{periodoMes}} },\n  \"urlResumenMensualRegistroOficial\": \"{{urlResumen}}\",\n  \"versionExtractor\": \"postman-5a-1.0.0\",\n  \"entradasDetectadas\": [\n    { \"posicion\": 0, \"tipo\": \"Acuerdo Ministerial\", \"numero\": null, \"titulo\": \"Norma individual {{runId}}\", \"institucion\": \"Ministerio de Prueba\", \"seccion\": \"Función Ejecutiva\", \"publicacion\": { \"tipo\": \"RO\", \"numero\": {{publicacionNumero}}, \"fecha\": \"{{fechaPublicacionOficial}}\" }, \"segmentoCrudo\": \"Segmento de la norma individual {{runId}}\", \"metadataExtraccion\": { \"pagina\": 1, \"fila\": 1 }, \"advertencias\": [], \"confianza\": 0.98 },\n    { \"posicion\": 1, \"tipo\": \"Resolución\", \"numero\": \"R-2\", \"titulo\": null, \"institucion\": \"Institución de Prueba\", \"seccion\": null, \"publicacion\": { \"tipo\": \"RO\", \"numero\": {{publicacionNumero}}, \"fecha\": \"{{fechaPublicacionOficial}}\" }, \"segmentoCrudo\": \"Segmento sin título {{runId}}\", \"metadataExtraccion\": { \"pagina\": 1, \"fila\": 2 }, \"advertencias\": [], \"confianza\": 0.72 },\n    { \"posicion\": 2, \"tipo\": \"Decreto Ejecutivo\", \"numero\": \"D-3\", \"titulo\": \"Norma para publicación múltiple {{runId}}\", \"institucion\": \"Presidencia de Prueba\", \"seccion\": \"Función Ejecutiva\", \"publicacion\": { \"tipo\": \"RO\", \"numero\": {{publicacionNumero}}, \"fecha\": \"{{fechaPublicacionOficial}}\" }, \"segmentoCrudo\": \"Segmento para publicación múltiple {{runId}}\", \"metadataExtraccion\": { \"pagina\": 1, \"fila\": 3 }, \"advertencias\": [], \"confianza\": 0.91 },\n    { \"posicion\": 3, \"tipo\": \"Resolución Administrativa\", \"numero\": \"SA-4\", \"titulo\": \"Norma para superadministrador {{runId}}\", \"institucion\": \"Institución de Prueba\", \"seccion\": \"Función Ejecutiva\", \"publicacion\": { \"tipo\": \"RO\", \"numero\": {{publicacionNumero}}, \"fecha\": \"{{fechaPublicacionOficial}}\" }, \"segmentoCrudo\": \"Segmento para superadministrador {{runId}}\", \"metadataExtraccion\": { \"pagina\": 1, \"fila\": 4 }, \"advertencias\": [], \"confianza\": 0.93 }\n  ]\n}"
+      },
+      "url": "{{baseUrl}}/ingesta/registro-oficial/resumenes"
+     }
+    },
+    {
+     "name": "POST mismo mes con contenido distinto - conflicto",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Conflicto mensual responde 409', () => pm.response.to.have.status(409));",
+         "pm.test('Razón pública correcta', () => pm.expect(pm.response.json().message).to.eql('EJECUCION_INGESTA_CONFLICTIVA'));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       },
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenSuperadmin}}"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"periodo\": { \"anio\": {{periodoAnio}}, \"mes\": {{periodoMes}} },\n  \"urlResumenMensualRegistroOficial\": \"{{urlResumen}}\",\n  \"versionExtractor\": \"postman-5a-1.0.0\",\n  \"entradasDetectadas\": [{ \"posicion\": 0, \"tipo\": \"Acuerdo\", \"numero\": null, \"titulo\": \"Contenido diferente\", \"institucion\": \"Institución\", \"seccion\": null, \"publicacion\": { \"tipo\": \"RO\", \"numero\": {{publicacionNumero}}, \"fecha\": \"{{fechaPublicacionOficial}}\" }, \"segmentoCrudo\": \"Otro segmento\", \"metadataExtraccion\": {}, \"advertencias\": [], \"confianza\": 0.8 }]\n}"
+      },
+      "url": "{{baseUrl}}/ingesta/registro-oficial/resumenes"
+     }
+    },
+    {
+     "name": "POST ingesta por EDITOR - prohibida",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('EDITOR no ingiere: 403', () => pm.response.to.have.status(403));",
+         "pm.test('Mensaje genérico', () => pm.expect(pm.response.json().message).to.eql('Acceso denegado'));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       },
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenEditor}}"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"periodo\": { \"anio\": {{periodoAnio}}, \"mes\": {{periodoMes}} },\n  \"urlResumenMensualRegistroOficial\": \"{{urlResumen}}\",\n  \"versionExtractor\": \"postman-5a-1.0.0\",\n  \"entradasDetectadas\": [{ \"posicion\": 0, \"tipo\": null, \"numero\": null, \"titulo\": null, \"institucion\": null, \"seccion\": null, \"publicacion\": null, \"segmentoCrudo\": \"Entrada\", \"metadataExtraccion\": {}, \"advertencias\": [], \"confianza\": 0.5 }]\n}"
+      },
+      "url": "{{baseUrl}}/ingesta/registro-oficial/resumenes"
+     }
+    },
+    {
+     "name": "POST contrato con propiedad desconocida - 400",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Propiedad desconocida se rechaza con 400', () => pm.response.to.have.status(400));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       },
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenSuperadmin}}"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"periodo\": { \"anio\": {{periodoAnio}}, \"mes\": {{periodoMes}} },\n  \"urlResumenMensualRegistroOficial\": \"{{urlResumen}}\",\n  \"versionExtractor\": \"postman-5a-1.0.0\",\n  \"propiedadNoPermitida\": true,\n  \"entradasDetectadas\": [{ \"posicion\": 0, \"tipo\": null, \"numero\": null, \"titulo\": null, \"institucion\": null, \"seccion\": null, \"publicacion\": null, \"segmentoCrudo\": \"Entrada\", \"metadataExtraccion\": {}, \"advertencias\": [], \"confianza\": 0.5 }]\n}"
+      },
+      "url": "{{baseUrl}}/ingesta/registro-oficial/resumenes"
+     }
+    },
+    {
+     "name": "POST ingesta con fecha imposible - 400",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Fecha imposible se rechaza con 400', () => pm.response.to.have.status(400));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       },
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenSuperadmin}}"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"periodo\": { \"anio\": {{periodoAnio}}, \"mes\": {{periodoMes}} },\n  \"urlResumenMensualRegistroOficial\": \"{{urlResumen}}\",\n  \"versionExtractor\": \"postman-5a-1.0.0\",\n  \"entradasDetectadas\": [{ \"posicion\": 0, \"tipo\": \"Acuerdo\", \"numero\": null, \"titulo\": \"Fecha imposible\", \"institucion\": \"Institución\", \"seccion\": null, \"publicacion\": { \"tipo\": \"RO\", \"numero\": {{publicacionNumero}}, \"fecha\": \"2026-02-30\" }, \"segmentoCrudo\": \"Fecha imposible\", \"metadataExtraccion\": {}, \"advertencias\": [], \"confianza\": 0.8 }]\n}"
+      },
+      "url": "{{baseUrl}}/ingesta/registro-oficial/resumenes"
+     }
+    },
+    {
+     "name": "POST ingesta con datetime - 400",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Datetime con hora se rechaza con 400', () => pm.response.to.have.status(400));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       },
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenSuperadmin}}"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"periodo\": { \"anio\": {{periodoAnio}}, \"mes\": {{periodoMes}} },\n  \"urlResumenMensualRegistroOficial\": \"{{urlResumen}}\",\n  \"versionExtractor\": \"postman-5a-1.0.0\",\n  \"entradasDetectadas\": [{ \"posicion\": 0, \"tipo\": \"Acuerdo\", \"numero\": null, \"titulo\": \"Datetime no permitido\", \"institucion\": \"Institución\", \"seccion\": null, \"publicacion\": { \"tipo\": \"RO\", \"numero\": {{publicacionNumero}}, \"fecha\": \"2026-05-02T00:00:00.000Z\" }, \"segmentoCrudo\": \"Datetime no permitido\", \"metadataExtraccion\": {}, \"advertencias\": [], \"confianza\": 0.8 }]\n}"
+      },
+      "url": "{{baseUrl}}/ingesta/registro-oficial/resumenes"
+     }
+    }
+   ]
+  },
+  {
+   "name": "02 - Lotes técnicos",
+   "item": [
+    {
+     "name": "SUPERADMINISTRADOR lista lotes",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('SUPERADMINISTRADOR lista lotes: 200', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "const lote = json.find((elemento) => elemento.id === pm.collectionVariables.get('loteId'));",
+         "pm.test('Lista contiene el lote mensual sin entradas anidadas', () => {",
+         "  pm.expect(json).to.be.an('array');",
+         "  pm.expect(lote).to.exist;",
+         "  pm.expect(Object.keys(lote).sort()).to.eql(['fechaEjecucion','huellaLote','id','periodoAnio','periodoMes','totalConAdvertencias','totalEntradasDetectadas','urlResumenMensualRegistroOficial','versionExtractor'].sort());",
+         "});"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenSuperadmin}}"
+       }
+      ],
+      "url": "{{baseUrl}}/ingesta/registro-oficial/lotes"
+     }
+    },
+    {
+     "name": "SUPERADMINISTRADOR consulta lote completo",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Detalle técnico responde 200', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "pm.test('Detalle contiene las cuatro entradas y métricas aprobadas', () => {",
+         "  pm.expect(json.id).to.eql(pm.collectionVariables.get('loteId'));",
+         "  pm.expect(json.totalEntradasDetectadas).to.eql(4);",
+         "  pm.expect(json.totalConAdvertencias).to.eql(1);",
+         "  pm.expect(json.entradasDetectadas).to.have.length(4);",
+         "});",
+         "const entradas = [...json.entradasDetectadas].sort((a, b) => a.posicion - b.posicion);",
+         "pm.test('Resultado de detección depende solo de advertencias', () => {",
+         "  pm.expect(entradas[0].resultadoDeteccion).to.eql('ENTRADA_DETECTADA');",
+         "  pm.expect(entradas[1].resultadoDeteccion).to.eql('ENTRADA_CON_ADVERTENCIAS');",
+         "  pm.expect(entradas[2].resultadoDeteccion).to.eql('ENTRADA_DETECTADA');",
+         "  pm.expect(entradas[3].resultadoDeteccion).to.eql('ENTRADA_DETECTADA');",
+         "});",
+         "pm.collectionVariables.set('normaIndividualId', entradas[0].normaId);",
+         "pm.collectionVariables.set('normaInvalidaId', entradas[1].normaId);",
+         "pm.collectionVariables.set('normaLoteId', entradas[2].normaId);",
+         "pm.collectionVariables.set('normaSuperadminId', entradas[3].normaId);"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenSuperadmin}}"
+       }
+      ],
+      "url": "{{baseUrl}}/ingesta/registro-oficial/lotes/{{loteId}}"
+     }
+    },
+    {
+     "name": "EDITOR no consulta lotes",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('EDITOR recibe 403', () => pm.response.to.have.status(403));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenEditor}}"
+       }
+      ],
+      "url": "{{baseUrl}}/ingesta/registro-oficial/lotes"
+     }
+    },
+    {
+     "name": "ADMINISTRADOR no consulta lotes",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('ADMINISTRADOR recibe 403', () => pm.response.to.have.status(403));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenAdmin}}"
+       }
+      ],
+      "url": "{{baseUrl}}/ingesta/registro-oficial/lotes/{{loteId}}"
+     }
+    },
+    {
+     "name": "SUSCRIPTOR no consulta lotes",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('SUSCRIPTOR recibe 403', () => pm.response.to.have.status(403));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenSuscriptor}}"
+       }
+      ],
+      "url": "{{baseUrl}}/ingesta/registro-oficial/lotes"
+     }
+    },
+    {
+     "name": "Sin token no consulta lotes",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Sin token recibe 401', () => pm.response.to.have.status(401));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "GET",
+      "url": "{{baseUrl}}/ingesta/registro-oficial/lotes"
+     }
+    }
+   ]
+  },
+  {
+   "name": "03 - Lista y detalle editorial",
+   "item": [
+    {
+     "name": "EDITOR lista normas BORRADOR",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('EDITOR lista BORRADOR: 200', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "const idsEsperados = [pm.collectionVariables.get('normaIndividualId'), pm.collectionVariables.get('normaInvalidaId'), pm.collectionVariables.get('normaLoteId'), pm.collectionVariables.get('normaSuperadminId')];",
+         "pm.test('Respuesta es un array sin total y contiene los borradores ingeridos', () => {",
+         "  pm.expect(json).to.be.an('array');",
+         "  idsEsperados.forEach((id) => pm.expect(json.some((norma) => norma.id === id && norma.estadoEditorial === 'BORRADOR'), `No se encontró el BORRADOR ${id}`).to.eql(true));",
+         "});",
+         "pm.test('Lista editorial incluye origen mínimo y excluye señales técnicas', () => {",
+         "  const norma = json.find((elemento) => elemento.id === idsEsperados[0]);",
+         "  pm.expect(norma, `No se encontró la norma ${idsEsperados[0]}`).to.exist;",
+         "  pm.expect(Object.keys(norma).sort()).to.eql(['edicionesRegistroOficial','estadoEditorial','estadoJuridico','estadoResolucionFuente','fechaExpedicion','id','institucionExpide','numero','origenRegistroOficial','tipoNorma','titulo'].sort());",
+         "  pm.expect(norma.edicionesRegistroOficial).to.have.length(1);",
+         "  pm.expect(norma.edicionesRegistroOficial[0].tipoRelacion).to.eql('PRINCIPAL');",
+         "  pm.expect(norma.edicionesRegistroOficial[0].fuente).to.eql(null);",
+         "  pm.expect(norma.origenRegistroOficial.urlResumenMensualRegistroOficial).to.eql(pm.collectionVariables.get('urlResumen'));",
+         "  pm.expect(norma.origenRegistroOficial.segmentoCrudo).to.contain(pm.collectionVariables.get('runId'));",
+         "});"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenEditor}}"
+       }
+      ],
+      "url": "{{baseUrl}}/normas?estadoEditorial=BORRADOR"
+     }
+    },
+    {
+     "name": "SUPERADMINISTRADOR lista normas BORRADOR",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('SUPERADMINISTRADOR lista BORRADOR: 200', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "pm.test('Respuesta es array y conserva origen Registro Oficial', () => {",
+         "  pm.expect(json).to.be.an('array');",
+         "  const norma = json.find((elemento) => elemento.id === pm.collectionVariables.get('normaIndividualId'));",
+         "  pm.expect(norma.origenRegistroOficial.urlResumenMensualRegistroOficial).to.eql(pm.collectionVariables.get('urlResumen'));",
+         "  pm.expect(norma.origenRegistroOficial.segmentoCrudo).to.contain(pm.collectionVariables.get('runId'));",
+         "});"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenSuperadmin}}"
+       }
+      ],
+      "url": "{{baseUrl}}/normas?estadoEditorial=BORRADOR"
+     }
+    },
+    {
+     "name": "ADMINISTRADOR no lista normas editoriales",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('ADMINISTRADOR recibe 403', () => pm.response.to.have.status(403));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenAdmin}}"
+       }
+      ],
+      "url": "{{baseUrl}}/normas?estadoEditorial=BORRADOR"
+     }
+    },
+    {
+     "name": "SUSCRIPTOR no lista normas editoriales",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('SUSCRIPTOR recibe 403', () => pm.response.to.have.status(403));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenSuscriptor}}"
+       }
+      ],
+      "url": "{{baseUrl}}/normas?estadoEditorial=BORRADOR"
+     }
+    },
+    {
+     "name": "EDITOR consulta detalle y origen Registro Oficial",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Detalle editorial responde 200', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "pm.test('Incluye origen mínimo y no usa el resumen como fuente', () => {",
+         "  pm.expect(json.id).to.eql(pm.collectionVariables.get('normaIndividualId'));",
+         "  pm.expect(json.origenRegistroOficial.urlResumenMensualRegistroOficial).to.eql(pm.collectionVariables.get('urlResumen'));",
+         "  pm.expect(json.origenRegistroOficial.segmentoCrudo).to.contain(pm.collectionVariables.get('runId'));",
+         "  pm.expect(json.edicionesRegistroOficial).to.have.length(1);",
+         "  pm.expect(json.edicionesRegistroOficial[0].tipoRelacion).to.eql('PRINCIPAL');",
+         "  pm.expect(json.edicionesRegistroOficial[0].fuente).to.eql(null);",
+         "  pm.expect(json).not.to.have.property('edicionRegistroOficialId');",
+         "  pm.expect(json).not.to.have.property('fuente');",
+         "  pm.expect(json.estadoResolucionFuente).to.eql('PENDIENTE');",
+         "});",
+         "pm.collectionVariables.set('edicionId', json.edicionesRegistroOficial[0].id);"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenEditor}}"
+       }
+      ],
+      "url": "{{baseUrl}}/normas/{{normaIndividualId}}"
+     }
+    },
+    {
+     "name": "EDITOR consulta borrador sin título",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Detalle del borrador incompleto responde 200', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "pm.test('Título permanece vacío, sin placeholder', () => pm.expect(json.titulo).to.eql(''));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenEditor}}"
+       }
+      ],
+      "url": "{{baseUrl}}/normas/{{normaInvalidaId}}"
+     }
+    }
+   ]
+  },
+  {
+   "name": "04 - Corrección editorial",
+   "item": [
+    {
+     "name": "EDITOR corrige norma individual sin publicarla",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Corrección editorial responde 200', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "pm.test('Permite número y contenido vacíos y mantiene BORRADOR', () => {",
+         "  pm.expect(json.estadoEditorial).to.eql('BORRADOR');",
+         "  pm.expect(json.numero).to.eql('');",
+         "  pm.expect(json.contenido).to.eql([]);",
+         "  pm.expect(json.titulo).to.eql(`Norma individual corregida ${pm.collectionVariables.get('runId')}`);",
+         "});"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "PATCH",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       },
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenEditor}}"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"tipoNorma\": \"Acuerdo Ministerial\",\n  \"numero\": null,\n  \"titulo\": \"Norma individual corregida {{runId}}\",\n  \"institucionExpide\": \"Ministerio de Prueba\",\n  \"fechaExpedicion\": null,\n  \"estadoJuridico\": \"VIGENTE\",\n  \"contenido\": []\n}"
+      },
+      "url": "{{baseUrl}}/normas/{{normaIndividualId}}"
+     }
+    },
+    {
+     "name": "SUPERADMINISTRADOR corrige otra norma sin publicarla",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Corrección por SUPERADMINISTRADOR responde 200', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "pm.test('SUPERADMINISTRADOR modifica y conserva BORRADOR', () => {",
+         "  pm.expect(json.id).to.eql(pm.collectionVariables.get('normaSuperadminId'));",
+         "  pm.expect(json.numero).to.eql('SA-CORREGIDA');",
+         "  pm.expect(json.estadoEditorial).to.eql('BORRADOR');",
+         "});"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "PATCH",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       },
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenSuperadmin}}"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"numero\": \"SA-CORREGIDA\"\n}"
+      },
+      "url": "{{baseUrl}}/normas/{{normaSuperadminId}}"
+     }
+    },
+    {
+     "name": "PATCH norma con campo editorial y campo prohibido - rechazo atómico",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Payload mixto responde 400', () => pm.response.to.have.status(400));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "PATCH",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       },
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenEditor}}"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"titulo\": \"ESTE TÍTULO NO DEBE GUARDARSE\",\n  \"fuente\": \"{{urlPdf}}\"\n}"
+      },
+      "url": "{{baseUrl}}/normas/{{normaInvalidaId}}"
+     }
+    },
+    {
+     "name": "Verificar rechazo atómico del PATCH",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Consulta posterior responde 200', () => pm.response.to.have.status(200));",
+         "pm.test('El título no cambió', () => pm.expect(pm.response.json().titulo).to.eql(''));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenEditor}}"
+       }
+      ],
+      "url": "{{baseUrl}}/normas/{{normaInvalidaId}}"
+     }
+    }
+   ]
+  },
+  {
+   "name": "05 - Catálogo y fuente de la edición",
+   "item": [
+    {
+     "name": "EDITOR no crea edición con fecha no canónica",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Fecha sin padding se rechaza con 400', () => pm.response.to.have.status(400));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       },
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenEditor}}"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"tipoPublicacionRegistroOficial\": \"SRO\",\n  \"numeroPublicacionRegistroOficial\": {{numeroEdicionManual}},\n  \"fechaPublicacionOficial\": \"2026-5-2\",\n  \"urlPdf\": \"{{urlEdicionManual}}\"\n}"
+      },
+      "url": "{{baseUrl}}/ediciones-registro-oficial"
+     }
+    },
+    {
+     "name": "EDITOR crea edición manual",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Creación manual responde 201', () => pm.response.to.have.status(201));",
+         "const json = pm.response.json();",
+         "pm.test('La edición se crea MANUAL con la URL solicitada', () => {",
+         "  pm.expect(json.estadoResolucionFuente).to.eql('MANUAL');",
+         "  pm.expect(json.urlPdf).to.eql(pm.collectionVariables.get('urlEdicionManual'));",
+         "});",
+         "pm.collectionVariables.set('edicionManualId', json.id);"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       },
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenEditor}}"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"tipoPublicacionRegistroOficial\": \"SRO\",\n  \"numeroPublicacionRegistroOficial\": {{numeroEdicionManual}},\n  \"fechaPublicacionOficial\": \"{{fechaEdicionManual}}\",\n  \"urlPdf\": \"{{urlEdicionManual}}\"\n}"
+      },
+      "url": "{{baseUrl}}/ediciones-registro-oficial"
+     }
+    },
+    {
+     "name": "EDITOR no crea edición manual duplicada",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Triple manual duplicada responde 409', () => pm.response.to.have.status(409));",
+         "pm.test('Razón pública EDICION_YA_EXISTE', () => pm.expect(pm.response.json().message).to.eql('EDICION_YA_EXISTE'));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       },
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenEditor}}"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"tipoPublicacionRegistroOficial\": \"SRO\",\n  \"numeroPublicacionRegistroOficial\": {{numeroEdicionManual}},\n  \"fechaPublicacionOficial\": \"{{fechaEdicionManual}}\",\n  \"urlPdf\": \"{{urlEdicionManualAlterna}}\"\n}"
+      },
+      "url": "{{baseUrl}}/ediciones-registro-oficial"
+     }
+    },
+    {
+     "name": "EDITOR verifica que el duplicado no sobrescribió la edición",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Detalle de la edición manual responde 200', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "pm.test('Conserva URL y estado originales', () => {",
+         "  pm.expect(json.id).to.eql(pm.collectionVariables.get('edicionManualId'));",
+         "  pm.expect(json.urlPdf).to.eql(pm.collectionVariables.get('urlEdicionManual'));",
+         "  pm.expect(json.estadoResolucionFuente).to.eql('MANUAL');",
+         "});"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenEditor}}"
+       }
+      ],
+      "url": "{{baseUrl}}/ediciones-registro-oficial/{{edicionManualId}}"
+     }
+    },
+    {
+     "name": "EDITOR lista catálogo de ediciones",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('EDITOR lista catálogo: 200', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "pm.test('Catálogo contiene la edición ingerida', () => pm.expect(json.some((edicion) => edicion.id === pm.collectionVariables.get('edicionId'))).to.eql(true));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenEditor}}"
+       }
+      ],
+      "url": "{{baseUrl}}/ediciones-registro-oficial"
+     }
+    },
+    {
+     "name": "SUPERADMINISTRADOR lista catálogo de ediciones",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('SUPERADMINISTRADOR lista catálogo: 200', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "pm.test('Catálogo contiene la edición ingerida para SUPERADMINISTRADOR', () => pm.expect(json.some((edicion) => edicion.id === pm.collectionVariables.get('edicionId'))).to.eql(true));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenSuperadmin}}"
+       }
+      ],
+      "url": "{{baseUrl}}/ediciones-registro-oficial"
+     }
+    },
+    {
+     "name": "ADMINISTRADOR no consulta catálogo",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('ADMINISTRADOR recibe 403', () => pm.response.to.have.status(403));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenAdmin}}"
+       }
+      ],
+      "url": "{{baseUrl}}/ediciones-registro-oficial"
+     }
+    },
+    {
+     "name": "SUSCRIPTOR no consulta detalle de edición",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('SUSCRIPTOR recibe 403', () => pm.response.to.have.status(403));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenSuscriptor}}"
+       }
+      ],
+      "url": "{{baseUrl}}/ediciones-registro-oficial/{{edicionId}}"
+     }
+    },
+    {
+     "name": "EDITOR consulta edición PENDIENTE",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Detalle de edición responde 200', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "pm.test('Edición está PENDIENTE y sin URL', () => {",
+         "  pm.expect(json.id).to.eql(pm.collectionVariables.get('edicionId'));",
+         "  pm.expect(json.estadoResolucionFuente).to.eql('PENDIENTE');",
+         "  pm.expect(json.urlPdf).to.eql(null);",
+         "});"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenEditor}}"
+       }
+      ],
+      "url": "{{baseUrl}}/ediciones-registro-oficial/{{edicionId}}"
+     }
+    },
+    {
+     "name": "SUPERADMINISTRADOR consulta edición PENDIENTE",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Detalle de edición para SUPERADMINISTRADOR responde 200', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "pm.test('SUPERADMINISTRADOR ve la edición PENDIENTE', () => {",
+         "  pm.expect(json.id).to.eql(pm.collectionVariables.get('edicionId'));",
+         "  pm.expect(json.estadoResolucionFuente).to.eql('PENDIENTE');",
+         "  pm.expect(json.urlPdf).to.eql(null);",
+         "});"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenSuperadmin}}"
+       }
+      ],
+      "url": "{{baseUrl}}/ediciones-registro-oficial/{{edicionId}}"
+     }
+    },
+    {
+     "name": "SUPERADMINISTRADOR resuelve edición MANUAL: omitida (o 503 sin catálogo)",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "// Corrida Newman normal: backend con el catálogo habilitado contra el",
+         "// fixture local. Resolver una edición MANUAL responde 200 y la omite sin",
+         "// tocarla (fuente ya establecida). Con catalogoHabilitadoLocal=false",
+         "// (backend sin catálogo) se comprueba el 503 CATALOGO_NO_DISPONIBLE.",
+         "if (pm.variables.get('catalogoHabilitadoLocal') === 'false') {",
+         "  pm.test('Catálogo no configurado responde 503', () => pm.response.to.have.status(503));",
+         "  pm.test('Razón pública CATALOGO_NO_DISPONIBLE', () => pm.expect(pm.response.json().message).to.eql('CATALOGO_NO_DISPONIBLE'));",
+         "} else {",
+         "  pm.test('Resolver una edición MANUAL responde 200 y la omite sin tocarla', () => {",
+         "    pm.response.to.have.status(200);",
+         "    const cuerpo = pm.response.json();",
+         "    pm.expect(cuerpo.procesadas).to.eql(1);",
+         "    pm.expect(cuerpo.omitidas).to.eql(1);",
+         "    pm.expect(cuerpo.resueltas).to.eql(0);",
+         "    pm.expect(cuerpo.erroresCatalogo).to.eql(0);",
+         "    pm.expect(cuerpo).to.not.have.property('erroresTransitorios');",
+         "  });",
+         "}"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenSuperadmin}}"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": "{{baseUrl}}/ediciones-registro-oficial/resolver-pendientes",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"edicionIds\": [\"{{edicionManualId}}\"]\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     }
+    },
+    {
+     "name": "EDITOR corrige fuente de la edición",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Corrección manual responde 200', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "pm.test('Fuente queda MANUAL', () => {",
+         "  pm.expect(json.urlPdf).to.eql(pm.collectionVariables.get('urlPdf'));",
+         "  pm.expect(json.estadoResolucionFuente).to.eql('MANUAL');",
+         "});"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "PATCH",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       },
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenEditor}}"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"urlPdf\": \"{{urlPdf}}\"\n}"
+      },
+      "url": "{{baseUrl}}/ediciones-registro-oficial/{{edicionId}}/fuente"
+     }
+    },
+    {
+     "name": "SUPERADMINISTRADOR corrige fuente de la edición",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Corrección manual por SUPERADMINISTRADOR responde 200', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "pm.test('SUPERADMINISTRADOR conserva la fuente MANUAL', () => {",
+         "  pm.expect(json.urlPdf).to.eql(pm.collectionVariables.get('urlPdf'));",
+         "  pm.expect(json.estadoResolucionFuente).to.eql('MANUAL');",
+         "});"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "PATCH",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       },
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenSuperadmin}}"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"urlPdf\": \"{{urlPdf}}\"\n}"
+      },
+      "url": "{{baseUrl}}/ediciones-registro-oficial/{{edicionId}}/fuente"
+     }
+    },
+    {
+     "name": "La corrección de la edición se proyecta en la Norma",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Detalle de Norma responde 200', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "pm.test('Proyección refleja URL y estado MANUAL', () => {",
+         "  pm.expect(json.edicionesRegistroOficial).to.have.length(1);",
+         "  pm.expect(json.edicionesRegistroOficial[0].tipoRelacion).to.eql('PRINCIPAL');",
+         "  pm.expect(json.edicionesRegistroOficial[0].id).to.eql(pm.collectionVariables.get('edicionId'));",
+         "  pm.expect(json.edicionesRegistroOficial[0].fuente).to.eql(pm.collectionVariables.get('urlPdf'));",
+         "  pm.expect(json.estadoResolucionFuente).to.eql('MANUAL');",
+         "  pm.expect(json).not.to.have.property('edicionRegistroOficialId');",
+         "  pm.expect(json).not.to.have.property('fuente');",
+         "});"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenEditor}}"
+       }
+      ],
+      "url": "{{baseUrl}}/normas/{{normaIndividualId}}"
+     }
+    },
+    {
+     "name": "EDITOR reemplaza principal y conserva la anterior como CAMBIO",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Cambio de principal responde 200', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "pm.test('La nueva principal aparece primero y la anterior se conserva como CAMBIO', () => {",
+         "  pm.expect(json.edicionesRegistroOficial).to.have.length(2);",
+         "  pm.expect(json.edicionesRegistroOficial[0].tipoRelacion).to.eql('PRINCIPAL');",
+         "  pm.expect(json.edicionesRegistroOficial[0].id).to.eql(pm.collectionVariables.get('edicionManualId'));",
+         "  pm.expect(json.edicionesRegistroOficial[0].fuente).to.eql(pm.collectionVariables.get('urlEdicionManual'));",
+         "  pm.expect(json.edicionesRegistroOficial[1].tipoRelacion).to.eql('CAMBIO');",
+         "  pm.expect(json.edicionesRegistroOficial[1].id).to.eql(pm.collectionVariables.get('edicionId'));",
+         "  pm.expect(json.edicionesRegistroOficial[1].fuente).to.eql(pm.collectionVariables.get('urlPdf'));",
+         "  pm.expect(json).not.to.have.property('edicionRegistroOficialId');",
+         "  pm.expect(json).not.to.have.property('fuente');",
+         "});"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "PATCH",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       },
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenEditor}}"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"edicionRegistroOficialId\": \"{{edicionManualId}}\"\n}"
+      },
+      "url": "{{baseUrl}}/normas/{{normaIndividualId}}/edicion-registro-oficial"
+     }
+    },
+    {
+     "name": "EDITOR crea segunda edición manual para validar orden de cambios",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Segunda edición manual responde 201', () => pm.response.to.have.status(201));",
+         "const json = pm.response.json();",
+         "pm.test('Segunda edición queda MANUAL', () => {",
+         "  pm.expect(json.estadoResolucionFuente).to.eql('MANUAL');",
+         "  pm.expect(json.urlPdf).to.eql(pm.collectionVariables.get('urlEdicionManualSegunda'));",
+         "});",
+         "pm.collectionVariables.set('edicionManualSegundaId', json.id);"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       },
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenEditor}}"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"tipoPublicacionRegistroOficial\": \"2SRO\",\n  \"numeroPublicacionRegistroOficial\": {{numeroEdicionManualSegunda}},\n  \"fechaPublicacionOficial\": \"{{fechaEdicionManualSegunda}}\",\n  \"urlPdf\": \"{{urlEdicionManualSegunda}}\"\n}"
+      },
+      "url": "{{baseUrl}}/ediciones-registro-oficial"
+     }
+    },
+    {
+     "name": "EDITOR reemplaza nuevamente la principal y ordena los CAMBIO",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Segundo cambio de principal responde 200', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "pm.test('Principal primero y cambios por fecha ascendente', () => {",
+         "  pm.expect(json.edicionesRegistroOficial).to.have.length(3);",
+         "  pm.expect(json.edicionesRegistroOficial.map((e) => e.tipoRelacion)).to.eql(['PRINCIPAL', 'CAMBIO', 'CAMBIO']);",
+         "  pm.expect(json.edicionesRegistroOficial[0].id).to.eql(pm.collectionVariables.get('edicionManualSegundaId'));",
+         "  pm.expect(json.edicionesRegistroOficial[1].id).to.eql(pm.collectionVariables.get('edicionId'));",
+         "  pm.expect(json.edicionesRegistroOficial[2].id).to.eql(pm.collectionVariables.get('edicionManualId'));",
+         "});"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "PATCH",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       },
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenEditor}}"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"edicionRegistroOficialId\": \"{{edicionManualSegundaId}}\"\n}"
+      },
+      "url": "{{baseUrl}}/normas/{{normaIndividualId}}/edicion-registro-oficial"
+     }
+    }
+   ]
+  },
+  {
+   "name": "06 - Publicación individual",
+   "item": [
+    {
+     "name": "EDITOR no publica norma inválida sin título",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Norma inválida responde 409', () => pm.response.to.have.status(409));",
+         "pm.test('Razón TITULO_REQUERIDO', () => pm.expect(pm.response.json().message).to.eql('TITULO_REQUERIDO'));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       },
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenEditor}}"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{}"
+      },
+      "url": "{{baseUrl}}/normas/{{normaInvalidaId}}/publicar"
+     }
+    },
+    {
+     "name": "EDITOR publica norma válida con número y contenido vacíos",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Publicación individual responde 200', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "pm.test('Norma queda PUBLICADA sin contenido completo', () => {",
+         "  pm.expect(json.id).to.eql(pm.collectionVariables.get('normaIndividualId'));",
+         "  pm.expect(json.estadoEditorial).to.eql('PUBLICADA');",
+         "  pm.expect(json.tieneContenidoCompleto).to.eql(false);",
+         "  pm.expect(json.fechaPublicacionEnSistema).to.be.a('string');",
+         "});"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       },
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenEditor}}"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{}"
+      },
+      "url": "{{baseUrl}}/normas/{{normaIndividualId}}/publicar"
+     }
+    },
+    {
+     "name": "EDITOR conserva origen Registro Oficial después de publicar",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('EDITOR consulta norma PUBLICADA: 200', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "pm.test('Norma publicada conserva origen Registro Oficial para EDITOR', () => {",
+         "  pm.expect(json.id).to.eql(pm.collectionVariables.get('normaIndividualId'));",
+         "  pm.expect(json.estadoEditorial).to.eql('PUBLICADA');",
+         "  pm.expect(json.origenRegistroOficial).to.be.an('object');",
+         "  pm.expect(json.origenRegistroOficial.urlResumenMensualRegistroOficial).to.eql(pm.collectionVariables.get('urlResumen'));",
+         "  pm.expect(json.origenRegistroOficial.segmentoCrudo).to.contain(pm.collectionVariables.get('runId'));",
+         "  pm.expect(json.edicionesRegistroOficial.map((e) => e.tipoRelacion)).to.eql(['PRINCIPAL', 'CAMBIO', 'CAMBIO']);",
+         "  pm.expect(json).not.to.have.property('edicionRegistroOficialId');",
+         "  pm.expect(json).not.to.have.property('fuente');",
+         "  pm.expect(json).not.to.have.property('estadoResolucionFuente');",
+         "});"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenEditor}}"
+       }
+      ],
+      "url": "{{baseUrl}}/normas/{{normaIndividualId}}"
+     }
+    },
+    {
+     "name": "SUPERADMINISTRADOR conserva origen Registro Oficial después de publicar",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('SUPERADMINISTRADOR consulta norma PUBLICADA: 200', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "pm.test('Norma publicada conserva origen Registro Oficial para SUPERADMINISTRADOR', () => {",
+         "  pm.expect(json.id).to.eql(pm.collectionVariables.get('normaIndividualId'));",
+         "  pm.expect(json.estadoEditorial).to.eql('PUBLICADA');",
+         "  pm.expect(json.origenRegistroOficial).to.be.an('object');",
+         "  pm.expect(json.origenRegistroOficial.urlResumenMensualRegistroOficial).to.eql(pm.collectionVariables.get('urlResumen'));",
+         "  pm.expect(json.origenRegistroOficial.segmentoCrudo).to.contain(pm.collectionVariables.get('runId'));",
+         "  pm.expect(json.edicionesRegistroOficial.map((e) => e.tipoRelacion)).to.eql(['PRINCIPAL', 'CAMBIO', 'CAMBIO']);",
+         "  pm.expect(json).not.to.have.property('edicionRegistroOficialId');",
+         "  pm.expect(json).not.to.have.property('fuente');",
+         "  pm.expect(json).not.to.have.property('estadoResolucionFuente');",
+         "});"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenSuperadmin}}"
+       }
+      ],
+      "url": "{{baseUrl}}/normas/{{normaIndividualId}}"
+     }
+    }
+   ]
+  },
+  {
+   "name": "07 - Publicación múltiple parcial",
+   "item": [
+    {
+     "name": "EDITOR publica lote parcial",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Publicación múltiple responde 200', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "const valida = json.resultados.find((resultado) => resultado.normaId === pm.collectionVariables.get('normaLoteId'));",
+         "const invalida = json.resultados.find((resultado) => resultado.normaId === pm.collectionVariables.get('normaInvalidaId'));",
+         "pm.test('Publica la válida y conserva el error de la inválida', () => {",
+         "  pm.expect(valida.publicada).to.eql(true);",
+         "  pm.expect(valida.estadoEditorial).to.eql('PUBLICADA');",
+         "  pm.expect(invalida.publicada).to.eql(false);",
+         "  pm.expect(invalida.razon).to.eql('TITULO_REQUERIDO');",
+         "});"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       },
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenEditor}}"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"normaIds\": [\"{{normaLoteId}}\", \"{{normaInvalidaId}}\"]\n}"
+      },
+      "url": "{{baseUrl}}/normas/publicar"
+     }
+    },
+    {
+     "name": "SUPERADMINISTRADOR publica múltiples normas",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Publicación múltiple por SUPERADMINISTRADOR responde 200', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "const resultado = json.resultados.find((item) => item.normaId === pm.collectionVariables.get('normaSuperadminId'));",
+         "pm.test('SUPERADMINISTRADOR publica la norma reservada', () => {",
+         "  pm.expect(resultado).to.exist;",
+         "  pm.expect(resultado.publicada).to.eql(true);",
+         "  pm.expect(resultado.estadoEditorial).to.eql('PUBLICADA');",
+         "});"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       },
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenSuperadmin}}"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"normaIds\": [\"{{normaSuperadminId}}\"]\n}"
+      },
+      "url": "{{baseUrl}}/normas/publicar"
+     }
+    },
+    {
+     "name": "ADMINISTRADOR no publica múltiples normas",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('ADMINISTRADOR recibe 403', () => pm.response.to.have.status(403));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       },
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenAdmin}}"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"normaIds\": [\"{{normaInvalidaId}}\"]\n}"
+      },
+      "url": "{{baseUrl}}/normas/publicar"
+     }
+    },
+    {
+     "name": "SUSCRIPTOR no publica múltiples normas",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('SUSCRIPTOR recibe 403 al publicar múltiples', () => pm.response.to.have.status(403));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       },
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenSuscriptor}}"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"normaIds\": [\"{{normaInvalidaId}}\"]\n}"
+      },
+      "url": "{{baseUrl}}/normas/publicar"
+     }
+    },
+    {
+     "name": "Sin token no publica múltiples normas",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Sin token recibe 401 al publicar múltiples', () => pm.response.to.have.status(401));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"normaIds\": [\"{{normaInvalidaId}}\"]\n}"
+      },
+      "url": "{{baseUrl}}/normas/publicar"
+     }
+    }
+   ]
+  },
+  {
+   "name": "08 - Contenido publicado",
+   "item": [
+    {
+     "name": "SUSCRIPTOR consulta contenido publicado vacío",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Contenido publicado responde 200', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "pm.test('Contenido puede estar vacío y no expone datos editoriales internos', () => {",
+         "  pm.expect(json.id).to.eql(pm.collectionVariables.get('normaIndividualId'));",
+         "  pm.expect(json.contenido).to.eql([]);",
+         "  pm.expect(json.tieneContenidoCompleto).to.eql(false);",
+         "  pm.expect(json.edicionesRegistroOficial).to.have.length(3);",
+         "  pm.expect(json.edicionesRegistroOficial[0].tipoRelacion).to.eql('PRINCIPAL');",
+         "  pm.expect(json.edicionesRegistroOficial[0].id).to.eql(pm.collectionVariables.get('edicionManualSegundaId'));",
+         "  pm.expect(json.edicionesRegistroOficial[0].fuente).to.eql(pm.collectionVariables.get('urlEdicionManualSegunda'));",
+         "  pm.expect(json.edicionesRegistroOficial[1].tipoRelacion).to.eql('CAMBIO');",
+         "  pm.expect(json.edicionesRegistroOficial[1].id).to.eql(pm.collectionVariables.get('edicionId'));",
+         "  pm.expect(json.edicionesRegistroOficial[1].fuente).to.eql(pm.collectionVariables.get('urlPdf'));",
+         "  pm.expect(json.edicionesRegistroOficial[2].tipoRelacion).to.eql('CAMBIO');",
+         "  pm.expect(json.edicionesRegistroOficial[2].id).to.eql(pm.collectionVariables.get('edicionManualId'));",
+         "  pm.expect(json.edicionesRegistroOficial[2].fuente).to.eql(pm.collectionVariables.get('urlEdicionManual'));",
+         "  pm.expect(json).not.to.have.property('fuente');",
+         "  pm.expect(json).not.to.have.property('edicionRegistroOficialId');",
+         "  pm.expect(json).not.to.have.property('estadoEditorial');",
+         "  pm.expect(json).not.to.have.property('fechaPublicacionEnSistema');",
+         "  pm.expect(json).not.to.have.property('origenRegistroOficial');",
+         "});"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenSuscriptor}}"
+       }
+      ],
+      "url": "{{baseUrl}}/normas/{{normaIndividualId}}/contenido"
+     }
+    },
+    {
+     "name": "SUPERADMINISTRADOR sin suscripción no consulta contenido publicado",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('SUPERADMINISTRADOR sin suscripción recibe 403', () => pm.response.to.have.status(403));",
+         "pm.test('Mensaje genérico para SUPERADMINISTRADOR', () => pm.expect(pm.response.json().message).to.eql('Acceso denegado'));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenSuperadmin}}"
+       }
+      ],
+      "url": "{{baseUrl}}/normas/{{normaIndividualId}}/contenido"
+     }
+    },
+    {
+     "name": "EDITOR sin suscripción no consulta contenido publicado",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('EDITOR sin suscripción recibe 403', () => pm.response.to.have.status(403));",
+         "pm.test('Mensaje genérico para EDITOR', () => pm.expect(pm.response.json().message).to.eql('Acceso denegado'));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenEditor}}"
+       }
+      ],
+      "url": "{{baseUrl}}/normas/{{normaIndividualId}}/contenido"
+     }
+    },
+    {
+     "name": "ADMINISTRADOR sin suscripción no consulta contenido publicado",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('ADMINISTRADOR sin suscripción recibe 403', () => pm.response.to.have.status(403));",
+         "pm.test('Mensaje genérico para ADMINISTRADOR', () => pm.expect(pm.response.json().message).to.eql('Acceso denegado'));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenAdmin}}"
+       }
+      ],
+      "url": "{{baseUrl}}/normas/{{normaIndividualId}}/contenido"
+     }
+    },
+    {
+     "name": "Sin token no consulta contenido publicado",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Sin token recibe 401 al consultar contenido', () => pm.response.to.have.status(401));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "GET",
+      "url": "{{baseUrl}}/normas/{{normaIndividualId}}/contenido"
+     }
+    },
+    {
+     "name": "SUSCRIPTOR no consulta contenido de BORRADOR",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Contenido de BORRADOR responde 403', () => pm.response.to.have.status(403));",
+         "pm.test('Mensaje genérico', () => pm.expect(pm.response.json().message).to.eql('Acceso denegado'));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenSuscriptor}}"
+       }
+      ],
+      "url": "{{baseUrl}}/normas/{{normaInvalidaId}}/contenido"
+     }
+    }
+   ]
+  },
+  {
+   "name": "09 - Resolución de fuentes (Fase 5B)",
+   "description": "Resolución automática de urlPdf. La corrida Newman normal usa el backend con el catálogo habilitado contra el fixture HTTP local (packages/infraestructura/scripts/fixture-catalogo-registro-oficial.js) y comprueba el contrato 200 definitivo sin consultar el sitio oficial. Con catalogoHabilitadoLocal=false se ejercita el 503 y las peticiones del fixture se omiten. Permisos y validación de contrato siempre se ejercitan.",
+   "item": [
+    {
+     "name": "Sin token no resuelve (401)",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test(\"Sin token responde 401\", () => pm.response.to.have.status(401));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [],
+      "url": "{{baseUrl}}/ediciones-registro-oficial/resolver-pendientes"
+     }
+    },
+    {
+     "name": "EDITOR no resuelve (403)",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test(\"EDITOR responde 403\", () => pm.response.to.have.status(403));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenEditor}}"
+       }
+      ],
+      "url": "{{baseUrl}}/ediciones-registro-oficial/resolver-pendientes"
+     }
+    },
+    {
+     "name": "ADMINISTRADOR no resuelve (403)",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test(\"ADMINISTRADOR responde 403\", () => pm.response.to.have.status(403));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenAdmin}}"
+       }
+      ],
+      "url": "{{baseUrl}}/ediciones-registro-oficial/resolver-pendientes"
+     }
+    },
+    {
+     "name": "SUSCRIPTOR no resuelve (403)",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test(\"SUSCRIPTOR responde 403\", () => pm.response.to.have.status(403));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenSuscriptor}}"
+       }
+      ],
+      "url": "{{baseUrl}}/ediciones-registro-oficial/resolver-pendientes"
+     }
+    },
+    {
+     "name": "SUPERADMINISTRADOR: resolver edición MANUAL omitida (o 503 sin catálogo)",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "// Corrida Newman normal: backend con el catálogo habilitado contra el",
+         "// fixture local. Resolver una edición MANUAL responde 200 y la omite sin",
+         "// tocarla (fuente ya establecida). Con catalogoHabilitadoLocal=false",
+         "// (backend sin catálogo) se comprueba el 503 CATALOGO_NO_DISPONIBLE.",
+         "if (pm.variables.get('catalogoHabilitadoLocal') === 'false') {",
+         "  pm.test('Catálogo no configurado responde 503', () => pm.response.to.have.status(503));",
+         "  pm.test('Razón pública CATALOGO_NO_DISPONIBLE', () => pm.expect(pm.response.json().message).to.eql('CATALOGO_NO_DISPONIBLE'));",
+         "} else {",
+         "  pm.test('Resolver una edición MANUAL responde 200 y la omite sin tocarla', () => {",
+         "    pm.response.to.have.status(200);",
+         "    const cuerpo = pm.response.json();",
+         "    pm.expect(cuerpo.procesadas).to.eql(1);",
+         "    pm.expect(cuerpo.omitidas).to.eql(1);",
+         "    pm.expect(cuerpo.resueltas).to.eql(0);",
+         "    pm.expect(cuerpo.erroresCatalogo).to.eql(0);",
+         "    pm.expect(cuerpo).to.not.have.property('erroresTransitorios');",
+         "  });",
+         "}"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenSuperadmin}}"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": "{{baseUrl}}/ediciones-registro-oficial/resolver-pendientes",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"edicionIds\": [\"{{edicionManualId}}\"]\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     }
+    },
+    {
+     "name": "SUPERADMINISTRADOR: propiedad desconocida en el cuerpo (400)",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test(\"Propiedad desconocida responde 400\", () => pm.response.to.have.status(400));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenSuperadmin}}"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": "{{baseUrl}}/ediciones-registro-oficial/resolver-pendientes",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"desconocido\": true\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     }
+    },
+    {
+     "name": "SUPERADMINISTRADOR: ids duplicados (400)",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test(\"Ids duplicados responde 400\", () => pm.response.to.have.status(400));",
+         "pm.test(\"Razón SOLICITUD_INVALIDA\", () => pm.expect(pm.response.json().message).to.eql(\"SOLICITUD_INVALIDA\"));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenSuperadmin}}"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": "{{baseUrl}}/ediciones-registro-oficial/resolver-pendientes",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"edicionIds\": [\"edicion-x\", \" edicion-x \"]\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     }
+    },
+    {
+     "name": "SUPERADMINISTRADOR: límite inválido (400)",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test(\"Límite inválido responde 400\", () => pm.response.to.have.status(400));",
+         "pm.test(\"Razón SOLICITUD_INVALIDA\", () => pm.expect(pm.response.json().message).to.eql(\"SOLICITUD_INVALIDA\"));"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenSuperadmin}}"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": "{{baseUrl}}/ediciones-registro-oficial/resolver-pendientes",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"limite\": 0\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     }
+    },
+    {
+     "name": "EDITOR registra norma con edición PENDIENTE (mes cubierto por el fixture)",
+     "event": [
+      {
+       "listen": "prerequest",
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "// Requiere el backend con el catálogo habilitado contra el fixture",
+         "// local (nunca el sitio oficial). Con catalogoHabilitadoLocal=false",
+         "// la petición se omite sin fallar.",
+         "if (pm.variables.get('catalogoHabilitadoLocal') === 'false') {",
+         "  pm.execution.skipRequest();",
+         "}"
+        ]
+       }
+      },
+      {
+       "listen": "test",
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test('Norma con edición del mes del fixture responde 201', () => pm.response.to.have.status(201));",
+         "const json = pm.response.json();",
+         "pm.test('La norma queda asociada a una edición del Registro Oficial', () => {",
+         "  pm.expect(json.edicionesRegistroOficial).to.have.length(1);",
+         "});",
+         "pm.collectionVariables.set('edicionFixtureResueltaId', json.edicionesRegistroOficial[0].id);"
+        ]
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenEditor}}"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": "{{baseUrl}}/normas",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"numero\": \"F5B-RES-{{runId}}\",\n  \"titulo\": \"Norma contrato resolución RES {{runId}}\",\n  \"contenido\": [],\n  \"tipoNorma\": \"Ley\",\n  \"institucionExpide\": \"Asamblea Nacional\",\n  \"estadoJuridico\": \"VIGENTE\",\n  \"fechaExpedicion\": \"2026-05-01\",\n  \"fechaPublicacionOficial\": \"{{fechaEdicionFixtureResuelta}}\",\n  \"tipoPublicacionRegistroOficial\": \"RO\",\n  \"numeroPublicacionRegistroOficial\": {{numeroEdicionFixtureResuelta}}\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     }
+    },
+    {
+     "name": "SUPERADMINISTRADOR: edicionIds y limite simultáneos (400)",
+     "event": [
+      {
+       "listen": "prerequest",
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "// Usa la edición PENDIENTE capturada dinámicamente en la petición",
+         "// anterior; con catalogoHabilitadoLocal=false esa captura se omitió,",
+         "// así que esta petición también se omite sin fallar.",
+         "if (pm.variables.get('catalogoHabilitadoLocal') === 'false') {",
+         "  pm.execution.skipRequest();",
+         "}"
+        ]
+       }
+      },
+      {
+       "listen": "test",
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "// `edicionIds` y `limite` son mutuamente excluyentes: enviar ambos es",
+         "// una solicitud inválida y no debe modificar la edición (la siguiente",
+         "// petición la resuelve desde PENDIENTE, verificando que no cambió).",
+         "pm.test(\"edicionIds y limite simultáneos responde 400\", () => pm.response.to.have.status(400));",
+         "pm.test(\"Razón SOLICITUD_INVALIDA\", () => pm.expect(pm.response.json().message).to.eql(\"SOLICITUD_INVALIDA\"));"
+        ]
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenSuperadmin}}"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": "{{baseUrl}}/ediciones-registro-oficial/resolver-pendientes",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"edicionIds\": [\"{{edicionFixtureResueltaId}}\"],\n  \"limite\": 1\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     }
+    },
+    {
+     "name": "SUPERADMINISTRADOR resuelve contra el fixture local (200, contrato definitivo)",
+     "event": [
+      {
+       "listen": "prerequest",
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "// Requiere el backend con el catálogo habilitado contra el fixture",
+         "// local (nunca el sitio oficial). Con catalogoHabilitadoLocal=false",
+         "// la petición se omite sin fallar.",
+         "if (pm.variables.get('catalogoHabilitadoLocal') === 'false') {",
+         "  pm.execution.skipRequest();",
+         "}"
+        ]
+       }
+      },
+      {
+       "listen": "test",
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test('Resolución contra el fixture responde 200', () => pm.response.to.have.status(200));",
+         "const cuerpo = pm.response.json();",
+         "const razones = [\"CATALOGO_TEMPORALMENTE_NO_DISPONIBLE\", \"RESPUESTA_CATALOGO_INVALIDA\", \"COBERTURA_CATALOGO_NO_DISPONIBLE\", \"BUSQUEDA_CATALOGO_INCOMPLETA\"];",
+         "pm.test('Contrato definitivo: claves exactas y sin erroresTransitorios', () => {",
+         "  pm.expect(cuerpo).to.have.all.keys('procesadas','resueltas','noEncontradas','conflictivas','omitidas','erroresCatalogo','erroresPorRazon');",
+         "  pm.expect(cuerpo).to.not.have.property('erroresTransitorios');",
+         "});",
+         "pm.test('Todos los contadores son numéricos', () => {",
+         "  ['procesadas','resueltas','noEncontradas','conflictivas','omitidas','erroresCatalogo'].forEach((clave) => pm.expect(cuerpo[clave]).to.be.a('number'));",
+         "  pm.expect(cuerpo.erroresPorRazon).to.have.all.keys(...razones);",
+         "  razones.forEach((razon) => pm.expect(cuerpo.erroresPorRazon[razon]).to.be.a('number'));",
+         "});",
+         "pm.test('Las sumas cierran: razones == erroresCatalogo y resultados == procesadas', () => {",
+         "  const sumaRazones = razones.reduce((total, razon) => total + cuerpo.erroresPorRazon[razon], 0);",
+         "  pm.expect(sumaRazones).to.eql(cuerpo.erroresCatalogo);",
+         "  pm.expect(cuerpo.resueltas + cuerpo.noEncontradas + cuerpo.conflictivas + cuerpo.omitidas + cuerpo.erroresCatalogo).to.eql(cuerpo.procesadas);",
+         "});",
+         "pm.test('La edición del fixture se resuelve sin errores del catálogo', () => {",
+         "  pm.expect(cuerpo.procesadas).to.eql(1);",
+         "  // Primera corrida tras el seed: RESUELTA. Re-corridas sin reset: ya",
+         "  // resuelta => FUENTE_YA_ESTABLECIDA (omitida). Nunca error ni NO_ENCONTRADA.",
+         "  pm.expect(cuerpo.resueltas + cuerpo.omitidas).to.eql(1);",
+         "  pm.expect(cuerpo.erroresCatalogo).to.eql(0);",
+         "  pm.expect(cuerpo.noEncontradas).to.eql(0);",
+         "  pm.expect(cuerpo.conflictivas).to.eql(0);",
+         "});"
+        ]
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenSuperadmin}}"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": "{{baseUrl}}/ediciones-registro-oficial/resolver-pendientes",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"edicionIds\": [\"{{edicionFixtureResueltaId}}\"]\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     }
+    },
+    {
+     "name": "EDITOR verifica la edición RESUELTA con la URL del fixture",
+     "event": [
+      {
+       "listen": "prerequest",
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "// Requiere el backend con el catálogo habilitado contra el fixture",
+         "// local (nunca el sitio oficial). Con catalogoHabilitadoLocal=false",
+         "// la petición se omite sin fallar.",
+         "if (pm.variables.get('catalogoHabilitadoLocal') === 'false') {",
+         "  pm.execution.skipRequest();",
+         "}"
+        ]
+       }
+      },
+      {
+       "listen": "test",
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test('Detalle de la edición resuelta responde 200', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "pm.test('La edición queda RESUELTA con la URL del fixture (allowlist)', () => {",
+         "  pm.expect(json.id).to.eql(pm.collectionVariables.get('edicionFixtureResueltaId'));",
+         "  pm.expect(json.estadoResolucionFuente).to.eql('RESUELTA');",
+         "  pm.expect(json.urlPdf).to.eql(pm.collectionVariables.get('urlPdfFixtureResuelta'));",
+         "});"
+        ]
+       }
+      }
+     ],
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenEditor}}"
+       }
+      ],
+      "url": "{{baseUrl}}/ediciones-registro-oficial/{{edicionFixtureResueltaId}}"
+     }
+    },
+    {
+     "name": "EDITOR registra norma con edición PENDIENTE (mes en mantenimiento del fixture)",
+     "event": [
+      {
+       "listen": "prerequest",
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "// Requiere el backend con el catálogo habilitado contra el fixture",
+         "// local (nunca el sitio oficial). Con catalogoHabilitadoLocal=false",
+         "// la petición se omite sin fallar.",
+         "if (pm.variables.get('catalogoHabilitadoLocal') === 'false') {",
+         "  pm.execution.skipRequest();",
+         "}"
+        ]
+       }
+      },
+      {
+       "listen": "test",
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test('Norma con edición del mes en mantenimiento responde 201', () => pm.response.to.have.status(201));",
+         "const json = pm.response.json();",
+         "pm.test('La norma queda asociada a una edición del Registro Oficial', () => {",
+         "  pm.expect(json.edicionesRegistroOficial).to.have.length(1);",
+         "});",
+         "pm.collectionVariables.set('edicionFixtureFalloId', json.edicionesRegistroOficial[0].id);"
+        ]
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenEditor}}"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": "{{baseUrl}}/normas",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"numero\": \"F5B-FALLO-{{runId}}\",\n  \"titulo\": \"Norma contrato resolución FALLO {{runId}}\",\n  \"contenido\": [],\n  \"tipoNorma\": \"Ley\",\n  \"institucionExpide\": \"Asamblea Nacional\",\n  \"estadoJuridico\": \"VIGENTE\",\n  \"fechaExpedicion\": \"2026-06-01\",\n  \"fechaPublicacionOficial\": \"{{fechaEdicionFixtureFallo}}\",\n  \"tipoPublicacionRegistroOficial\": \"RO\",\n  \"numeroPublicacionRegistroOficial\": {{numeroEdicionFixtureFallo}}\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     }
+    },
+    {
+     "name": "SUPERADMINISTRADOR: el fallo del catálogo conserva su razón (200)",
+     "event": [
+      {
+       "listen": "prerequest",
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "// Requiere el backend con el catálogo habilitado contra el fixture",
+         "// local (nunca el sitio oficial). Con catalogoHabilitadoLocal=false",
+         "// la petición se omite sin fallar.",
+         "if (pm.variables.get('catalogoHabilitadoLocal') === 'false') {",
+         "  pm.execution.skipRequest();",
+         "}"
+        ]
+       }
+      },
+      {
+       "listen": "test",
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test('Fallo del catálogo responde 200 (procesamiento parcial, no 5xx)', () => pm.response.to.have.status(200));",
+         "const cuerpo = pm.response.json();",
+         "const razones = [\"CATALOGO_TEMPORALMENTE_NO_DISPONIBLE\", \"RESPUESTA_CATALOGO_INVALIDA\", \"COBERTURA_CATALOGO_NO_DISPONIBLE\", \"BUSQUEDA_CATALOGO_INCOMPLETA\"];",
+         "pm.test('Contrato definitivo: claves exactas y sin erroresTransitorios', () => {",
+         "  pm.expect(cuerpo).to.have.all.keys('procesadas','resueltas','noEncontradas','conflictivas','omitidas','erroresCatalogo','erroresPorRazon');",
+         "  pm.expect(cuerpo).to.not.have.property('erroresTransitorios');",
+         "  pm.expect(cuerpo.erroresPorRazon).to.have.all.keys(...razones);",
+         "});",
+         "pm.test('La página de mantenimiento se clasifica RESPUESTA_CATALOGO_INVALIDA', () => {",
+         "  pm.expect(cuerpo.erroresCatalogo).to.eql(1);",
+         "  pm.expect(cuerpo.erroresPorRazon.RESPUESTA_CATALOGO_INVALIDA).to.eql(1);",
+         "  pm.expect(cuerpo.erroresPorRazon.CATALOGO_TEMPORALMENTE_NO_DISPONIBLE).to.eql(0);",
+         "  pm.expect(cuerpo.erroresPorRazon.COBERTURA_CATALOGO_NO_DISPONIBLE).to.eql(0);",
+         "  pm.expect(cuerpo.erroresPorRazon.BUSQUEDA_CATALOGO_INCOMPLETA).to.eql(0);",
+         "});",
+         "pm.test('El fallo no incrementa noEncontradas y las sumas cierran', () => {",
+         "  pm.expect(cuerpo.procesadas).to.eql(1);",
+         "  pm.expect(cuerpo.noEncontradas).to.eql(0);",
+         "  pm.expect(cuerpo.resueltas).to.eql(0);",
+         "  pm.expect(cuerpo.conflictivas).to.eql(0);",
+         "  pm.expect(cuerpo.omitidas).to.eql(0);",
+         "  const sumaRazones = razones.reduce((total, razon) => total + cuerpo.erroresPorRazon[razon], 0);",
+         "  pm.expect(sumaRazones).to.eql(cuerpo.erroresCatalogo);",
+         "  pm.expect(cuerpo.resueltas + cuerpo.noEncontradas + cuerpo.conflictivas + cuerpo.omitidas + cuerpo.erroresCatalogo).to.eql(cuerpo.procesadas);",
+         "});"
+        ]
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenSuperadmin}}"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": "{{baseUrl}}/ediciones-registro-oficial/resolver-pendientes",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"edicionIds\": [\"{{edicionFixtureFalloId}}\"]\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     }
+    },
+    {
+     "name": "EDITOR verifica que la edición del fallo sigue PENDIENTE",
+     "event": [
+      {
+       "listen": "prerequest",
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "// Requiere el backend con el catálogo habilitado contra el fixture",
+         "// local (nunca el sitio oficial). Con catalogoHabilitadoLocal=false",
+         "// la petición se omite sin fallar.",
+         "if (pm.variables.get('catalogoHabilitadoLocal') === 'false') {",
+         "  pm.execution.skipRequest();",
+         "}"
+        ]
+       }
+      },
+      {
+       "listen": "test",
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "pm.test('Detalle de la edición del fallo responde 200', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "pm.test('El fallo del catálogo dejó la edición PENDIENTE y sin URL', () => {",
+         "  pm.expect(json.id).to.eql(pm.collectionVariables.get('edicionFixtureFalloId'));",
+         "  pm.expect(json.estadoResolucionFuente).to.eql('PENDIENTE');",
+         "  pm.expect(json.urlPdf).to.eql(null);",
+         "});"
+        ]
+       }
+      }
+     ],
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenEditor}}"
+       }
+      ],
+      "url": "{{baseUrl}}/ediciones-registro-oficial/{{edicionFixtureFalloId}}"
+     }
+    },
+    {
+     "name": "[Manual] Resolución real con catálogo habilitado",
+     "event": [
+      {
+       "listen": "prerequest",
+       "script": {
+        "type": "text/javascript",
+        "exec": [
+         "// Fail-safe de reporte: cuando la prueba real está deshabilitada",
+         "// (ejecutarPruebaRealCatalogo != 'true') no se envía la petición, para no",
+         "// mostrar una solicitud fallida o engañosa contra el sitio/estado real.",
+         "if (pm.variables.get('ejecutarPruebaRealCatalogo') !== 'true') {",
+         "  pm.execution.skipRequest();",
+         "}"
+        ]
+       }
+      },
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "// Solo afirma cuando la integración real está habilitada localmente.",
+         "// En CI (ejecutarPruebaRealCatalogo != true) no verifica nada: documenta el flujo.",
+         "const activo = pm.variables.get(\"ejecutarPruebaRealCatalogo\") === \"true\";",
+         "if (!activo) {",
+         "  pm.test.skip(\"Prueba real deshabilitada (ver descripción de la colección)\", () => {});",
+         "} else {",
+         "  pm.test(\"Resolución real responde 200\", () => pm.response.to.have.status(200));",
+         "  const cuerpo = pm.response.json();",
+         "  const razones = [",
+         "    \"CATALOGO_TEMPORALMENTE_NO_DISPONIBLE\",",
+         "    \"RESPUESTA_CATALOGO_INVALIDA\",",
+         "    \"COBERTURA_CATALOGO_NO_DISPONIBLE\",",
+         "    \"BUSQUEDA_CATALOGO_INCOMPLETA\"",
+         "  ];",
+         "  pm.test(\"Resumen operativo coherente (sin erroresTransitorios)\", () => {",
+         "    pm.expect(cuerpo).to.have.all.keys(\"procesadas\",\"resueltas\",\"noEncontradas\",\"conflictivas\",\"omitidas\",\"erroresCatalogo\",\"erroresPorRazon\");",
+         "    pm.expect(cuerpo).to.not.have.property(\"erroresTransitorios\");",
+         "    pm.expect(cuerpo.procesadas).to.eql(1);",
+         "  });",
+         "  pm.test(\"erroresPorRazon discrimina las cuatro razones y suma erroresCatalogo\", () => {",
+         "    pm.expect(cuerpo.erroresPorRazon).to.have.all.keys(...razones);",
+         "    razones.forEach((razon) => pm.expect(cuerpo.erroresPorRazon[razon]).to.be.a(\"number\"));",
+         "    pm.expect(cuerpo.erroresCatalogo).to.be.a(\"number\");",
+         "    const suma = razones.reduce((total, razon) => total + cuerpo.erroresPorRazon[razon], 0);",
+         "    pm.expect(suma).to.eql(cuerpo.erroresCatalogo);",
+         "  });",
+         "  pm.test(\"Un fallo del catálogo no se reporta como NO_ENCONTRADA\", () => {",
+         "    const total = cuerpo.resueltas + cuerpo.noEncontradas + cuerpo.conflictivas + cuerpo.omitidas + cuerpo.erroresCatalogo;",
+         "    pm.expect(total).to.eql(cuerpo.procesadas);",
+         "    if (cuerpo.erroresCatalogo > 0) {",
+         "      pm.expect(cuerpo.noEncontradas).to.eql(0);",
+         "    }",
+         "  });",
+         "}"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenSuperadmin}}"
+       },
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "url": "{{baseUrl}}/ediciones-registro-oficial/resolver-pendientes",
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"edicionIds\": [\"{{edicionPendienteRealId}}\"]\n}",
+       "options": {
+        "raw": {
+         "language": "json"
+        }
+       }
+      }
+     }
+    }
+   ]
+  }
+ ],
+ "variable": [
+  {
+   "key": "baseUrl",
+   "value": "http://localhost:3000",
+   "type": "string"
+  },
+  {
+   "key": "tokenSuperadmin",
+   "value": "",
+   "type": "string"
+  },
+  {
+   "key": "tokenEditor",
+   "value": "",
+   "type": "string"
+  },
+  {
+   "key": "tokenAdmin",
+   "value": "",
+   "type": "string"
+  },
+  {
+   "key": "tokenSuscriptor",
+   "value": "",
+   "type": "string"
+  },
+  {
+   "key": "runId",
+   "value": "",
+   "type": "string"
+  },
+  {
+   "key": "periodoAnio",
+   "value": "",
+   "type": "string"
+  },
+  {
+   "key": "periodoMes",
+   "value": "",
+   "type": "string"
+  },
+  {
+   "key": "fechaPublicacionOficial",
+   "value": "",
+   "type": "string"
+  },
+  {
+   "key": "publicacionNumero",
+   "value": "",
+   "type": "string"
+  },
+  {
+   "key": "fechaEdicionManual",
+   "value": "",
+   "type": "string"
+  },
+  {
+   "key": "numeroEdicionManual",
+   "value": "",
+   "type": "string"
+  },
+  {
+   "key": "fechaEdicionManualSegunda",
+   "value": "",
+   "type": "string"
+  },
+  {
+   "key": "numeroEdicionManualSegunda",
+   "value": "",
+   "type": "string"
+  },
+  {
+   "key": "urlResumen",
+   "value": "",
+   "type": "string"
+  },
+  {
+   "key": "urlPdf",
+   "value": "",
+   "type": "string"
+  },
+  {
+   "key": "urlEdicionManual",
+   "value": "",
+   "type": "string"
+  },
+  {
+   "key": "urlEdicionManualAlterna",
+   "value": "",
+   "type": "string"
+  },
+  {
+   "key": "urlEdicionManualSegunda",
+   "value": "",
+   "type": "string"
+  },
+  {
+   "key": "loteId",
+   "value": "",
+   "type": "string"
+  },
+  {
+   "key": "normaIndividualId",
+   "value": "",
+   "type": "string"
+  },
+  {
+   "key": "normaInvalidaId",
+   "value": "",
+   "type": "string"
+  },
+  {
+   "key": "normaLoteId",
+   "value": "",
+   "type": "string"
+  },
+  {
+   "key": "normaSuperadminId",
+   "value": "",
+   "type": "string"
+  },
+  {
+   "key": "edicionId",
+   "value": "",
+   "type": "string"
+  },
+  {
+   "key": "edicionManualId",
+   "value": "",
+   "type": "string"
+  },
+  {
+   "key": "edicionManualSegundaId",
+   "value": "",
+   "type": "string"
+  },
+  {
+   "key": "ejecutarPruebaRealCatalogo",
+   "value": "false"
+  },
+  {
+   "key": "edicionPendienteRealId",
+   "value": ""
+  },
+  {
+   "key": "catalogoHabilitadoLocal",
+   "value": "true",
+   "type": "string"
+  },
+  {
+   "key": "numeroEdicionFixtureResuelta",
+   "value": "700",
+   "type": "string"
+  },
+  {
+   "key": "fechaEdicionFixtureResuelta",
+   "value": "2026-05-04",
+   "type": "string"
+  },
+  {
+   "key": "numeroEdicionFixtureFallo",
+   "value": "701",
+   "type": "string"
+  },
+  {
+   "key": "fechaEdicionFixtureFallo",
+   "value": "2026-06-04",
+   "type": "string"
+  },
+  {
+   "key": "urlPdfFixtureResuelta",
+   "value": "https://cdn.oficial.test/ediciones/ro-700.pdf",
+   "type": "string"
+  },
+  {
+   "key": "edicionFixtureResueltaId",
+   "value": "",
+   "type": "string"
+  },
+  {
+   "key": "edicionFixtureFalloId",
+   "value": "",
+   "type": "string"
+  }
+ ]
+}

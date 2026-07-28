@@ -1139,6 +1139,54 @@ describirPrisma(
       expect(await repositorio.buscarPorIds(['edicion-1', 'no-existe'])).toHaveLength(1);
     });
 
+    it('listarPendientesSinFuente acota, ordena por fecha/id y excluye resueltas', async () => {
+      const repositorio = new RepositorioEdicionesRegistroOficialPrisma(prisma);
+      const base = {
+        tipoPublicacionRegistroOficial: 'RO',
+        urlPdf: null,
+        estadoResolucionFuente: EstadoResolucionFuente.PENDIENTE,
+      };
+      await repositorio.guardar(
+        new EdicionRegistroOficial({
+          ...base,
+          id: 'pend-c',
+          numeroPublicacionRegistroOficial: 803,
+          fechaPublicacionOficial: new Date('2026-03-05T00:00:00.000Z'),
+        }),
+      );
+      await repositorio.guardar(
+        new EdicionRegistroOficial({
+          ...base,
+          id: 'pend-a',
+          numeroPublicacionRegistroOficial: 801,
+          fechaPublicacionOficial: new Date('2026-03-01T00:00:00.000Z'),
+        }),
+      );
+      await repositorio.guardar(
+        new EdicionRegistroOficial({
+          ...base,
+          id: 'pend-b',
+          numeroPublicacionRegistroOficial: 802,
+          fechaPublicacionOficial: new Date('2026-03-03T00:00:00.000Z'),
+        }),
+      );
+      // Resuelta: no debe aparecer entre las pendientes sin fuente.
+      await repositorio.guardar(
+        new EdicionRegistroOficial({
+          id: 'resuelta-1',
+          tipoPublicacionRegistroOficial: 'RO',
+          numeroPublicacionRegistroOficial: 804,
+          fechaPublicacionOficial: new Date('2026-03-02T00:00:00.000Z'),
+          urlPdf: 'https://www.registroficial.gob.ec/ediciones/ro-804.pdf',
+          estadoResolucionFuente: EstadoResolucionFuente.RESUELTA,
+        }),
+      );
+
+      const lote = await repositorio.listarPendientesSinFuente(2);
+
+      expect(lote.map((edicion) => edicion.id)).toEqual(['pend-a', 'pend-b']);
+    });
+
     it('dos creaciones Prisma simultáneas de la misma triple terminan y reutilizan un único id', async () => {
       const repositorio = new RepositorioEdicionesRegistroOficialPrisma(prisma);
       const propsCompartidas = {
@@ -1279,12 +1327,15 @@ describirPrisma(
           buscarEdiciones: async () => {
             avisarConsulta();
             await continuarConsulta;
-            return [
-              {
-                urlPdf: 'https://www.registroficial.gob.ec/auto-903.pdf',
-                fechaPublicacionOficial: null,
-              },
-            ];
+            return {
+              exitoso: true,
+              candidatas: [
+                {
+                  urlPdf: 'https://www.registroficial.gob.ec/auto-903.pdf',
+                  fechaPublicacionOficial: null,
+                },
+              ],
+            };
           },
         },
       });

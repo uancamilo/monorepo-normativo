@@ -21,6 +21,9 @@ function crearProps(
 
 const URL_PDF = 'https://www.registroficial.gob.ec/ediciones/sro-500.pdf';
 
+const MENSAJE_SOLO_PENDIENTE =
+  'La resolución automática solo está permitida para una edición PENDIENTE';
+
 describe('EdicionRegistroOficial', () => {
   describe('construcción', () => {
     it('crea una edición pendiente sin urlPdf', () => {
@@ -184,17 +187,34 @@ describe('EdicionRegistroOficial', () => {
       );
     });
 
-    it('permite reintentar la resolución desde NO_ENCONTRADA y CONFLICTIVA', () => {
-      const noEncontrada = new EdicionRegistroOficial(crearProps()).marcarFuenteNoEncontrada();
-      const conflictiva = new EdicionRegistroOficial(crearProps()).marcarFuenteConflictiva();
+    it('solo una edición PENDIENTE admite resolución automática', () => {
+      const pendiente = new EdicionRegistroOficial(crearProps());
 
-      expect(noEncontrada.resolverFuente(URL_PDF).estadoResolucionFuente).toBe(
-        EstadoResolucionFuente.RESUELTA,
-      );
-      expect(conflictiva.resolverFuente(URL_PDF).estadoResolucionFuente).toBe(
-        EstadoResolucionFuente.RESUELTA,
-      );
+      expect(pendiente.admiteResolucionAutomatica()).toBe(true);
     });
+
+    it.each([
+      EstadoResolucionFuente.NO_ENCONTRADA,
+      EstadoResolucionFuente.CONFLICTIVA,
+    ])(
+      'una edición %s es terminal para la resolución automática (requiere reapertura explícita futura)',
+      (estadoResolucionFuente) => {
+        const edicion = new EdicionRegistroOficial(
+          crearProps({ urlPdf: null, estadoResolucionFuente }),
+        );
+
+        expect(edicion.admiteResolucionAutomatica()).toBe(false);
+        expect(() => edicion.resolverFuente(URL_PDF)).toThrow(
+          MENSAJE_SOLO_PENDIENTE,
+        );
+        expect(() => edicion.marcarFuenteNoEncontrada()).toThrow(
+          MENSAJE_SOLO_PENDIENTE,
+        );
+        expect(() => edicion.marcarFuenteConflictiva()).toThrow(
+          MENSAJE_SOLO_PENDIENTE,
+        );
+      },
+    );
 
     it.each([EstadoResolucionFuente.RESUELTA, EstadoResolucionFuente.MANUAL])(
       'no sobrescribe una fuente %s',
@@ -205,13 +225,13 @@ describe('EdicionRegistroOficial', () => {
 
         expect(edicion.admiteResolucionAutomatica()).toBe(false);
         expect(() => edicion.resolverFuente('https://otra.url/pdf')).toThrow(
-          'La resolución automática no puede sobrescribir una fuente RESUELTA o MANUAL',
+          MENSAJE_SOLO_PENDIENTE,
         );
         expect(() => edicion.marcarFuenteNoEncontrada()).toThrow(
-          'La resolución automática no puede sobrescribir una fuente RESUELTA o MANUAL',
+          MENSAJE_SOLO_PENDIENTE,
         );
         expect(() => edicion.marcarFuenteConflictiva()).toThrow(
-          'La resolución automática no puede sobrescribir una fuente RESUELTA o MANUAL',
+          MENSAJE_SOLO_PENDIENTE,
         );
       },
     );

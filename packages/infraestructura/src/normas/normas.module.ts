@@ -45,6 +45,8 @@ import {
   TOKEN_UNIDAD_TRABAJO_PUBLICACION_NORMA,
 } from './tokens';
 import { TOKEN_REPOSITORIO_INGESTA_REGISTRO_OFICIAL } from '../ingesta/tokens';
+import { obtenerConfiguracionCatalogoRegistroOficial } from '../configuracion/catalogo-registro-oficial';
+import { construirCatalogoRegistroOficial } from './catalogo/construir-catalogo-registro-oficial';
 
 @Module({
   imports: [AutenticacionModule],
@@ -354,11 +356,17 @@ import { TOKEN_REPOSITORIO_INGESTA_REGISTRO_OFICIAL } from '../ingesta/tokens';
       useFactory: (
         repositorioUsuarios: RepositorioUsuarios,
         repositorioEdiciones: RepositorioEdicionesRegistroOficial,
-      ) =>
-        new ResolverFuenteRegistroOficial({
+      ) => {
+        const configuracion = obtenerConfiguracionCatalogoRegistroOficial();
+        return new ResolverFuenteRegistroOficial({
           repositorioUsuarios,
           repositorioEdiciones,
-        }),
+          catalogoRegistroOficial:
+            construirCatalogoRegistroOficial(configuracion),
+          limiteMaximoEdiciones: configuracion.maxEdicionesPorEjecucion,
+          maxConcurrencia: configuracion.maxConcurrencia,
+        });
+      },
       inject: [
         TOKEN_REPOSITORIO_USUARIOS,
         TOKEN_REPOSITORIO_EDICIONES_REGISTRO_OFICIAL,
