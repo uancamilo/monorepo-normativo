@@ -6,6 +6,10 @@ import { RepositorioEdicionesRegistroOficial } from '../puertos/RepositorioEdici
 import { RepositorioUsuarios } from '../puertos/RepositorioUsuarios';
 import { PoliticaGestionEditorialNorma } from '../politicas/PoliticaGestionEditorialNorma';
 import { GeneradorIds } from '../puertos/GeneradorIds';
+import {
+  armarEdicionRegistroOficialConsultada,
+  EdicionRegistroOficialConsultada,
+} from '../modelos/VistaEdicionRegistroOficial';
 
 export type SolicitudCrearEdicionRegistroOficial = {
   usuarioAutenticadoId: string;
@@ -25,14 +29,7 @@ export type RazonCrearEdicionFallido =
 export type ResultadoCrearEdicionRegistroOficial =
   | {
       exitoso: true;
-      edicion: {
-        id: string;
-        tipoPublicacionRegistroOficial: string;
-        numeroPublicacionRegistroOficial: number;
-        fechaPublicacionOficial: Date;
-        urlPdf: string;
-        estadoResolucionFuente: EstadoResolucionFuente;
-      };
+      edicion: EdicionRegistroOficialConsultada;
     }
   | {
       exitoso: false;
@@ -107,16 +104,7 @@ export class CrearEdicionRegistroOficial {
 
     return {
       exitoso: true,
-      edicion: {
-        id: persistida.edicion.id,
-        tipoPublicacionRegistroOficial:
-          persistida.edicion.tipoPublicacionRegistroOficial,
-        numeroPublicacionRegistroOficial:
-          persistida.edicion.numeroPublicacionRegistroOficial,
-        fechaPublicacionOficial: persistida.edicion.fechaPublicacionOficial,
-        urlPdf: persistida.edicion.urlPdf ?? '',
-        estadoResolucionFuente: persistida.edicion.estadoResolucionFuente,
-      },
+      edicion: armarEdicionRegistroOficialConsultada(persistida.edicion),
     };
   }
 }

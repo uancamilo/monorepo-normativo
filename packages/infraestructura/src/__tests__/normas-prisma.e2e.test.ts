@@ -242,7 +242,7 @@ describirPrisma(
       expect(eventos).toHaveLength(1);
     });
 
-    it('reemplaza la principal atómicamente y filtra cambios no publicables para cualquier lector con suscripción', async () => {
+    it('reemplaza la principal atómicamente y filtra ediciones según la política de acceso', async () => {
       const registro = await request(servidor())
         .post('/normas')
         .set('Authorization', await autorizacionDe(CORREO_EDITOR))
@@ -265,8 +265,10 @@ describirPrisma(
           numeroPublicacionRegistroOficial: numeroEdicion + 21,
           fechaPublicacionOficial: '2026-07-16',
           urlPdf: `https://www.registroficial.gob.ec/principal-${sufijoEdicion}.pdf`,
-        });
+      });
       expect(nuevaPrincipal.status).toBe(201);
+      expect(nuevaPrincipal.body.fechaPublicacionOficial).toBe('2026-07-16');
+      expect(nuevaPrincipal.body.fechaPublicacionOficial).not.toContain('T');
 
       const cambio = await request(servidor())
         .patch(`/normas/${normaId}/edicion-registro-oficial`)
@@ -286,6 +288,46 @@ describirPrisma(
       ]);
       expect(cambio.body).not.toHaveProperty('edicionRegistroOficialId');
 
+      for (const correo of [CORREO_ADMIN, CORREO_SUSCRIPTOR]) {
+        const autorizacion = await autorizacionDe(correo);
+        const catalogo = await request(servidor())
+          .get('/ediciones-registro-oficial')
+          .set('Authorization', autorizacion);
+        expect(catalogo.status).toBe(200);
+        expect(
+          catalogo.body.some(
+            (edicion: { id: string }) => edicion.id === nuevaPrincipal.body.id,
+          ),
+        ).toBe(true);
+        expect(
+          catalogo.body.some(
+            (edicion: { id: string }) => edicion.id === principalAnteriorId,
+          ),
+        ).toBe(false);
+        expect(
+          catalogo.body.every(
+            (edicion: Record<string, unknown>) =>
+              !Object.prototype.hasOwnProperty.call(
+                edicion,
+                'estadoResolucionFuente',
+              ),
+          ),
+        ).toBe(true);
+
+        const detalleIncompleto = await request(servidor())
+          .get(`/ediciones-registro-oficial/${principalAnteriorId}`)
+          .set('Authorization', autorizacion);
+        expect(detalleIncompleto.status).toBe(404);
+
+        const detalleCompleto = await request(servidor())
+          .get(`/ediciones-registro-oficial/${nuevaPrincipal.body.id}`)
+          .set('Authorization', autorizacion);
+        expect(detalleCompleto.status).toBe(200);
+        expect(detalleCompleto.body).not.toHaveProperty(
+          'estadoResolucionFuente',
+        );
+      }
+
       await expect(
         prisma.normaEdicionRegistroOficialCambio.findUnique({
           where: {
@@ -303,44 +345,22 @@ describirPrisma(
         .send({});
       expect(publicacion.status).toBe(200);
 
-      const suscripcionAdminId = `suscripcion-admin-${sufijoEdicion}`;
-      await prisma.suscripcion.create({
-        data: {
-          id: suscripcionAdminId,
-          clienteId: `cliente-admin-${sufijoEdicion}`,
-          cantidadMaximaUsuarios: 1,
-          estado: 'ACTIVA',
-          fechaInicio: new Date('2000-01-01T00:00:00.000Z'),
-          fechaFin: new Date('2100-01-01T00:00:00.000Z'),
-          correosHabilitados: {
-            create: {
-              id: `correo-admin-${sufijoEdicion}`,
-              correoNormalizado: CORREO_ADMIN,
-            },
-          },
-        },
-      });
-
-      try {
-        for (const correo of [CORREO_SUSCRIPTOR, CORREO_ADMIN]) {
-          const contenido = await request(servidor())
-            .get(`/normas/${normaId}/contenido`)
-            .set('Authorization', await autorizacionDe(correo));
-          expect(contenido.status).toBe(200);
-          expect(contenido.body.edicionesRegistroOficial).toEqual([
-            expect.objectContaining({
-              tipoRelacion: 'PRINCIPAL',
-              id: nuevaPrincipal.body.id,
-              fuente: nuevaPrincipal.body.urlPdf,
-            }),
-          ]);
-          expect(contenido.body).not.toHaveProperty(
-            'estadoResolucionFuente',
-          );
-          expect(contenido.body).not.toHaveProperty('origenRegistroOficial');
-        }
-      } finally {
-        await prisma.suscripcion.delete({ where: { id: suscripcionAdminId } });
+      for (const correo of [CORREO_SUSCRIPTOR, CORREO_ADMIN]) {
+        const contenido = await request(servidor())
+          .get(`/normas/${normaId}/contenido`)
+          .set('Authorization', await autorizacionDe(correo));
+        expect(contenido.status).toBe(200);
+        expect(contenido.body.edicionesRegistroOficial).toEqual([
+          expect.objectContaining({
+            tipoRelacion: 'PRINCIPAL',
+            id: nuevaPrincipal.body.id,
+            fuente: nuevaPrincipal.body.urlPdf,
+          }),
+        ]);
+        expect(contenido.body).not.toHaveProperty(
+          'estadoResolucionFuente',
+        );
+        expect(contenido.body).not.toHaveProperty('origenRegistroOficial');
       }
     });
 

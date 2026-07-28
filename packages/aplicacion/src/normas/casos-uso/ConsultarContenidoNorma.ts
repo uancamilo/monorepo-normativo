@@ -1,6 +1,7 @@
 import {
   EstadoNorma,
   PoliticaAccesoContenidoNorma,
+  PoliticaAccesoServicio,
   formatearFechaCalendario,
 } from '@normativo/dominio';
 import { RepositorioNormas } from '../puertos/RepositorioNormas';
@@ -63,6 +64,7 @@ export interface DependenciasConsultarContenidoNorma {
   repositorioEdiciones: RepositorioEdicionesRegistroOficial;
   consultorCambiosEdicion: ConsultorCambiosEdicionRegistroOficial;
   politicaAcceso?: PoliticaAccesoContenidoNorma;
+  politicaAccesoServicio?: PoliticaAccesoServicio;
 }
 
 export class ConsultarContenidoNorma {
@@ -72,6 +74,7 @@ export class ConsultarContenidoNorma {
   private readonly repositorioEdiciones: RepositorioEdicionesRegistroOficial;
   private readonly consultorCambiosEdicion: ConsultorCambiosEdicionRegistroOficial;
   private readonly politicaAcceso: PoliticaAccesoContenidoNorma;
+  private readonly politicaAccesoServicio: PoliticaAccesoServicio;
 
   constructor(dependencias: DependenciasConsultarContenidoNorma) {
     this.repositorioUsuarios = dependencias.repositorioUsuarios;
@@ -81,6 +84,8 @@ export class ConsultarContenidoNorma {
     this.consultorCambiosEdicion = dependencias.consultorCambiosEdicion;
     this.politicaAcceso =
       dependencias.politicaAcceso ?? new PoliticaAccesoContenidoNorma();
+    this.politicaAccesoServicio =
+      dependencias.politicaAccesoServicio ?? new PoliticaAccesoServicio();
   }
 
   async ejecutar(
@@ -105,12 +110,15 @@ export class ConsultarContenidoNorma {
       return { exitoso: false, razon: 'NORMA_NO_ENCONTRADA' };
     }
 
-    const suscripcion =
-      await this.repositorioSuscripciones.buscarPorCorreoHabilitado(
-        usuario.obtenerCorreo(),
-      );
-    if (suscripcion === null) {
-      return { exitoso: false, razon: 'SUSCRIPCION_NO_ENCONTRADA' };
+    let suscripcion = null;
+    if (this.politicaAccesoServicio.requiereSuscripcion(usuario)) {
+      suscripcion =
+        await this.repositorioSuscripciones.buscarPorCorreoHabilitado(
+          usuario.obtenerCorreo(),
+        );
+      if (suscripcion === null) {
+        return { exitoso: false, razon: 'SUSCRIPCION_NO_ENCONTRADA' };
+      }
     }
 
     const permitido = this.politicaAcceso.puedeAcceder({

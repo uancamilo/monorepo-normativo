@@ -196,12 +196,11 @@ Flujo editorial actual (`EstadoEditorialNorma`):
 
 Reglas de visibilidad:
 
-- Cuando el flujo editorial llega a `PUBLICADA`, la norma queda disponible para usuarios con acceso por suscripción activa y vigente que habilita su correo normalizado.
-- Una norma en `BORRADOR` no queda disponible para usuarios con acceso por suscripción activa y vigente que habilita su correo normalizado.
-- Una norma en `EN_REVISION` no queda disponible para usuarios con acceso por suscripción activa y vigente que habilita su correo normalizado.
-- `estaVisibleParaSuscriptores()` se mantiene como nombre técnico del código actual y devuelve `true` cuando la norma queda disponible para usuarios con acceso por suscripción activa y vigente que habilita su correo normalizado.
-- Una norma en `PUBLICADA` puede consultarse como contenido completo solo si el usuario autenticado tiene una suscripción activa y vigente que habilita su correo normalizado.
-- El estado jurídico `VIGENTE`, `REFORMADA` o `DEROGADA` no bloquea por sí mismo el acceso de usuarios con acceso por suscripción activa y vigente que habilita su correo normalizado.
+- Cuando el flujo editorial llega a `PUBLICADA`, la norma puede consultarse como contenido por usuarios internos autenticados (`SUPERADMINISTRADOR`, `ADMINISTRADOR`, `EDITOR`) sin suscripción y por `SUSCRIPTOR` con acceso contractual válido.
+- Una norma en `BORRADOR` o `EN_REVISION` no está disponible mediante la consulta de contenido. `EDITOR` y `SUPERADMINISTRADOR` la consultan por los endpoints editoriales para corregirla antes de publicar.
+- `estaVisibleParaSuscriptores()` se mantiene como nombre técnico del código actual y expresa únicamente la precondición editorial `PUBLICADA`; la autorización del actor se resuelve aparte.
+- Para `SUSCRIPTOR`, el acceso contractual exige pertenecer a una cuenta mediante su correo habilitado en una suscripción con `clienteId`, y que esa suscripción esté `ACTIVA` y vigente en la fecha de referencia.
+- El estado jurídico `VIGENTE`, `REFORMADA` o `DEROGADA` no bloquea por sí mismo la consulta de una norma `PUBLICADA`.
 
 Reglas de fuente:
 
@@ -294,23 +293,24 @@ El editor trabaja con Normas en `BORRADOR`; no revisa lotes ni audita el scrapin
 - Corrección: `ActualizarNorma` / `PATCH /normas/:id`. Solo `EDITOR` y `SUPERADMINISTRADOR`, solo normas en `BORRADOR` (una `PUBLICADA` responde `NORMA_NO_EDITABLE`, 409). Permite completar o corregir `tipoNorma`, `numero`, `titulo`, `institucionExpide`, `fechaExpedicion`, `estadoJuridico` y `contenido`. La triple y la fuente se gestionan en `EdicionRegistroOficial`, no por este endpoint. Los campos ausentes del body no cambian; `null` o vacío limpian los campos anulables. Actualizar no publica ni toca datos internos de ingesta.
 - La corrección se persiste con una actualización condicionada a que la norma siga en `BORRADOR` y solo escribe los datos editoriales: una corrección basada en una lectura obsoleta nunca revierte una norma publicada concurrentemente (responde `NORMA_NO_EDITABLE`, 409) y el caso de uso nunca devuelve como éxito una proyección que no fue persistida.
 - Cambio de principal: `CambiarEdicionNorma` / `PATCH /normas/:id/edicion-registro-oficial`. Solo `EDITOR` y `SUPERADMINISTRADOR`. El body conserva `edicionRegistroOficialId` porque identifica la nueva principal, pero la respuesta usa `edicionesRegistroOficial`. Si la norma no tenía principal, la asigna sin crear un cambio; si ya era la principal, es idempotente; si reemplaza otra, conserva la anterior como `CAMBIO`, retira la nueva de cambios si estaba allí y actualiza la FK de forma atómica. Una norma en `BORRADOR` puede cambiar a cualquier edición existente; una `PUBLICADA` solo a una principal publicable. El cambio se condiciona al estado editorial leído. Todavía no existen endpoints para agregar o retirar cambios ni se modelan norma reformadora, artículos afectados o tipo jurídico de reforma.
+- Consulta del catálogo (`GET /ediciones-registro-oficial` y `GET /ediciones-registro-oficial/:id`): `EDITOR` y `SUPERADMINISTRADOR` ven todas las ediciones y su `estadoResolucionFuente`; `ADMINISTRADOR` ve sin suscripción únicamente ediciones completas (`RESUELTA` o `MANUAL` con `urlPdf`) y sin estado interno; `SUSCRIPTOR` tiene esa misma vista limitada solo si cumple el acceso contractual. Las ediciones incompletas se omiten del listado limitado y su detalle responde 404 para no revelar su existencia.
 - Publicación individual (`POST /normas/:id/publicar`) y múltiple (`POST /normas/publicar`): ver "Publicación de normas".
 
 ## 6. Acceso al contenido completo
 
-La política vigente de dominio para decidir el acceso al contenido completo de una norma es `PoliticaAccesoContenidoNorma`. La política `PoliticaAccesoNormaSuscriptor` queda como política heredada marcada con `@deprecated`; conserva la semántica anterior basada en el rol global `SUSCRIPTOR` y delega en `PoliticaAccesoContenidoNorma` después de verificar ese rol.
+La política `PoliticaAccesoServicio` centraliza la frontera entre usuarios internos y usuarios sujetos a suscripción. `PoliticaAccesoContenidoNorma` la combina con la precondición de que la norma esté `PUBLICADA`. La política `PoliticaAccesoNormaSuscriptor` queda como política heredada marcada con `@deprecated` y restringida expresamente al rol `SUSCRIPTOR`.
 
-- Ningún rol global obtiene acceso automático al contenido completo de normas.
-- `SUPERADMINISTRADOR`, `ADMINISTRADOR`, `EDITOR` y `SUSCRIPTOR` solo pueden consultar contenido completo como lectores si están autenticados y tienen una suscripción activa y vigente que habilita su correo normalizado.
-- El acceso al contenido completo depende de la suscripción activa por correo, no del rol global `SUSCRIPTOR`.
-- El rol administrativo o editorial no concede acceso automático al contenido completo.
+- `SUPERADMINISTRADOR`, `ADMINISTRADOR` y `EDITOR` son usuarios internos y consultan contenido de normas `PUBLICADA` sin suscripción.
+- `SUSCRIPTOR` puede iniciar sesión sin suscripción, pero las consultas protegidas por acceso contractual devuelven 403 si no pertenece a una cuenta con suscripción válida.
+- Para `SUSCRIPTOR`, pertenecer a una cuenta significa que su correo normalizado está en `suscripcion_correos_habilitados` de una suscripción con `clienteId`; además, la suscripción debe estar `ACTIVA` y vigente.
+- La autenticación no sustituye la autorización contractual del `SUSCRIPTOR`.
 - La consulta de contenido completo ya existe como el caso de uso de aplicación `ConsultarContenidoNorma` (en `packages/aplicacion`), no como `ConsultarContenidoNormaComoSuscriptor`.
 - El estado jurídico `VIGENTE`, `REFORMADA` o `DEROGADA` no bloquea por sí mismo la consulta.
 - Una búsqueda pública no concede acceso al contenido completo.
 - Al hacer clic en una norma, si el visitante no está autenticado, el sistema debe redirigirlo a login.
 - El sistema debe conservar la intención de navegación para volver al detalle solicitado después del login.
 - Después del login, el sistema debe validar acceso antes de mostrar el contenido completo.
-- Si el usuario está autenticado pero no tiene una suscripción activa y vigente que habilite su correo normalizado, debe mostrarse una pantalla de acceso restringido.
+- Si un `SUSCRIPTOR` está autenticado pero no cumple el acceso contractual, debe mostrarse una pantalla de acceso restringido.
 
 Salida de `ConsultarContenidoNorma`:
 
@@ -319,8 +319,8 @@ Salida de `ConsultarContenidoNorma`:
 - Si `contenido.length === 0`, entonces `tieneContenidoCompleto = false`.
 - Cuando `tieneContenidoCompleto = false`, el cliente puede usar la principal de `edicionesRegistroOficial` para mostrar el PDF de la fuente oficial. El sistema no inventa ni simula contenido completo.
 - Este indicador no crea un nuevo estado editorial ni un nuevo estado de contenido. `PUBLICADA` significa visibilidad editorial, no necesariamente texto completo enriquecido. Una norma `PUBLICADA` puede tener `contenido` vacío.
-- `ConsultarContenidoNorma` representa la consulta de contenido visible para cualquier usuario cuya suscripción activa habilite su correo, independientemente del rol global. Devuelve metadata normativa y `edicionesRegistroOficial`: la principal y únicamente cambios `RESUELTA` o `MANUAL` con `urlPdf`. Oculta cambios pendientes, no encontrados, conflictivos o sin URL.
-- El contenido no expone campos singulares de edición/fuente, `estadoResolucionFuente`, `origenRegistroOficial`, `fechaPublicacionEnSistema` ni `estadoEditorial`. `ADMINISTRADOR` sin suscripción continúa recibiendo 403.
+- `ConsultarContenidoNorma` devuelve metadata normativa y `edicionesRegistroOficial`: la principal y únicamente cambios `RESUELTA` o `MANUAL` con `urlPdf`. Oculta cambios pendientes, no encontrados, conflictivos o sin URL.
+- El contenido no expone campos singulares de edición/fuente, `estadoResolucionFuente`, `origenRegistroOficial`, `fechaPublicacionEnSistema` ni `estadoEditorial`. Los usuarios internos no necesitan suscripción; `SUSCRIPTOR` sí requiere acceso contractual.
 - `ConsultarContenidoNorma` no expone `fechaPublicacionEnSistema` al suscriptor, porque es metadata interna/editorial/auditoría. Si se necesita exponerla más adelante, será mediante un caso de uso editorial interno separado (por ejemplo `ConsultarNormaEditorial`), no en la consulta de contenido del suscriptor.
 - `estadoEditorial` tampoco se expone en la salida de `ConsultarContenidoNorma`.
 
@@ -489,7 +489,7 @@ Todavía no existen en el modelo:
 | Acceso a normas (heredado) | `docs/reglas-negocio.md` | `packages/dominio/src/normas/__tests__/PoliticaAccesoNormaSuscriptor.test.ts` | `packages/dominio/src/normas/politicas/PoliticaAccesoNormaSuscriptor.ts` |
 | Validaciones compartidas | `docs/reglas-negocio.md` | `packages/dominio/src/compartido/validaciones/__tests__/texto.test.ts` | `packages/dominio/src/compartido/validaciones/texto.ts` |
 
-Nota: `PoliticaAccesoContenidoNorma` y sus tests representan la regla vigente de acceso al contenido completo. `PoliticaAccesoNormaSuscriptor` se conserva como política heredada (`@deprecated`) por compatibilidad; mantiene la semántica anterior basada en el rol global `SUSCRIPTOR` y delega en `PoliticaAccesoContenidoNorma`. La evolución a la regla independiente del rol `SUSCRIPTOR` ya ocurrió en dominio: el acceso se basa en usuario autenticado, correo habilitado y suscripción activa y vigente.
+Nota: `PoliticaAccesoServicio` y `PoliticaAccesoContenidoNorma` representan la regla vigente. `PoliticaAccesoNormaSuscriptor` se conserva como política heredada (`@deprecated`) y restringida al flujo contractual de `SUSCRIPTOR`. Los usuarios internos no requieren suscripción; `SUSCRIPTOR` requiere correo habilitado en una cuenta con suscripción activa y vigente.
 
 ## 12. Procedimiento para cambiar una regla
 

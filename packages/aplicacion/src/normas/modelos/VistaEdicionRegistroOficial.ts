@@ -10,6 +10,16 @@ export type EdicionRegistroOficialConsultada = {
   estadoResolucionFuente: EstadoResolucionFuente;
 };
 
+/** Vista contractual para usuarios sin participación en el proceso editorial. */
+export type EdicionRegistroOficialPublica = Omit<
+  EdicionRegistroOficialConsultada,
+  'estadoResolucionFuente'
+>;
+
+export type EdicionRegistroOficialVisible =
+  | EdicionRegistroOficialConsultada
+  | EdicionRegistroOficialPublica;
+
 export function armarEdicionRegistroOficialConsultada(
   edicion: EdicionRegistroOficial,
 ): EdicionRegistroOficialConsultada {
@@ -23,4 +33,12 @@ export function armarEdicionRegistroOficialConsultada(
     urlPdf: edicion.urlPdf,
     estadoResolucionFuente: edicion.estadoResolucionFuente,
   };
+}
+
+export function armarEdicionRegistroOficialPublica(
+  edicion: EdicionRegistroOficial,
+): EdicionRegistroOficialPublica {
+  const { estadoResolucionFuente: _estadoInterno, ...vistaPublica } =
+    armarEdicionRegistroOficialConsultada(edicion);
+  return vistaPublica;
 }

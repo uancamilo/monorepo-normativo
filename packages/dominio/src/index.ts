@@ -13,6 +13,8 @@ export { EstadoResolucionFuente } from './normas/enums/EstadoResolucionFuente';
 
 export { Usuario } from './usuarios/entidades/Usuario';
 export type { UsuarioProps } from './usuarios/entidades/Usuario';
+export { PoliticaAccesoServicio } from './usuarios/politicas/PoliticaAccesoServicio';
+export type { ContextoAccesoServicio } from './usuarios/politicas/PoliticaAccesoServicio';
 
 export { Suscripcion } from './suscripciones/entidades/Suscripcion';
 export type { SuscripcionProps } from './suscripciones/entidades/Suscripcion';

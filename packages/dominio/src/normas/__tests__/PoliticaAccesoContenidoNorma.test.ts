@@ -69,15 +69,30 @@ describe('PoliticaAccesoContenidoNorma', () => {
     RolUsuario.SUPERADMINISTRADOR,
     RolUsuario.ADMINISTRADOR,
     RolUsuario.EDITOR,
-    RolUsuario.SUSCRIPTOR,
-  ])('permite acceso para el rol %s si cumple suscripción y publicación', (rol) => {
+  ])('permite acceso al rol interno %s sin suscripción si la norma está publicada', (rol) => {
     const usuario = crearUsuario(`u-${rol}`, rol);
-    const suscripcion = crearSuscripcion(`s-${rol}`, {
-      correoHabilitado: usuario.obtenerCorreo(),
-    });
     const norma = crearNorma(`n-${rol}`);
 
-    expect(politica.puedeAcceder({ usuario, suscripcion, norma, fechaReferencia })).toBe(true);
+    expect(
+      politica.puedeAcceder({
+        usuario,
+        suscripcion: null,
+        norma,
+        fechaReferencia,
+      }),
+    ).toBe(true);
+  });
+
+  it('permite acceso al SUSCRIPTOR con cuenta y suscripción activa/vigente', () => {
+    const usuario = crearUsuario('u-suscriptor', RolUsuario.SUSCRIPTOR);
+    const suscripcion = crearSuscripcion('s-suscriptor', {
+      correoHabilitado: usuario.obtenerCorreo(),
+    });
+    const norma = crearNorma('n-suscriptor');
+
+    expect(
+      politica.puedeAcceder({ usuario, suscripcion, norma, fechaReferencia }),
+    ).toBe(true);
   });
 
   it.each([
@@ -110,7 +125,7 @@ describe('PoliticaAccesoContenidoNorma', () => {
   );
 
   it('deniega acceso si la suscripción no habilita el correo', () => {
-    const usuario = crearUsuario('u-no-habilitado', RolUsuario.SUPERADMINISTRADOR);
+    const usuario = crearUsuario('u-no-habilitado', RolUsuario.SUSCRIPTOR);
     const suscripcion = crearSuscripcion('s-no-habilitado', {
       correoHabilitado: 'otro@test.com',
     });
@@ -137,7 +152,7 @@ describe('PoliticaAccesoContenidoNorma', () => {
   });
 
   it('deniega acceso si la suscripción todavía no está vigente', () => {
-    const usuario = crearUsuario('u-futura', RolUsuario.ADMINISTRADOR);
+    const usuario = crearUsuario('u-futura', RolUsuario.SUSCRIPTOR);
     const suscripcion = crearSuscripcion('s-futura', {
       correoHabilitado: usuario.obtenerCorreo(),
       fechaInicio: new Date('2026-01-01'),

@@ -9,7 +9,7 @@ import {
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { RepositorioEdicionesRegistroOficial } from '@normativo/aplicacion';
-import { EstadoResolucionFuente } from '@normativo/dominio';
+import { EstadoResolucionFuente, RolUsuario, Usuario } from '@normativo/dominio';
 import request from 'supertest';
 // Se montan NormasModule + AuthModule (memoria) directamente en vez de
 // AppModule para que este e2e no dependa de la variable PERSISTENCIA del
@@ -20,8 +20,10 @@ import { AuthModule } from '../autenticacion/http/auth.module';
 import {
   TOKEN_PUBLICADOR_EVENTOS,
   TOKEN_REPOSITORIO_EDICIONES_REGISTRO_OFICIAL,
+  TOKEN_REPOSITORIO_USUARIOS,
 } from '../normas/tokens';
 import { PublicadorEventosNormasEnMemoria } from '../memoria/PublicadorEventosNormasEnMemoria';
+import { RepositorioUsuariosEnMemoria } from '../memoria/RepositorioUsuariosEnMemoria';
 import { ServicioTokens } from '../autenticacion/servicio-tokens';
 import { CONTRASENA_SEMILLA } from '../memoria/RepositorioCredencialesUsuariosEnMemoria';
 
@@ -352,7 +354,7 @@ describe('Normas (e2e)', () => {
     expect(respuesta.body.estadoEditorial).toBe('PUBLICADA');
   });
 
-  it('consulta sin suscripción habilitada devuelve 403 (acceso no depende del rol)', async () => {
+  it('EDITOR consulta contenido publicado sin suscripción', async () => {
     const norma = await registrarYObtenerNorma();
     await establecerFuentesPendientesManualmente();
     await request(servidor())
@@ -363,7 +365,7 @@ describe('Normas (e2e)', () => {
     const consulta = await request(servidor())
       .get(`/normas/${norma.id}/contenido`)
       .set('Authorization', await autorizacionDe(USUARIO_EDITOR));
-    expect(consulta.status).toBe(403);
+    expect(consulta.status).toBe(200);
   });
 
   it('los 403 de causas distintas devuelven el mismo cuerpo genérico', async () => {
@@ -377,30 +379,32 @@ describe('Normas (e2e)', () => {
       .post('/normas')
       .set('Authorization', await autorizacionDe(USUARIO_ADMIN))
       .send(cuerpoNormaValido());
-    const porSuscripcion = await request(servidor())
+    const porNormaNoPublicada = await request(servidor())
       .get(`/normas/${norma.id}/contenido`)
-      .set('Authorization', await autorizacionDe(USUARIO_EDITOR));
+      .set('Authorization', await autorizacionDe(USUARIO_SUSCRIPTOR));
 
     expect(porPermiso.status).toBe(403);
-    expect(porSuscripcion.status).toBe(403);
+    expect(porNormaNoPublicada.status).toBe(403);
     expect(porPermiso.body.message).toBe('Acceso denegado');
-    expect(porPermiso.body).toEqual(porSuscripcion.body);
+    expect(porPermiso.body).toEqual(porNormaNoPublicada.body);
   });
 
-  it('ningún rol global obtiene contenido sin suscripción habilitada (403)', async () => {
+  it.each([USUARIO_ADMIN, USUARIO_SUPERADMIN, USUARIO_EDITOR])(
+    '%s obtiene contenido publicado sin suscripción',
+    async (usuarioId) => {
     const norma = await registrarYObtenerNorma();
+    await establecerFuentesPendientesManualmente();
     await request(servidor())
       .post(`/normas/${norma.id}/publicar`)
       .set('Authorization', await autorizacionDe(USUARIO_EDITOR))
       .send({});
 
-    for (const usuario of [USUARIO_ADMIN, USUARIO_SUPERADMIN]) {
-      const consulta = await request(servidor())
-        .get(`/normas/${norma.id}/contenido`)
-        .set('Authorization', await autorizacionDe(usuario));
-      expect(consulta.status).toBe(403);
-    }
-  });
+    const consulta = await request(servidor())
+      .get(`/normas/${norma.id}/contenido`)
+      .set('Authorization', await autorizacionDe(usuarioId));
+    expect(consulta.status).toBe(200);
+    },
+  );
 
   it('norma en BORRADOR no es consultable (403)', async () => {
     const norma = await registrarYObtenerNorma();
@@ -408,6 +412,42 @@ describe('Normas (e2e)', () => {
       .get(`/normas/${norma.id}/contenido`)
       .set('Authorization', await autorizacionDe(USUARIO_SUSCRIPTOR));
     expect(consulta.status).toBe(403);
+  });
+
+  it('SUSCRIPTOR autenticado sin cuenta/suscripción recibe 403 en contenido y catálogo', async () => {
+    const usuarioId = 'usuario-suscriptor-sin-cuenta';
+    const repositorioUsuarios = app.get<RepositorioUsuariosEnMemoria>(
+      TOKEN_REPOSITORIO_USUARIOS,
+    );
+    repositorioUsuarios.agregar(
+      new Usuario({
+        id: usuarioId,
+        nombre: 'Suscriptor',
+        apellido: 'Sin cuenta',
+        correo: 'suscriptor-sin-cuenta@test.com',
+        rol: RolUsuario.SUSCRIPTOR,
+      }),
+    );
+
+    const norma = await registrarYObtenerNorma();
+    await establecerFuentesPendientesManualmente();
+    await request(servidor())
+      .post(`/normas/${norma.id}/publicar`)
+      .set('Authorization', await autorizacionDe(USUARIO_EDITOR))
+      .send({});
+
+    const autorizacion = await autorizacionDe(usuarioId);
+    const contenido = await request(servidor())
+      .get(`/normas/${norma.id}/contenido`)
+      .set('Authorization', autorizacion);
+    const catalogo = await request(servidor())
+      .get('/ediciones-registro-oficial')
+      .set('Authorization', autorizacion);
+
+    expect(contenido.status).toBe(403);
+    expect(contenido.body.message).toBe('Acceso denegado');
+    expect(catalogo.status).toBe(403);
+    expect(catalogo.body.message).toBe('Acceso denegado');
   });
 
   it('sin token devuelve 401', async () => {
@@ -730,6 +770,8 @@ describe('Normas (e2e)', () => {
     it('crear manualmente una triple existente devuelve 409 sin sobrescribir su fuente', async () => {
       const primera = await crearEdicionManual();
       expect(primera.status).toBe(201);
+      expect(primera.body.fechaPublicacionOficial).toBe('2026-06-02');
+      expect(primera.body.fechaPublicacionOficial).not.toContain('T');
 
       const duplicada = await crearEdicionManual({
         urlPdf:
@@ -780,14 +822,31 @@ describe('Normas (e2e)', () => {
     );
 
     it.each([USUARIO_ADMIN, USUARIO_SUSCRIPTOR])(
-      '%s recibe 403 al listar el catálogo',
+      '%s solo lista ediciones completas y no ve el estado de resolución',
       async (usuarioId) => {
+        const norma = await registrarYObtenerNorma();
+        const edicionPrincipal = edicionPrincipalDe(norma);
+
+        const listadoIncompleto = await request(servidor())
+          .get('/ediciones-registro-oficial')
+          .set('Authorization', await autorizacionDe(usuarioId));
+        expect(listadoIncompleto.status).toBe(200);
+        expect(listadoIncompleto.body).toEqual([]);
+
+        await establecerFuentesPendientesManualmente();
         const respuesta = await request(servidor())
           .get('/ediciones-registro-oficial')
           .set('Authorization', await autorizacionDe(usuarioId));
 
-        expect(respuesta.status).toBe(403);
-        expect(respuesta.body.message).toBe('Acceso denegado');
+        expect(respuesta.status).toBe(200);
+        expect(respuesta.body).toHaveLength(1);
+        expect(respuesta.body[0]).toMatchObject({
+          id: edicionPrincipal.id,
+          urlPdf: expect.any(String),
+        });
+        expect(respuesta.body[0]).not.toHaveProperty(
+          'estadoResolucionFuente',
+        );
       },
     );
 
@@ -819,16 +878,25 @@ describe('Normas (e2e)', () => {
     );
 
     it.each([USUARIO_ADMIN, USUARIO_SUSCRIPTOR])(
-      '%s recibe 403 al consultar el detalle del catálogo',
+      '%s recibe 404 para una edición incompleta y consulta la completa sin estado interno',
       async (usuarioId) => {
         const norma = await registrarYObtenerNorma();
         const edicionPrincipal = edicionPrincipalDe(norma);
+
+        const detalleIncompleto = await request(servidor())
+          .get(`/ediciones-registro-oficial/${edicionPrincipal.id}`)
+          .set('Authorization', await autorizacionDe(usuarioId));
+        expect(detalleIncompleto.status).toBe(404);
+
+        await establecerFuentesPendientesManualmente();
         const respuesta = await request(servidor())
           .get(`/ediciones-registro-oficial/${edicionPrincipal.id}`)
           .set('Authorization', await autorizacionDe(usuarioId));
 
-        expect(respuesta.status).toBe(403);
-        expect(respuesta.body.message).toBe('Acceso denegado');
+        expect(respuesta.status).toBe(200);
+        expect(respuesta.body.id).toBe(edicionPrincipal.id);
+        expect(respuesta.body.urlPdf).toEqual(expect.any(String));
+        expect(respuesta.body).not.toHaveProperty('estadoResolucionFuente');
       },
     );
 

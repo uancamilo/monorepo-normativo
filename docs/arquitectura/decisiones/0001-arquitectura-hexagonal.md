@@ -89,12 +89,12 @@ La política heredada `PoliticaAccesoNormaSuscriptor` se conserva temporalmente 
 
 Las políticas de dominio dependen del comportamiento de las entidades, no de comparaciones primitivas duplicadas. `Usuario` normaliza su correo y expone `tieneCorreo()`; `Suscripcion` delega en ese método desde `habilitaUsuario()`; `Norma` expone su visibilidad editorial mediante `estaVisibleParaSuscriptores()`, nombre técnico heredado. La política de acceso consume esos comportamientos sin conocer cómo se almacenan o normalizan los correos ni cómo se decide la visibilidad interna.
 
-**Separación explícita de acceso por rol:**
+**Separación explícita de acceso por tipo de usuario:**
 
-- La regla actual de acceso al contenido completo no depende del rol global `SUSCRIPTOR`.
-- `PoliticaAccesoNormaSuscriptor` y su implementación heredada no deben interpretarse como acceso por rol global `SUSCRIPTOR`.
-- `SUPERADMINISTRADOR`, `ADMINISTRADOR`, `EDITOR` y `SUSCRIPTOR` no obtienen acceso automático al contenido completo por su rol.
-- El acceso al contenido completo depende de usuario autenticado, suscripción activa y vigente que habilite el correo normalizado del usuario, y norma publicada.
+- `SUPERADMINISTRADOR`, `ADMINISTRADOR` y `EDITOR` son usuarios internos y no requieren suscripción para consultar contenido de normas publicadas.
+- `SUSCRIPTOR` requiere pertenecer a una cuenta mediante correo habilitado y una suscripción activa y vigente.
+- `PoliticaAccesoServicio` centraliza esa frontera y `PoliticaAccesoContenidoNorma` agrega la precondición de norma publicada.
+- `PoliticaAccesoNormaSuscriptor` se conserva como implementación heredada restringida expresamente al flujo de `SUSCRIPTOR`.
 
 ### Búsqueda y Algolia
 

@@ -5,9 +5,11 @@ import {
   EstadoEditorialNorma,
   EstadoNorma,
   EstadoResolucionFuente,
+  EstadoSuscripcion,
   Norma,
   NormaProps,
   RolUsuario,
+  Suscripcion,
   Usuario,
 } from '@normativo/dominio';
 import {
@@ -18,6 +20,7 @@ import {
 } from '../../../puertos/RepositorioNormas';
 import { ConsultorCambiosEdicionRegistroOficial } from '../../../puertos/ConsultorCambiosEdicionRegistroOficial';
 import { RepositorioUsuarios } from '../../../puertos/RepositorioUsuarios';
+import { RepositorioSuscripciones } from '../../../puertos/RepositorioSuscripciones';
 import {
   RepositorioEdicionesRegistroOficial,
   ResultadoCrearORecuperarEdicionRegistroOficial,
@@ -43,6 +46,27 @@ export class RepositorioUsuariosEnMemoriaFake implements RepositorioUsuarios {
 
   async buscarPorId(id: string): Promise<Usuario | null> {
     return this.usuariosPorId.get(id) ?? null;
+  }
+}
+
+export class RepositorioSuscripcionesEnMemoriaFake
+  implements RepositorioSuscripciones
+{
+  private readonly suscripciones: Suscripcion[] = [];
+  readonly consultas: string[] = [];
+
+  agregar(suscripcion: Suscripcion): void {
+    this.suscripciones.push(suscripcion);
+  }
+
+  async buscarPorCorreoHabilitado(correo: string): Promise<Suscripcion | null> {
+    const correoNormalizado = correo.trim().toLowerCase();
+    this.consultas.push(correoNormalizado);
+    return (
+      this.suscripciones.find((suscripcion) =>
+        suscripcion.correosUsuariosHabilitados.includes(correoNormalizado),
+      ) ?? null
+    );
   }
 }
 
@@ -376,6 +400,21 @@ export function crearUsuarioEditorial(
     apellido: 'Editorial',
     correo: `${id}@test.com`,
     rol,
+  });
+}
+
+export function crearSuscripcionActivaPara(
+  usuario: Usuario,
+  id = `suscripcion-${usuario.obtenerId()}`,
+): Suscripcion {
+  return new Suscripcion({
+    id,
+    clienteId: `cuenta-${id}`,
+    correosUsuariosHabilitados: [usuario.obtenerCorreo()],
+    cantidadMaximaUsuarios: 1,
+    estado: EstadoSuscripcion.ACTIVA,
+    fechaInicio: new Date('2026-01-01T00:00:00.000Z'),
+    fechaFin: new Date('2027-01-01T00:00:00.000Z'),
   });
 }
 

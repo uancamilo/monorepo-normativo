@@ -11,9 +11,8 @@ import { PoliticaAccesoContenidoNorma } from './PoliticaAccesoContenidoNorma';
  * Para la regla actual de acceso al contenido completo de una norma debe
  * usarse `ContextoAccesoContenidoNorma` junto con `PoliticaAccesoContenidoNorma`.
  *
- * El acceso al contenido completo no depende del rol global `SUSCRIPTOR`,
- * sino de una suscripción activa y vigente que habilite el correo normalizado
- * del usuario autenticado.
+ * La política actual distingue usuarios internos, que no necesitan
+ * suscripción, de `SUSCRIPTOR`, que sí requiere acceso contractual.
  */
 export interface ContextoAccesoNormaSuscriptor {
   usuario: Usuario;
@@ -30,9 +29,8 @@ export interface ContextoAccesoNormaSuscriptor {
  * Para la regla actual de acceso al contenido completo de una norma debe
  * usarse `PoliticaAccesoContenidoNorma` directamente.
  *
- * El acceso al contenido completo no depende del rol global `SUSCRIPTOR`,
- * sino de una suscripción activa y vigente que habilite el correo normalizado
- * del usuario autenticado.
+ * Esta política heredada sigue siendo útil solo para expresar explícitamente
+ * el flujo de `SUSCRIPTOR`; los usuarios internos usan la política actual.
  */
 export class PoliticaAccesoNormaSuscriptor {
   private readonly politicaContenido = new PoliticaAccesoContenidoNorma();

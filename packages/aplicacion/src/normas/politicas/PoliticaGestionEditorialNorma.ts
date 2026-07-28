@@ -27,7 +27,7 @@ export class PoliticaGestionEditorialNorma {
     return ROLES_EDITORIALES.includes(usuario.obtenerRol());
   }
 
-  puedeConsultarEdicionesRegistroOficial(usuario: Usuario): boolean {
+  puedeConsultarEdicionesIncompletasRegistroOficial(usuario: Usuario): boolean {
     return ROLES_EDITORIALES.includes(usuario.obtenerRol());
   }
 

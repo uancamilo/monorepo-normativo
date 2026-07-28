@@ -35,12 +35,14 @@ class RepositorioUsuariosEnMemoria implements RepositorioUsuarios {
 
 class RepositorioSuscripcionesEnMemoria implements RepositorioSuscripciones {
   private readonly suscripciones: Suscripcion[] = [];
+  readonly consultas: string[] = [];
 
   agregar(suscripcion: Suscripcion): void {
     this.suscripciones.push(suscripcion);
   }
 
   async buscarPorCorreoHabilitado(correo: string): Promise<Suscripcion | null> {
+    this.consultas.push(correo);
     const correoNormalizado = correo.trim().toLowerCase();
     const encontrada = this.suscripciones.find((suscripcion) =>
       suscripcion.correosUsuariosHabilitados.includes(correoNormalizado),
@@ -364,21 +366,15 @@ describe('ConsultarContenidoNorma', () => {
     RolUsuario.SUPERADMINISTRADOR,
     RolUsuario.ADMINISTRADOR,
     RolUsuario.EDITOR,
-    RolUsuario.SUSCRIPTOR,
   ])(
-    'permite acceso para rol %s si cumple suscripción activa/vigente y correo habilitado',
+    'permite acceso al rol interno %s sin consultar suscripciones',
     async (rol) => {
       const contexto = crearContexto();
       const usuario = crearUsuario({ id: `u-${rol}`, rol });
-      const suscripcion = crearSuscripcion({
-        id: `s-${rol}`,
-        correoHabilitado: usuario.obtenerCorreo(),
-      });
       const norma = crearNorma({ id: `n-${rol}` });
 
       contexto.repositorioUsuarios.agregar(usuario);
       contexto.repositorioNormas.agregar(norma);
-      contexto.repositorioSuscripciones.agregar(suscripcion);
 
       const resultado = await contexto.casoUso.ejecutar({
         usuarioAutenticadoId: usuario.obtenerId(),
@@ -387,6 +383,7 @@ describe('ConsultarContenidoNorma', () => {
       });
 
       expect(resultado.exitoso).toBe(true);
+      expect(contexto.repositorioSuscripciones.consultas).toEqual([]);
     },
   );
 
@@ -582,15 +579,11 @@ describe('ConsultarContenidoNorma', () => {
   });
 
   it.each([RolUsuario.SUSCRIPTOR, RolUsuario.ADMINISTRADOR])(
-    '%s con suscripción ve principal y solo cambios publicables, sin estados internos',
+    '%s con acceso al servicio ve principal y solo cambios publicables, sin estados internos',
     async (rol) => {
       const contexto = crearContexto();
       const usuario = crearUsuario({ id: `usuario-${rol}`, rol });
       const norma = crearNorma({ id: `norma-${rol}` });
-      const suscripcion = crearSuscripcion({
-        id: `suscripcion-${rol}`,
-        correoHabilitado: usuario.obtenerCorreo(),
-      });
       const cambios = [
         crearEdicionRegistroOficial({
           id: 'cambio-resuelto',
@@ -627,7 +620,14 @@ describe('ConsultarContenidoNorma', () => {
       }
       contexto.repositorioUsuarios.agregar(usuario);
       contexto.repositorioNormas.agregar(norma);
-      contexto.repositorioSuscripciones.agregar(suscripcion);
+      if (rol === RolUsuario.SUSCRIPTOR) {
+        contexto.repositorioSuscripciones.agregar(
+          crearSuscripcion({
+            id: `suscripcion-${rol}`,
+            correoHabilitado: usuario.obtenerCorreo(),
+          }),
+        );
+      }
 
       const resultado = await contexto.casoUso.ejecutar({
         usuarioAutenticadoId: usuario.obtenerId(),

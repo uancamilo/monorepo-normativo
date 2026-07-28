@@ -50,8 +50,10 @@ const PROPIEDADES_RESOLVER_PENDIENTES = ['edicionIds', 'limite'] as const;
 /**
  * Catálogo y gestión de ediciones del Registro Oficial. La fuente (urlPdf)
  * pertenece a la edición: corregirla aquí la actualiza para todas las normas
- * asociadas. EDITOR y SUPERADMINISTRADOR pueden crear, consultar y corregir.
- * ADMINISTRADOR y SUSCRIPTOR no tienen acceso (no enrutado para ellos).
+ * asociadas. EDITOR y SUPERADMINISTRADOR pueden crear, consultar y corregir,
+ * y ven el catálogo editorial completo. ADMINISTRADOR consulta sin
+ * suscripción solo ediciones completas; SUSCRIPTOR obtiene esa misma vista si
+ * cumple la autorización contractual. Estas reglas se deciden en aplicación.
  */
 @Controller('ediciones-registro-oficial')
 @UseGuards(GuardAutenticacion)

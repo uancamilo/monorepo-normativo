@@ -143,9 +143,11 @@ Oficial con este modelo:
   son resultados discriminados de aplicación, no excepciones.
 - **Visibilidad de cambios**: `EDITOR` y `SUPERADMINISTRADOR` ven principal y
   todos los cambios en las consultas editoriales. El contenido accesible por
-  suscripción muestra la principal y únicamente cambios `RESUELTA` o `MANUAL`
-  con `urlPdf`; no expone estado de resolución, origen de ingesta ni datos
-  editoriales internos. El rol global no sustituye la suscripción.
+  usuarios internos o por suscripción muestra la principal y únicamente
+  cambios `RESUELTA` o `MANUAL` con `urlPdf`; no expone estado de resolución,
+  origen de ingesta ni datos editoriales internos. `SUPERADMINISTRADOR`,
+  `ADMINISTRADOR` y `EDITOR` no requieren suscripción; `SUSCRIPTOR` requiere
+  correo habilitado en una cuenta con suscripción activa y vigente.
 - **Migración histórica sin pérdida de fuentes (estabilización de Fase 5A)**:
   el backfill que traslada la triple y la fuente de `Norma` a
   `EdicionRegistroOficial` (`20260712000000_migrar_fuentes_a_ediciones`) nunca

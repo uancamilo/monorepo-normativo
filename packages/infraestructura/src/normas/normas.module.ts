@@ -326,14 +326,17 @@ import { construirCatalogoRegistroOficial } from './catalogo/construir-catalogo-
       useFactory: (
         repositorioUsuarios: RepositorioUsuarios,
         repositorioEdiciones: RepositorioEdicionesRegistroOficial,
+        repositorioSuscripciones: RepositorioSuscripciones,
       ) =>
         new ConsultarEdicionesRegistroOficial({
           repositorioUsuarios,
           repositorioEdiciones,
+          repositorioSuscripciones,
         }),
       inject: [
         TOKEN_REPOSITORIO_USUARIOS,
         TOKEN_REPOSITORIO_EDICIONES_REGISTRO_OFICIAL,
+        TOKEN_REPOSITORIO_SUSCRIPCIONES,
       ],
     },
     {
@@ -341,14 +344,17 @@ import { construirCatalogoRegistroOficial } from './catalogo/construir-catalogo-
       useFactory: (
         repositorioUsuarios: RepositorioUsuarios,
         repositorioEdiciones: RepositorioEdicionesRegistroOficial,
+        repositorioSuscripciones: RepositorioSuscripciones,
       ) =>
         new ConsultarDetalleEdicionRegistroOficial({
           repositorioUsuarios,
           repositorioEdiciones,
+          repositorioSuscripciones,
         }),
       inject: [
         TOKEN_REPOSITORIO_USUARIOS,
         TOKEN_REPOSITORIO_EDICIONES_REGISTRO_OFICIAL,
+        TOKEN_REPOSITORIO_SUSCRIPCIONES,
       ],
     },
     {

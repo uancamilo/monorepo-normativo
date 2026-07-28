@@ -144,6 +144,13 @@ del dominio. El header `x-usuario-id` quedó eliminado como mecanismo de identid
   `institucionExpide`, `estadoJuridico` y una `EdicionRegistroOficial`
   asociada cuya fuente esté disponible con resolución `RESUELTA` o `MANUAL`.
   `numero`, `fechaExpedicion` y `contenido` no son obligatorios para publicar.
+- **Consulta de contenido y catálogo**: `SUPERADMINISTRADOR`, `ADMINISTRADOR`
+  y `EDITOR` son usuarios internos y no requieren suscripción para consultar
+  contenido `PUBLICADA`. `SUSCRIPTOR` requiere pertenecer a una cuenta mediante
+  correo habilitado y una suscripción activa/vigente. En el catálogo de
+  ediciones, `EDITOR` y `SUPERADMINISTRADOR` ven también ediciones incompletas y
+  su estado; `ADMINISTRADOR` y `SUSCRIPTOR` solo ven ediciones completas y no
+  reciben `estadoResolucionFuente`.
 - **Resolución controlada de fuente** (Fase 5B; solo SUPERADMINISTRADOR):
   `POST /ediciones-registro-oficial/resolver-pendientes` resuelve `urlPdf`
   consultando el catálogo oficial del Registro Oficial (WordPress `admin-ajax`

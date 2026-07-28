@@ -291,83 +291,89 @@ describe('Ingesta Registro Oficial (e2e memoria)', () => {
     expect(respuesta.status).toBe(404);
   });
 
-  it('los borradores creados por ingesta llegan a la lista editorial sin placeholders', async () => {
-    const ingesta = await ingerirComoSuperadmin(
-      cuerpoLoteValido({
-        entradasDetectadas: [
-          entradaValida({
-            posicion: 0,
-            titulo: '  ',
-            tipo: null,
-            institucion: null,
-          }),
-        ],
-      }),
-    );
-    expect(ingesta.status).toBe(201);
-    const lote = await consultarLoteComoSuperadmin(ingesta.body.lote.id);
-    const normaId = lote.body.entradasDetectadas[0].normaId as string;
+  it.each(['usuario-editor-1', 'usuario-superadmin-1'])(
+    '%s consulta en la lista editorial los borradores de ingesta sin placeholders',
+    async (usuarioId) => {
+      const ingesta = await ingerirComoSuperadmin(
+        cuerpoLoteValido({
+          entradasDetectadas: [
+            entradaValida({
+              posicion: 0,
+              titulo: '  ',
+              tipo: null,
+              institucion: null,
+            }),
+          ],
+        }),
+      );
+      expect(ingesta.status).toBe(201);
+      const lote = await consultarLoteComoSuperadmin(ingesta.body.lote.id);
+      const normaId = lote.body.entradasDetectadas[0].normaId as string;
 
-    const lista = await request(servidor())
-      .get('/normas?estadoEditorial=BORRADOR')
-      .set('Authorization', await autorizacionDe('usuario-editor-1'));
-    expect(lista.status).toBe(200);
-    expect(Array.isArray(lista.body)).toBe(true);
-    const norma = lista.body.find(
-      (elemento: { id: string }) => elemento.id === normaId,
-    );
-    expect(norma).toBeDefined();
-    // Sin placeholders y sin fallback de fuente: la URL del resumen mensual
-    // no se copia a la fuente de la norma.
-    expect(norma.titulo).toBe('');
-    expect(norma.tipoNorma).toBe('');
-    expect(norma.institucionExpide).toBe('');
-    expect(norma.edicionesRegistroOficial).toEqual([
-      expect.objectContaining({
-        tipoRelacion: 'PRINCIPAL',
-        tipoPublicacionRegistroOficial: 'RO',
-        numeroPublicacionRegistroOficial: 500,
-        fechaPublicacionOficial: '2026-05-02',
-        fuente: null,
-      }),
-    ]);
-    expect(norma).not.toHaveProperty('edicionRegistroOficialId');
-    expect(norma).not.toHaveProperty('fuente');
-    expect(norma.estadoJuridico).toBe('VIGENTE');
-    expect(norma.origenRegistroOficial).toEqual({
-      urlResumenMensualRegistroOficial:
-        'https://www.registroficial.gob.ec/resumen-2026-05.pdf',
-      segmentoCrudo: 'Acuerdo Ministerial 123: disposición de prueba',
-    });
-    expect(norma).not.toHaveProperty('advertencias');
-    expect(norma).not.toHaveProperty('metadataExtraccion');
-  });
+      const lista = await request(servidor())
+        .get('/normas?estadoEditorial=BORRADOR')
+        .set('Authorization', await autorizacionDe(usuarioId));
+      expect(lista.status).toBe(200);
+      expect(Array.isArray(lista.body)).toBe(true);
+      const norma = lista.body.find(
+        (elemento: { id: string }) => elemento.id === normaId,
+      );
+      expect(norma).toBeDefined();
+      // Sin placeholders y sin fallback de fuente: la URL del resumen mensual
+      // no se copia a la fuente de la norma.
+      expect(norma.titulo).toBe('');
+      expect(norma.tipoNorma).toBe('');
+      expect(norma.institucionExpide).toBe('');
+      expect(norma.edicionesRegistroOficial).toEqual([
+        expect.objectContaining({
+          tipoRelacion: 'PRINCIPAL',
+          tipoPublicacionRegistroOficial: 'RO',
+          numeroPublicacionRegistroOficial: 500,
+          fechaPublicacionOficial: '2026-05-02',
+          fuente: null,
+        }),
+      ]);
+      expect(norma).not.toHaveProperty('edicionRegistroOficialId');
+      expect(norma).not.toHaveProperty('fuente');
+      expect(norma.estadoJuridico).toBe('VIGENTE');
+      expect(norma.origenRegistroOficial).toEqual({
+        urlResumenMensualRegistroOficial:
+          'https://www.registroficial.gob.ec/resumen-2026-05.pdf',
+        segmentoCrudo: 'Acuerdo Ministerial 123: disposición de prueba',
+      });
+      expect(norma).not.toHaveProperty('advertencias');
+      expect(norma).not.toHaveProperty('metadataExtraccion');
+    },
+  );
 
-  it('el detalle editorial incluye origenRegistroOficial para verificar la detección', async () => {
-    const ingesta = await ingerirComoSuperadmin(cuerpoLoteValido());
-    const lote = await consultarLoteComoSuperadmin(ingesta.body.lote.id);
-    const normaId = lote.body.entradasDetectadas[0].normaId as string;
+  it.each(['usuario-editor-1', 'usuario-superadmin-1'])(
+    '%s consulta el detalle editorial con origenRegistroOficial',
+    async (usuarioId) => {
+      const ingesta = await ingerirComoSuperadmin(cuerpoLoteValido());
+      const lote = await consultarLoteComoSuperadmin(ingesta.body.lote.id);
+      const normaId = lote.body.entradasDetectadas[0].normaId as string;
 
-    const detalle = await request(servidor())
-      .get(`/normas/${normaId}`)
-      .set('Authorization', await autorizacionDe('usuario-editor-1'));
+      const detalle = await request(servidor())
+        .get(`/normas/${normaId}`)
+        .set('Authorization', await autorizacionDe(usuarioId));
 
-    expect(detalle.status).toBe(200);
-    expect(detalle.body.id).toBe(normaId);
-    expect(detalle.body.edicionesRegistroOficial).toEqual([
-      expect.objectContaining({
-        tipoRelacion: 'PRINCIPAL',
-        fuente: null,
-      }),
-    ]);
-    expect(detalle.body).not.toHaveProperty('fuente');
-    expect(detalle.body.origenRegistroOficial).toEqual({
-      urlResumenMensualRegistroOficial:
-        'https://www.registroficial.gob.ec/resumen-2026-05.pdf',
-      segmentoCrudo: 'Acuerdo Ministerial 123: disposición de prueba',
-    });
-    expect(detalle.body).not.toHaveProperty('metadataExtraccion');
-  });
+      expect(detalle.status).toBe(200);
+      expect(detalle.body.id).toBe(normaId);
+      expect(detalle.body.edicionesRegistroOficial).toEqual([
+        expect.objectContaining({
+          tipoRelacion: 'PRINCIPAL',
+          fuente: null,
+        }),
+      ]);
+      expect(detalle.body).not.toHaveProperty('fuente');
+      expect(detalle.body.origenRegistroOficial).toEqual({
+        urlResumenMensualRegistroOficial:
+          'https://www.registroficial.gob.ec/resumen-2026-05.pdf',
+        segmentoCrudo: 'Acuerdo Ministerial 123: disposición de prueba',
+      });
+      expect(detalle.body).not.toHaveProperty('metadataExtraccion');
+    },
+  );
 
   it('rechaza propiedades ajenas al contrato del extractor', async () => {
     const respuesta = await ingerirComoSuperadmin(

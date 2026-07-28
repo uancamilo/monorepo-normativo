@@ -53,7 +53,7 @@ describe('CrearEdicionRegistroOficial', () => {
           id: 'edicion-generada',
           tipoPublicacionRegistroOficial: 'RO',
           numeroPublicacionRegistroOficial: 501,
-          fechaPublicacionOficial: new Date('2026-05-03'),
+          fechaPublicacionOficial: '2026-05-03',
           urlPdf: URL_PDF,
           estadoResolucionFuente: EstadoResolucionFuente.MANUAL,
         },
@@ -131,7 +131,7 @@ describe('CrearEdicionRegistroOficial', () => {
     ).rejects.toThrow('fallo inesperado de infraestructura');
   });
 
-  it('normaliza la fecha recibida por aplicación al día calendario UTC', async () => {
+  it('proyecta la fecha oficial normalizada como día calendario', async () => {
     const resultado = await casoUso.ejecutar({
       ...solicitudValida(RolUsuario.EDITOR),
       fechaPublicacionOficial: new Date('2026-05-03T18:45:12.123Z'),
@@ -139,10 +139,15 @@ describe('CrearEdicionRegistroOficial', () => {
 
     expect(resultado.exitoso).toBe(true);
     if (resultado.exitoso) {
-      expect(resultado.edicion.fechaPublicacionOficial.toISOString()).toBe(
-        '2026-05-03T00:00:00.000Z',
-      );
+      expect(resultado.edicion.fechaPublicacionOficial).toBe('2026-05-03');
     }
+
+    const persistida = await repositorioEdiciones.buscarPorId(
+      'edicion-generada',
+    );
+    expect(persistida?.fechaPublicacionOficial.toISOString()).toBe(
+      '2026-05-03T00:00:00.000Z',
+    );
   });
 
   it('rechaza una fecha inválida como SOLICITUD_INVALIDA', async () => {

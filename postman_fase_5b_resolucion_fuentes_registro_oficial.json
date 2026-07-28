@@ -37,7 +37,7 @@
          "pm.collectionVariables.set('urlEdicionManual', `https://www.registroficial.gob.ec/edicion-manual-${runId}.pdf`);",
          "pm.collectionVariables.set('urlEdicionManualAlterna', `https://www.registroficial.gob.ec/edicion-manual-alterna-${runId}.pdf`);",
          "pm.collectionVariables.set('urlEdicionManualSegunda', `https://www.registroficial.gob.ec/edicion-manual-segunda-${runId}.pdf`);",
-         "['loteId', 'normaIndividualId', 'normaInvalidaId', 'normaLoteId', 'normaSuperadminId', 'edicionId', 'edicionManualId', 'edicionManualSegundaId', 'edicionFixtureResueltaId', 'edicionFixtureFalloId'].forEach((nombre) => pm.collectionVariables.unset(nombre));"
+         "['loteId', 'normaIndividualId', 'normaInvalidaId', 'normaLoteId', 'normaSuperadminId', 'normaManualSinOrigenId', 'edicionId', 'edicionManualId', 'edicionManualSegundaId', 'edicionFixtureResueltaId', 'edicionFixtureFalloId'].forEach((nombre) => pm.collectionVariables.unset(nombre));"
         ],
         "type": "text/javascript"
        }
@@ -648,8 +648,12 @@
         "exec": [
          "pm.test('SUPERADMINISTRADOR lista BORRADOR: 200', () => pm.response.to.have.status(200));",
          "const json = pm.response.json();",
-         "pm.test('Respuesta es array y conserva origen Registro Oficial', () => {",
+         "const idsEsperados = [pm.collectionVariables.get('normaIndividualId'), pm.collectionVariables.get('normaInvalidaId'), pm.collectionVariables.get('normaLoteId'), pm.collectionVariables.get('normaSuperadminId')];",
+         "pm.test('Puede consultar todos los borradores, independientemente de sus campos vacíos', () => {",
          "  pm.expect(json).to.be.an('array');",
+         "  idsEsperados.forEach((id) => pm.expect(json.some((norma) => norma.id === id && norma.estadoEditorial === 'BORRADOR'), `No se encontró el BORRADOR ${id}`).to.eql(true));",
+         "});",
+         "pm.test('La lista conserva el origen mínimo del Registro Oficial', () => {",
          "  const norma = json.find((elemento) => elemento.id === pm.collectionVariables.get('normaIndividualId'));",
          "  pm.expect(norma.origenRegistroOficial.urlResumenMensualRegistroOficial).to.eql(pm.collectionVariables.get('urlResumen'));",
          "  pm.expect(norma.origenRegistroOficial.segmentoCrudo).to.contain(pm.collectionVariables.get('runId'));",
@@ -752,19 +756,100 @@
         "value": "Bearer {{tokenEditor}}"
        }
       ],
-      "url": "{{baseUrl}}/normas/{{normaIndividualId}}"
+     "url": "{{baseUrl}}/normas/{{normaIndividualId}}"
      }
     },
     {
-     "name": "EDITOR consulta borrador sin título",
+     "name": "SUPERADMINISTRADOR consulta detalle y origen Registro Oficial",
      "event": [
       {
        "listen": "test",
        "script": {
         "exec": [
-         "pm.test('Detalle del borrador incompleto responde 200', () => pm.response.to.have.status(200));",
+         "pm.test('Detalle editorial para SUPERADMINISTRADOR responde 200', () => pm.response.to.have.status(200));",
          "const json = pm.response.json();",
-         "pm.test('Título permanece vacío, sin placeholder', () => pm.expect(json.titulo).to.eql(''));"
+         "pm.test('SUPERADMINISTRADOR conserva el origen mínimo del borrador', () => {",
+         "  pm.expect(json.id).to.eql(pm.collectionVariables.get('normaIndividualId'));",
+         "  pm.expect(json.origenRegistroOficial.urlResumenMensualRegistroOficial).to.eql(pm.collectionVariables.get('urlResumen'));",
+         "  pm.expect(json.origenRegistroOficial.segmentoCrudo).to.contain(pm.collectionVariables.get('runId'));",
+         "  pm.expect(json.edicionesRegistroOficial[0].tipoRelacion).to.eql('PRINCIPAL');",
+         "  pm.expect(json).not.to.have.property('edicionRegistroOficialId');",
+         "  pm.expect(json).not.to.have.property('fuente');",
+         "});"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenSuperadmin}}"
+       }
+      ],
+      "url": "{{baseUrl}}/normas/{{normaIndividualId}}"
+     }
+    },
+    {
+     "name": "EDITOR registra norma manual sin origen de ingesta",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Registro manual responde 201', () => pm.response.to.have.status(201));",
+         "const json = pm.response.json();",
+         "pm.test('El comando devuelve el contrato mínimo de registro', () => {",
+         "  pm.expect(json.id).to.be.a('string').and.not.empty;",
+         "  pm.expect(json.estadoEditorial).to.eql('BORRADOR');",
+         "  pm.expect(json.estadoJuridico).to.eql('VIGENTE');",
+         "  pm.expect(json.contenido).to.eql([]);",
+         "  pm.expect(json.edicionesRegistroOficial).to.eql([]);",
+         "  pm.expect(json.tieneContenidoCompleto).to.eql(false);",
+         "  pm.expect(json).not.to.have.property('titulo');",
+         "  pm.expect(json).not.to.have.property('origenRegistroOficial');",
+         "});",
+         "pm.collectionVariables.set('normaManualSinOrigenId', json.id);"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       },
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenEditor}}"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"numero\": null,\n  \"titulo\": \"Norma manual {{runId}}\",\n  \"contenido\": [],\n  \"tipoNorma\": \"Resolución\",\n  \"institucionExpide\": \"Institución de Prueba\",\n  \"estadoJuridico\": \"VIGENTE\",\n  \"fechaExpedicion\": null\n}"
+      },
+      "url": "{{baseUrl}}/normas"
+     }
+    },
+    {
+     "name": "EDITOR consulta norma manual sin origen de ingesta",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Detalle manual para EDITOR responde 200', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "pm.test('No inventa origen ni edición para una norma manual', () => {",
+         "  pm.expect(json.id).to.eql(pm.collectionVariables.get('normaManualSinOrigenId'));",
+         "  pm.expect(json.edicionesRegistroOficial).to.eql([]);",
+         "  pm.expect(json).not.to.have.property('origenRegistroOficial');",
+         "});"
         ],
         "type": "text/javascript"
        }
@@ -778,7 +863,37 @@
         "value": "Bearer {{tokenEditor}}"
        }
       ],
-      "url": "{{baseUrl}}/normas/{{normaInvalidaId}}"
+      "url": "{{baseUrl}}/normas/{{normaManualSinOrigenId}}"
+     }
+    },
+    {
+     "name": "SUPERADMINISTRADOR consulta norma manual sin origen de ingesta",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Detalle manual para SUPERADMINISTRADOR responde 200', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "pm.test('La ausencia de origen es igual para ambos roles editoriales', () => {",
+         "  pm.expect(json.id).to.eql(pm.collectionVariables.get('normaManualSinOrigenId'));",
+         "  pm.expect(json.edicionesRegistroOficial).to.eql([]);",
+         "  pm.expect(json).not.to.have.property('origenRegistroOficial');",
+         "});"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenSuperadmin}}"
+       }
+      ],
+      "url": "{{baseUrl}}/normas/{{normaManualSinOrigenId}}"
      }
     }
    ]
@@ -969,6 +1084,8 @@
          "pm.test('La edición se crea MANUAL con la URL solicitada', () => {",
          "  pm.expect(json.estadoResolucionFuente).to.eql('MANUAL');",
          "  pm.expect(json.urlPdf).to.eql(pm.collectionVariables.get('urlEdicionManual'));",
+         "  pm.expect(json.fechaPublicacionOficial).to.eql(pm.collectionVariables.get('fechaEdicionManual'));",
+         "  pm.expect(json.fechaPublicacionOficial).to.match(/^\\d{4}-\\d{2}-\\d{2}$/);",
          "});",
          "pm.collectionVariables.set('edicionManualId', json.id);"
         ],
@@ -1111,13 +1228,19 @@
      }
     },
     {
-     "name": "ADMINISTRADOR no consulta catálogo",
+     "name": "ADMINISTRADOR lista únicamente ediciones completas",
      "event": [
       {
        "listen": "test",
        "script": {
         "exec": [
-         "pm.test('ADMINISTRADOR recibe 403', () => pm.response.to.have.status(403));"
+         "pm.test('ADMINISTRADOR lista catálogo sin suscripción: 200', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "pm.test('Solo ve ediciones completas y no ve el estado interno', () => {",
+         "  pm.expect(json.some((edicion) => edicion.id === pm.collectionVariables.get('edicionManualId'))).to.eql(true);",
+         "  pm.expect(json.some((edicion) => edicion.id === pm.collectionVariables.get('edicionId'))).to.eql(false);",
+         "  json.forEach((edicion) => pm.expect(edicion).not.to.have.property('estadoResolucionFuente'));",
+         "});"
         ],
         "type": "text/javascript"
        }
@@ -1135,13 +1258,43 @@
      }
     },
     {
-     "name": "SUSCRIPTOR no consulta detalle de edición",
+     "name": "SUSCRIPTOR con suscripción lista únicamente ediciones completas",
      "event": [
       {
        "listen": "test",
        "script": {
         "exec": [
-         "pm.test('SUSCRIPTOR recibe 403', () => pm.response.to.have.status(403));"
+         "pm.test('SUSCRIPTOR con cuenta y suscripción lista catálogo: 200', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "pm.test('Solo ve ediciones completas y no ve el estado interno', () => {",
+         "  pm.expect(json.some((edicion) => edicion.id === pm.collectionVariables.get('edicionManualId'))).to.eql(true);",
+         "  pm.expect(json.some((edicion) => edicion.id === pm.collectionVariables.get('edicionId'))).to.eql(false);",
+         "  json.forEach((edicion) => pm.expect(edicion).not.to.have.property('estadoResolucionFuente'));",
+         "});"
+        ],
+        "type": "text/javascript"
+       }
+      }
+     ],
+     "request": {
+      "method": "GET",
+      "header": [
+       {
+        "key": "Authorization",
+        "value": "Bearer {{tokenSuscriptor}}"
+       }
+      ],
+      "url": "{{baseUrl}}/ediciones-registro-oficial"
+     }
+    },
+    {
+     "name": "SUSCRIPTOR no descubre una edición incompleta por detalle",
+     "event": [
+      {
+       "listen": "test",
+       "script": {
+        "exec": [
+         "pm.test('Edición incompleta responde 404 para SUSCRIPTOR', () => pm.response.to.have.status(404));"
         ],
         "type": "text/javascript"
        }
@@ -1879,14 +2032,19 @@
      }
     },
     {
-     "name": "SUPERADMINISTRADOR sin suscripción no consulta contenido publicado",
+     "name": "SUPERADMINISTRADOR consulta contenido publicado sin suscripción",
      "event": [
       {
        "listen": "test",
        "script": {
         "exec": [
-         "pm.test('SUPERADMINISTRADOR sin suscripción recibe 403', () => pm.response.to.have.status(403));",
-         "pm.test('Mensaje genérico para SUPERADMINISTRADOR', () => pm.expect(pm.response.json().message).to.eql('Acceso denegado'));"
+         "pm.test('SUPERADMINISTRADOR interno recibe 200 sin suscripción', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "pm.test('Recibe el contenido publicado sin datos editoriales internos', () => {",
+         "  pm.expect(json.id).to.eql(pm.collectionVariables.get('normaIndividualId'));",
+         "  pm.expect(json).not.to.have.property('estadoEditorial');",
+         "  pm.expect(json).not.to.have.property('estadoResolucionFuente');",
+         "});"
         ],
         "type": "text/javascript"
        }
@@ -1904,14 +2062,19 @@
      }
     },
     {
-     "name": "EDITOR sin suscripción no consulta contenido publicado",
+     "name": "EDITOR consulta contenido publicado sin suscripción",
      "event": [
       {
        "listen": "test",
        "script": {
         "exec": [
-         "pm.test('EDITOR sin suscripción recibe 403', () => pm.response.to.have.status(403));",
-         "pm.test('Mensaje genérico para EDITOR', () => pm.expect(pm.response.json().message).to.eql('Acceso denegado'));"
+         "pm.test('EDITOR interno recibe 200 sin suscripción', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "pm.test('Recibe el contenido publicado sin datos editoriales internos', () => {",
+         "  pm.expect(json.id).to.eql(pm.collectionVariables.get('normaIndividualId'));",
+         "  pm.expect(json).not.to.have.property('estadoEditorial');",
+         "  pm.expect(json).not.to.have.property('estadoResolucionFuente');",
+         "});"
         ],
         "type": "text/javascript"
        }
@@ -1929,14 +2092,19 @@
      }
     },
     {
-     "name": "ADMINISTRADOR sin suscripción no consulta contenido publicado",
+     "name": "ADMINISTRADOR consulta contenido publicado sin suscripción",
      "event": [
       {
        "listen": "test",
        "script": {
         "exec": [
-         "pm.test('ADMINISTRADOR sin suscripción recibe 403', () => pm.response.to.have.status(403));",
-         "pm.test('Mensaje genérico para ADMINISTRADOR', () => pm.expect(pm.response.json().message).to.eql('Acceso denegado'));"
+         "pm.test('ADMINISTRADOR interno recibe 200 sin suscripción', () => pm.response.to.have.status(200));",
+         "const json = pm.response.json();",
+         "pm.test('Recibe el contenido publicado sin datos editoriales internos', () => {",
+         "  pm.expect(json.id).to.eql(pm.collectionVariables.get('normaIndividualId'));",
+         "  pm.expect(json).not.to.have.property('estadoEditorial');",
+         "  pm.expect(json).not.to.have.property('estadoResolucionFuente');",
+         "});"
         ],
         "type": "text/javascript"
        }
@@ -2871,6 +3039,11 @@
   },
   {
    "key": "normaSuperadminId",
+   "value": "",
+   "type": "string"
+  },
+  {
+   "key": "normaManualSinOrigenId",
    "value": "",
    "type": "string"
   },
