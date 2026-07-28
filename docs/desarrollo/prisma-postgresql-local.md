@@ -262,8 +262,10 @@ PERSISTENCIA=prisma \
 DATABASE_URL="postgresql://normativo:normativo@localhost:5433/normativo_test?schema=public" \
 CATALOGO_REGISTRO_OFICIAL_HABILITADO=true \
 CATALOGO_REGISTRO_OFICIAL_BASE_URL=http://localhost:3999 \
-CATALOGO_REGISTRO_OFICIAL_DOMINIOS_PDF=cdn.oficial.test \
   npm run start --workspace=@normativo/infraestructura &
+# Nota: no hace falta CATALOGO_REGISTRO_OFICIAL_DOMINIOS_PDF — el fixture
+# sirve cards con el host real verificado de los PDFs
+# (esacc.corteconstitucional.gob.ec), que es la allowlist por defecto.
 
 # 5. Ejecutar Newman (reportes fuera del repositorio)
 npx newman run postman_fase_5b_resolucion_fuentes_registro_oficial.json \

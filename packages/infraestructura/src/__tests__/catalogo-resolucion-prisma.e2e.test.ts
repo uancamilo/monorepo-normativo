@@ -20,7 +20,9 @@ const CORREO_EDITOR = 'editor@test.com';
 const CORREO_ADMIN = 'admin@test.com';
 const CORREO_SUSCRIPTOR = 'suscriptor@test.com';
 
-const DOMINIO_PDF = 'cdn.oficial.test';
+// Host real verificado de los PDFs del catálogo oficial (julio 2026): el e2e
+// ejercita el mismo contrato de allowlist que producción, no uno de fantasía.
+const DOMINIO_PDF = 'esacc.corteconstitucional.gob.ec';
 
 const testDatabaseUrl = obtenerTestDatabaseUrlDesdeEntorno();
 const describirPrisma = testDatabaseUrl ? describe : describe.skip;

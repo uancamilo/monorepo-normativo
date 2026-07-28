@@ -142,8 +142,9 @@ carpeta-mes y filtrar por número.
   pero mal configurada, el arranque es fail-fast con mensaje claro y sin
   secretos. Variables:
   `CATALOGO_REGISTRO_OFICIAL_HABILITADO`, `_BASE_URL`, `_DOMINIOS_PDF`
-  (allowlist; por defecto el host de la base), `_TIMEOUT_MS`,
-  `_MAX_CONCURRENCIA`, `_MAX_EDICIONES_POR_EJECUCION`.
+  (allowlist; por defecto el host real verificado de los PDFs,
+  `esacc.corteconstitucional.gob.ec` — ver "Verificación contra el sitio
+  real"), `_TIMEOUT_MS`, `_MAX_CONCURRENCIA`, `_MAX_EDICIONES_POR_EJECUCION`.
 
 - **Seguridad (SSRF).** La URL base proviene solo de configuración, nunca del
   request. Solo HTTPS (http exclusivamente en localhost, para pruebas). Timeout
@@ -167,6 +168,35 @@ carpeta-mes y filtrar por número.
 
 - **Sin cambios de esquema.** Los estados de resolución y `urlPdf` ya existían;
   no se modifican migraciones ni el schema Prisma.
+
+## Verificación contra el sitio real (julio 2026)
+
+La taxonomía y el dominio de los PDFs se contrastaron con el sitio oficial en
+julio de 2026 (páginas públicas de catálogo + cards reales), corrigiendo una
+suposición errada de la primera versión de esta ADR:
+
+- **Páginas públicas de catálogo por tipo** (cada una con el árbol lateral
+  2001–2026 que expone `data-id-carpeta`/`data-year-id`/`data-mes-id`):
+  Registro Oficial `/245427-2/` (carpeta 1954), Suplementos `/255776-2/`
+  (1991), Edición Especial `/261974-2/` (1992), Índice/resúmenes `/265554-2/`
+  (1993, no usado por esta resolución), Edición Jurídica `/266381-2/` (1994)
+  y Ediciones Constitucionales `/267099-2/` (1995). Los IDs de carpeta, año
+  (2001→1956 … 2026→2002) y mes (enero→1979 … diciembre→1990) coinciden al
+  100% con `registro-oficial-taxonomias.ts`.
+- **Dominio real de los PDFs.** Los enlaces "Descargar" de las cards apuntan
+  — en todos los tipos y todos los años — al almacenamiento de la Corte
+  Constitucional (`esacc.corteconstitucional.gob.ec`), nunca al propio
+  `registroficial.gob.ec`. El default original de la allowlist (host de la
+  base) habría rechazado todas las URLs reales dejando la resolución
+  inoperante (fail-closed: ediciones `PENDIENTE`, sin corrupción). El default
+  corregido es el host verificado; `_DOMINIOS_PDF` lo reemplaza si el sitio
+  cambia de almacenamiento. El fixture local y los E2E usan ese mismo host
+  para ejercitar el contrato real, no uno de fantasía.
+- **Riesgo documentado, no resuelto:** las URLs de PDF incluyen un token
+  codificado del API de almacenamiento; no está verificado si caducan con el
+  tiempo. Si caducaran, las fuentes `RESUELTA` podrían romperse y habría que
+  re-resolver o corregir manualmente; se aceptó como riesgo operativo
+  observable antes de diseñar una mitigación.
 
 ## Consecuencias
 

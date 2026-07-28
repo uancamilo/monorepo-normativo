@@ -34,7 +34,10 @@ const CORREOS: Record<string, string> = {
   editor: 'editor@test.com',
   superadmin: 'superadmin@test.com',
 };
-const DOMINIO_PDF = 'www.registroficial.gob.ec';
+// Host real verificado de los PDFs del catálogo oficial (julio 2026): las
+// cards reales nunca apuntan a registroficial.gob.ec sino al almacenamiento
+// de la Corte Constitucional; el e2e ejercita ese mismo contrato.
+const DOMINIO_PDF = 'esacc.corteconstitucional.gob.ec';
 
 function pdfDe(numero: number): string {
   return `https://${DOMINIO_PDF}/ediciones/ro-${numero}.pdf`;

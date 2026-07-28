@@ -1,5 +1,8 @@
 import { describe, expect, it } from '@jest/globals';
-import { obtenerConfiguracionCatalogoRegistroOficial } from '../catalogo-registro-oficial';
+import {
+  DOMINIO_PDF_OFICIAL_VERIFICADO,
+  obtenerConfiguracionCatalogoRegistroOficial,
+} from '../catalogo-registro-oficial';
 
 const BASE = 'https://www.registroficial.gob.ec';
 
@@ -66,7 +69,12 @@ describe('obtenerConfiguracionCatalogoRegistroOficial', () => {
 
     expect(config.habilitado).toBe(true);
     expect(config.baseUrl).toBe(`${BASE}/`);
-    expect(config.dominiosPdfPermitidos).toEqual(['www.registroficial.gob.ec']);
+    // El default es el host real verificado de los PDFs (almacenamiento de la
+    // Corte Constitucional), no el host del catálogo: las cards reales nunca
+    // apuntan a registroficial.gob.ec.
+    expect(config.dominiosPdfPermitidos).toEqual([
+      DOMINIO_PDF_OFICIAL_VERIFICADO,
+    ]);
     expect(config.timeoutMs).toBe(15_000);
     expect(config.maxConcurrencia).toBe(4);
     expect(config.maxEdicionesPorEjecucion).toBe(50);
@@ -93,7 +101,12 @@ describe('obtenerConfiguracionCatalogoRegistroOficial', () => {
     });
 
     expect(config.habilitado).toBe(true);
-    expect(config.dominiosPdfPermitidos).toEqual(['localhost:3999']);
+    // El default de la allowlist no deriva del host del catálogo: incluso
+    // contra un fixture localhost apunta al host oficial verificado, y un
+    // fixture que sirva otras URLs debe declararlas explícitamente.
+    expect(config.dominiosPdfPermitidos).toEqual([
+      DOMINIO_PDF_OFICIAL_VERIFICADO,
+    ]);
   });
 
   it('habilitado sin base URL falla en el arranque', () => {

@@ -6,6 +6,22 @@
  *
  * Verificados a partir del mecanismo real; no se fabrican. La cobertura de
  * años es 2001–2026 (límite actual de la taxonomía del sitio).
+ *
+ * Evidencia (julio 2026): cada tipo tiene una página pública de catálogo cuyo
+ * árbol lateral (2001–2026, 12 meses) expone estos mismos IDs en los
+ * atributos `data-id-carpeta`, `data-year-id` y `data-mes-id`:
+ * - Registro Oficial:          /245427-2/  -> carpeta 1954
+ * - Suplementos (1º a 7º):     /255776-2/  -> carpeta 1991
+ * - Edición Especial:          /261974-2/  -> carpeta 1992
+ * - Índice (resúmenes):        /265554-2/  -> carpeta 1993 (no se usa aquí:
+ *   los resúmenes mensuales los procesa el extractor externo de Fase 5A)
+ * - Edición Jurídica:          /266381-2/  -> carpeta 1994
+ * - Ediciones Constitucionales:/267099-2/  -> carpeta 1995
+ * Los enlaces "Descargar" de las cards apuntan en todos los tipos y años al
+ * almacenamiento de la Corte Constitucional
+ * (esacc.corteconstitucional.gob.ec), nunca al propio registroficial.gob.ec;
+ * ese host es el default de la allowlist de PDFs (ver
+ * configuracion/catalogo-registro-oficial.ts).
  */
 
 /** Carpeta del catálogo por abreviatura de tipo de publicación. */

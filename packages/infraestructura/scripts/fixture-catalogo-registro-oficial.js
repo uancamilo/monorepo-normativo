@@ -11,7 +11,9 @@
  * del fixture E2E Prisma):
  * - POST /wp-admin/admin-ajax.php con action=get_term_post_kilur_con_imagen:
  *   - mayo 2026 (year_id=2002, mes_id=1983): una card válida "RO 700" con PDF
- *     en https://cdn.oficial.test/... (allowlist de la corrida local);
+ *     en https://esacc.corteconstitucional.gob.ec/... (el host real
+ *     verificado donde el sitio oficial aloja sus PDFs, para que la corrida
+ *     local ejercite el mismo contrato de allowlist que producción);
  *   - cualquier otro mes: página de mantenimiento sin cards (el adaptador la
  *     clasifica RESPUESTA_CATALOGO_INVALIDA y la edición sigue PENDIENTE).
  * - Cualquier otra ruta/método/acción: 404.
@@ -34,7 +36,7 @@ const CARDS_MAYO_2026 = `<section>
   <article>
     <h2 class="card__title_post_imagen">Registro Oficial Nº 700</h2>
     <div class="txt_fecha_post_imagen">lunes, 4 mayo 2026\nQuito</div>
-    <a class="cta_post_imagen" href="https://cdn.oficial.test/ediciones/ro-700.pdf">Descargar</a>
+    <a class="cta_post_imagen" href="https://esacc.corteconstitucional.gob.ec/ediciones/ro-700.pdf">Descargar</a>
   </article>
 </section>`;
 

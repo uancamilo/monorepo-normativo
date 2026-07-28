@@ -8,6 +8,19 @@ export const TIMEOUT_CATALOGO_POR_DEFECTO_MS = 15_000;
 export const MAX_BYTES_RESPUESTA_CATALOGO = 5 * 1024 * 1024;
 
 /**
+ * Host real donde el catálogo oficial aloja TODOS los PDFs de las ediciones
+ * (el almacenamiento de la Corte Constitucional), verificado contra las cards
+ * reales del sitio en julio de 2026: los enlaces "Descargar" nunca apuntan al
+ * propio registroficial.gob.ec. Es un hecho del sitio externo (como las
+ * taxonomías), no un parámetro operativo: la allowlist por defecto debe
+ * aceptar este host o la resolución rechazaría todas las URLs reales.
+ * `CATALOGO_REGISTRO_OFICIAL_DOMINIOS_PDF` lo reemplaza sin tocar código si
+ * el sitio cambia de almacenamiento.
+ */
+export const DOMINIO_PDF_OFICIAL_VERIFICADO =
+  'esacc.corteconstitucional.gob.ec';
+
+/**
  * Límites máximos seguros y conservadores para la integración del catálogo.
  * La configuración fuera de rango produce arranque fail-fast (cuando está
  * habilitada). Ajustar un máximo exige una razón técnica documentada.
@@ -82,7 +95,6 @@ export function obtenerConfiguracionCatalogoRegistroOficial(
   const baseUrl = validarBaseUrl(entorno.CATALOGO_REGISTRO_OFICIAL_BASE_URL);
   const dominiosPdfPermitidos = validarDominiosPdf(
     entorno.CATALOGO_REGISTRO_OFICIAL_DOMINIOS_PDF,
-    baseUrl,
   );
 
   return {
@@ -131,12 +143,13 @@ function validarBaseUrl(valor: string | undefined): URL {
   return url;
 }
 
-function validarDominiosPdf(
-  valor: string | undefined,
-  baseUrl: URL,
-): string[] {
+function validarDominiosPdf(valor: string | undefined): string[] {
+  // Sin allowlist explícita se acepta el host verificado donde el sitio
+  // oficial aloja los PDFs. Derivarla del host del catálogo sería un default
+  // inútil: ninguna card real apunta a registroficial.gob.ec y toda
+  // resolución fallaría en silencio como RESPUESTA_CATALOGO_INVALIDA.
   if (valor === undefined || valor.trim().length === 0) {
-    return [baseUrl.host.toLowerCase()];
+    return [DOMINIO_PDF_OFICIAL_VERIFICADO];
   }
   const dominios = valor
     .split(',')
