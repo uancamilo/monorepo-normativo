@@ -481,6 +481,220 @@ describe('IngerirResumenRegistroOficial', () => {
     expect(norma.edicionRegistroOficialId).toBeNull();
   });
 
+  it('A4: no duplica una advertencia que el extractor ya envió y que la ingesta vuelve a derivar', async () => {
+    const { casoUso, repositorioIngesta } = crearContexto();
+
+    const resultado = await casoUso.ejecutar(
+      crearSolicitudIngesta({
+        entradasDetectadas: [
+          crearEntradaDetectada({
+            tipo: null,
+            institucion: null,
+            // El extractor ya detectó y reportó estas mismas ausencias;
+            // `derivarCamposNorma` las vuelve a derivar internamente al
+            // validar tipo/institución. Cada una debe sobrevivir una sola
+            // vez en la entrada persistida.
+            advertencias: ['TIPO_NORMA_NO_DETECTADO', 'INSTITUCION_NO_DETECTADA'],
+            publicacion: {
+              tipo: 'SRO',
+              numero: 77,
+              fecha: '2026-05-02',
+            },
+          }),
+        ],
+      }),
+    );
+
+    expect(resultado.exitoso).toBe(true);
+    if (!resultado.exitoso) {
+      return;
+    }
+    const [entrada] = await repositorioIngesta.listarEntradasPorLoteId(
+      resultado.lote.id,
+    );
+
+    const conteos = new Map<string, number>();
+    for (const advertencia of entrada.advertencias) {
+      conteos.set(advertencia, (conteos.get(advertencia) ?? 0) + 1);
+    }
+    for (const conteo of conteos.values()) {
+      expect(conteo).toBe(1);
+    }
+    expect(entrada.advertencias).toContain('TIPO_NORMA_NO_DETECTADO');
+    expect(entrada.advertencias).toContain('INSTITUCION_NO_DETECTADA');
+    // Orden determinista de primera aparición: tal como llegaron del
+    // extractor, antes que cualquier advertencia derivada nueva.
+    expect(entrada.advertencias.indexOf('TIPO_NORMA_NO_DETECTADO')).toBe(0);
+    expect(entrada.advertencias.indexOf('INSTITUCION_NO_DETECTADA')).toBe(1);
+  });
+
+  it('NUMERO_NORMA_NO_DETECTADO: se preserva la advertencia que envía el extractor cuando numero es null', async () => {
+    // A diferencia de tipo/titulo/institucion, `derivarCamposNorma` nunca
+    // vuelve a derivar esta advertencia por su cuenta (no hay ninguna regla
+    // de "numeroDetectado === null → push" en la ingesta): la única fuente
+    // es lo que el propio extractor ya reportó en `entrada.advertencias`.
+    const { casoUso, repositorioIngesta } = crearContexto();
+
+    const resultado = await casoUso.ejecutar(
+      crearSolicitudIngesta({
+        entradasDetectadas: [
+          crearEntradaDetectada({
+            numero: null,
+            advertencias: ['NUMERO_NORMA_NO_DETECTADO'],
+            publicacion: {
+              tipo: 'RO',
+              numero: 777,
+              fecha: '2026-05-02',
+            },
+          }),
+        ],
+      }),
+    );
+
+    expect(resultado.exitoso).toBe(true);
+    if (!resultado.exitoso) {
+      return;
+    }
+    const [entrada] = await repositorioIngesta.listarEntradasPorLoteId(
+      resultado.lote.id,
+    );
+    expect(entrada.numeroDetectado).toBeNull();
+    expect(entrada.advertencias).toContain('NUMERO_NORMA_NO_DETECTADO');
+
+    const norma = repositorioIngesta.normasGuardadas[0];
+    expect(norma.numero).toBeNull();
+  });
+
+  it('NUMERO_NORMA_NO_DETECTADO: no se duplica pese a que la ingesta no la vuelve a derivar por su cuenta', async () => {
+    const { casoUso, repositorioIngesta } = crearContexto();
+
+    const resultado = await casoUso.ejecutar(
+      crearSolicitudIngesta({
+        entradasDetectadas: [
+          crearEntradaDetectada({
+            numero: null,
+            advertencias: ['NUMERO_NORMA_NO_DETECTADO'],
+            publicacion: {
+              tipo: 'RO',
+              numero: 778,
+              fecha: '2026-05-02',
+            },
+          }),
+        ],
+      }),
+    );
+
+    expect(resultado.exitoso).toBe(true);
+    if (!resultado.exitoso) {
+      return;
+    }
+    const [entrada] = await repositorioIngesta.listarEntradasPorLoteId(
+      resultado.lote.id,
+    );
+    expect(
+      entrada.advertencias.filter((a) => a === 'NUMERO_NORMA_NO_DETECTADO'),
+    ).toHaveLength(1);
+  });
+
+  it('NUMERO_NORMA_NO_DETECTADO: no aparece cuando numero sí fue detectado', async () => {
+    const { casoUso, repositorioIngesta } = crearContexto();
+
+    const resultado = await casoUso.ejecutar(
+      crearSolicitudIngesta({
+        entradasDetectadas: [crearEntradaDetectada({ numero: '456' })],
+      }),
+    );
+
+    expect(resultado.exitoso).toBe(true);
+    if (!resultado.exitoso) {
+      return;
+    }
+    const [entrada] = await repositorioIngesta.listarEntradasPorLoteId(
+      resultado.lote.id,
+    );
+    expect(entrada.numeroDetectado).toBe('456');
+    expect(entrada.advertencias).not.toContain('NUMERO_NORMA_NO_DETECTADO');
+  });
+
+  it('NUMERO_NORMA_NO_DETECTADO: participa en la huella canónica del lote, igual que cualquier otra advertencia', async () => {
+    const { casoUso } = crearContexto();
+
+    await casoUso.ejecutar(
+      crearSolicitudIngesta({
+        entradasDetectadas: [
+          crearEntradaDetectada({ numero: null, advertencias: [] }),
+        ],
+      }),
+    );
+    const resultado = await casoUso.ejecutar(
+      crearSolicitudIngesta({
+        entradasDetectadas: [
+          crearEntradaDetectada({
+            numero: null,
+            advertencias: ['NUMERO_NORMA_NO_DETECTADO'],
+          }),
+        ],
+      }),
+    );
+
+    // Mismo período, mismo contenido salvo por esta advertencia adicional:
+    // la huella debe reflejar la diferencia, igual que ya se prueba para
+    // `versionExtractor` — la ingesta rechaza la repetición como una
+    // ejecución en conflicto, no la trata como el mismo lote.
+    expect(resultado).toEqual({
+      exitoso: false,
+      razon: 'EJECUCION_INGESTA_CONFLICTIVA',
+    });
+  });
+
+  it('POSIBLE_FUSION_ENTRADAS: sobrevive sin duplicarse en el flujo de ingesta (la ingesta nunca la vuelve a derivar por su cuenta)', async () => {
+    // Igual que NUMERO_NORMA_NO_DETECTADO, `derivarCamposNorma` no conoce
+    // esta advertencia ni la vuelve a derivar: es una decisión exclusiva
+    // del extractor sobre el propio segmento. La única fuente es lo que el
+    // extractor ya reportó, y el punto único de dedup (`[...new Set(...)]`)
+    // debe dejarla pasar exactamente una vez.
+    const { casoUso, repositorioIngesta } = crearContexto();
+
+    const resultado = await casoUso.ejecutar(
+      crearSolicitudIngesta({
+        entradasDetectadas: [
+          crearEntradaDetectada({
+            numero: null,
+            titulo: null,
+            advertencias: [
+              'POSIBLE_FUSION_ENTRADAS',
+              'NUMERO_NORMA_NO_DETECTADO',
+              'TITULO_NO_DETECTADO',
+            ],
+            publicacion: {
+              tipo: 'EC',
+              numero: 245,
+              fecha: '2026-05-21',
+            },
+          }),
+        ],
+      }),
+    );
+
+    expect(resultado.exitoso).toBe(true);
+    if (!resultado.exitoso) {
+      return;
+    }
+    const [entrada] = await repositorioIngesta.listarEntradasPorLoteId(
+      resultado.lote.id,
+    );
+    expect(
+      entrada.advertencias.filter((a) => a === 'POSIBLE_FUSION_ENTRADAS'),
+    ).toHaveLength(1);
+    expect(entrada.advertencias).toEqual(
+      expect.arrayContaining([
+        'POSIBLE_FUSION_ENTRADAS',
+        'NUMERO_NORMA_NO_DETECTADO',
+        'TITULO_NO_DETECTADO',
+      ]),
+    );
+  });
+
   it('cuando todo falla en la detección igual crea la Norma BORRADOR vacía', async () => {
     const { casoUso, repositorioIngesta } = crearContexto();
 

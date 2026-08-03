@@ -408,7 +408,13 @@ function derivarCamposNorma(
     metadataExtraccion: esObjetoPlano(entrada.metadataExtraccion)
       ? entrada.metadataExtraccion
       : {},
-    advertencias,
+    // El extractor puede reportar una advertencia (p. ej.
+    // INSTITUCION_NO_DETECTADA) que este mismo método vuelve a derivar al
+    // validar el campo correspondiente; deduplicar aquí, en el único punto
+    // donde se ensambla la lista final, evita persistir la misma
+    // advertencia dos veces sin perder ninguna señal real y conservando el
+    // orden de primera aparición.
+    advertencias: [...new Set(advertencias)],
     confianza,
   };
 }

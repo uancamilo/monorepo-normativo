@@ -266,6 +266,55 @@ describe('Ingesta Registro Oficial (e2e memoria)', () => {
     expect(entrada.advertencias).toContain('TITULO_NO_DETECTADO');
   });
 
+  it('entrada sin numero no se rechaza; crea borrador con NUMERO_NORMA_NO_DETECTADO en la entrada persistida', async () => {
+    const ingesta = await ingerirComoSuperadmin(
+      cuerpoLoteValido({
+        entradasDetectadas: [
+          entradaValida({
+            posicion: 0,
+            numero: null,
+            advertencias: ['NUMERO_NORMA_NO_DETECTADO'],
+          }),
+        ],
+      }),
+    );
+
+    expect(ingesta.status).toBe(201);
+    const lote = await consultarLoteComoSuperadmin(ingesta.body.lote.id);
+    const entrada = lote.body.entradasDetectadas[0];
+    expect(entrada.normaId).toBeTruthy();
+    expect(entrada.advertencias).toContain('NUMERO_NORMA_NO_DETECTADO');
+    expect(
+      entrada.advertencias.filter(
+        (a: string) => a === 'NUMERO_NORMA_NO_DETECTADO',
+      ),
+    ).toHaveLength(1);
+  });
+
+  it('A4: una advertencia que el extractor ya envió no se duplica al derivar campos en la ingesta', async () => {
+    const ingesta = await ingerirComoSuperadmin(
+      cuerpoLoteValido({
+        entradasDetectadas: [
+          entradaValida({
+            posicion: 0,
+            titulo: '  ',
+            // El extractor ya reportó esta misma ausencia; la ingesta la
+            // vuelve a derivar internamente al validar el título.
+            advertencias: ['TITULO_NO_DETECTADO'],
+          }),
+        ],
+      }),
+    );
+
+    expect(ingesta.status).toBe(201);
+    const lote = await consultarLoteComoSuperadmin(ingesta.body.lote.id);
+    const entrada = lote.body.entradasDetectadas[0];
+    const ocurrencias = entrada.advertencias.filter(
+      (a: string) => a === 'TITULO_NO_DETECTADO',
+    );
+    expect(ocurrencias).toHaveLength(1);
+  });
+
   it.each(['usuario-editor-1', 'usuario-admin-1', 'usuario-suscriptor-1'])(
     '%s no puede consultar lotes ni lote completo (403): los lotes son control técnico del scraping',
     async (usuarioId) => {

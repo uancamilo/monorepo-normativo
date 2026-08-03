@@ -8,10 +8,13 @@
     "packages/*"
   ],
   "scripts": {
-    "test": "npm run test:dominio && npm run test:aplicacion && npm run test:infraestructura",
+    "test": "npm run build && npm run test:dominio && npm run test:aplicacion && npm run test:infraestructura:compilado",
     "test:dominio": "npm run test --workspace=@normativo/dominio",
     "test:aplicacion": "npm run test --workspace=@normativo/aplicacion",
-    "test:infraestructura": "npm run test --workspace=@normativo/infraestructura",
+    "test:infraestructura": "npm run build && npm run test:infraestructura:compilado",
+    "test:infraestructura:compilado": "npm run test --workspace=@normativo/infraestructura",
+    "test:extractor": "npm run build && npm run test:extractor:compilado",
+    "test:extractor:compilado": "npm test --workspace=@normativo/infraestructura -- ingesta/extractor-registro-oficial",
     "test:prisma": "npm run test:prisma --workspace=@normativo/infraestructura",
     "typecheck": "npm run typecheck:dominio && npm run typecheck:aplicacion && npm run typecheck:infraestructura",
     "typecheck:dominio": "npm run typecheck --workspace=@normativo/dominio",
