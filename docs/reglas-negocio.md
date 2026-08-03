@@ -650,8 +650,8 @@ Esta sección documenta la resolución automática de `EdicionRegistroOficial.ur
 ### Qué se procesa
 
 - Solo ediciones en estado `PENDIENTE` y con `urlPdf = null`. Los estados `MANUAL` y `RESUELTA` nunca se sobrescriben; `NO_ENCONTRADA` y `CONFLICTIVA` son terminales para la resolución automática y no se reprocesan ni se consultan contra el catálogo (reprocesarlas requerirá una futura operación explícita de reapertura/reencolado; hoy la vía para modificarlas es la corrección manual).
-- El cuerpo es opcional y estrictamente acotado: `edicionIds` (lista concreta) o `limite` (tope del lote de pendientes), mutuamente excluyentes — enviar ambos responde `SOLICITUD_INVALIDA` (400). Se rechazan propiedades adicionales (400) e ids duplicados o listas por encima del máximo seguro (`SOLICITUD_INVALIDA`, 400).
-- El proceso está acotado: sin `edicionIds` se toma un lote determinista (fecha oficial ascendente, luego id) de a lo sumo `CATALOGO_REGISTRO_OFICIAL_MAX_EDICIONES_POR_EJECUCION` pendientes; nunca se cargan todas. El `limite` de la solicitud nunca supera ese máximo. El paralelismo interno está limitado (`CATALOGO_REGISTRO_OFICIAL_MAX_CONCURRENCIA`); no hay background, cola ni worker.
+- El cuerpo es opcional y estrictamente acotado: `edicionIds` (lista concreta), `limite` (tope del lote global de pendientes) o `loteId` (paginar únicamente las ediciones de un lote de ingesta, con `limite`/`cursor` opcionales). `edicionIds` es mutuamente excluyente con `limite`, `loteId` y `cursor`; `cursor` exige `loteId`; `loteId` y `limite` sí pueden combinarse. Cualquier combinación inválida responde `SOLICITUD_INVALIDA` (400). Se rechazan propiedades adicionales (400) e ids duplicados o listas por encima del máximo seguro (`SOLICITUD_INVALIDA`, 400).
+- El proceso está acotado: sin `edicionIds` ni `loteId` se toma un lote global determinista (fecha oficial ascendente, luego id) de a lo sumo `CATALOGO_REGISTRO_OFICIAL_MAX_EDICIONES_POR_EJECUCION` pendientes; nunca se cargan todas. El `limite` de la solicitud nunca supera ese máximo. El paralelismo interno está limitado (`CATALOGO_REGISTRO_OFICIAL_MAX_CONCURRENCIA`); no hay background, cola ni worker.
 
 ### Resultados por edición
 
@@ -696,6 +696,20 @@ Esta sección documenta la resolución automática de `EdicionRegistroOficial.ur
   ```
 - Indisponibilidad general antes de procesar (integración deshabilitada o incompleta): HTTP 503 `CATALOGO_NO_DISPONIBLE`, ninguna edición modificada.
 
+### Selección por lote de ingesta (`loteId`, paginación de 20 en 20)
+
+Resuelve exclusivamente las ediciones únicas originadas por un lote de ingesta concreto (Fase 5C), sin recorrer sus Normas.
+
+- **La fuente es la triple detectada, no la asociación editorial de la Norma.** Las ediciones del lote se seleccionan a partir de (`tipoPublicacionRegistroOficial`, `numeroPublicacionRegistroOficial`, `fechaPublicacionOficial`) tal como quedaron persistidas en cada `EntradaDetectadaRegistroOficial` del lote, nunca a partir de `Norma.edicionRegistroOficialId`. Un editor puede reasignar después la edición principal de una Norma sin que eso cambie qué ediciones detectó originalmente el lote. La selección es set-based (sin bucle de una consulta por entrada ni por Norma): las triples únicas se agrupan en una sola operación y se resuelven contra las ediciones existentes.
+- **Tamaño de página**: por defecto 20 ediciones únicas por página en modo `loteId` (distinto del lote global, que sigue en 50 por defecto); el máximo absoluto configurado (`CATALOGO_REGISTRO_OFICIAL_MAX_EDICIONES_POR_EJECUCION`, ≤ 50) sigue aplicando como techo.
+- **Cursor opaco**: `siguienteCursor` codifica en Base64URL un objeto JSON versionado (versión, `loteId`, fecha e id de la última edición de la página) — el cliente nunca debe interpretarlo, solo reenviarlo. Un cursor mal formado, con versión desconocida o perteneciente a otro `loteId` es `SOLICITUD_INVALIDA` (400), nunca se ignora en silencio.
+- **`loteId` inexistente** responde 404 (`LOTE_NO_ENCONTRADO`, la misma razón ya usada para consultar un lote de ingesta). Un `loteId` existente sin ninguna edición pendiente responde 200 con `procesadas: 0`, `hayMas: false`, `siguienteCursor: null`, `pendientesRestantesLote: 0`.
+- **Respuesta**: además de las claves habituales (`procesadas`, `resueltas`, etc.), el modo `loteId` agrega en el nivel superior `hayMas` (existen más ediciones del lote después de esta página), `siguienteCursor` (string cuando `hayMas` es `true`; `null` en caso contrario) y `pendientesRestantesLote` (ediciones únicas del lote que continúan `PENDIENTE` sin fuente **después** de procesar la página, contadas sobre el lote completo — incluye las que fallaron técnicamente antes del cursor actual). Los modos existentes (`{}`, `limite`, `edicionIds`) conservan exactamente su contrato de respuesta anterior, sin estas tres claves.
+- **Un fallo técnico persistente no bloquea el avance dentro de la misma ejecución**: el cursor siguiente ancla en la última edición de la página tal como la entregó la selección, aunque esa edición concreta haya fallado técnicamente — así se puede seguir paginando hacia ediciones posteriores en la misma corrida. `pendientesRestantesLote` puede ser mayor que cero incluso con `hayMas: false`: significa que el recorrido de esta ejecución terminó, pero quedaron fallos técnicos que una futura ejecución sin cursor (desde el inicio) volverá a encontrar mientras sigan `PENDIENTE` — nunca reintenta una edición ya resuelta o terminal.
+- **Deduplicación y edición compartida**: varias entradas del lote con la misma triple (o varias Normas que comparten la misma edición) se procesan una sola vez por página; resolver esa edición deja su fuente visible para todas las Normas asociadas sin consultas adicionales.
+- **Entradas con triple incompleta** (tipo, número o fecha ausentes) no producen ninguna candidata ni URL fabricada: simplemente no aportan ninguna edición a la selección del lote.
+- Reglas ya vigentes que no cambian en este modo: unidad de procesamiento por edición, estados terminales, compare-and-set, permisos (solo `SUPERADMINISTRADOR`) y que el resolvedor nunca corrige campos editoriales de la Norma.
+
 ### Integración y configuración
 
 - Deshabilitada por defecto: sin `CATALOGO_REGISTRO_OFICIAL_HABILITADO=true` y `CATALOGO_REGISTRO_OFICIAL_BASE_URL`, el endpoint responde 503 y no consulta nada.
@@ -720,3 +734,69 @@ Esta sección documenta la resolución automática de `EdicionRegistroOficial.ur
 ### Fuera de alcance (Fase 5B)
 
 Extracción del contenido completo del PDF, OCR, LLM, scraping del resumen mensual, descarga masiva, Redis/BullMQ, workers, scheduler, publicación automática, relaciones jurídicas Norma–Norma y los filtros/paginación generales del catálogo.
+
+## 16. Extractor del índice mensual del Registro Oficial (Fase 5C)
+
+Esta sección documenta el primer bloque del extractor real: un CLI standalone, externo al backend, que lee un PDF local del índice mensual y genera el JSON compatible con el contrato de `POST /ingesta/registro-oficial/resumenes` (sección 14). No implementa descarga por URL, envío automático al backend, OCR, LLM, scheduler ni procesamiento masivo de múltiples índices. Detalle arquitectónico en ADR 0010.
+
+### Naturaleza del proceso
+
+- El extractor vive en `packages/infraestructura/src/ingesta/extractor-registro-oficial/` como CLI (script npm `extraer:registro-oficial`), no como módulo de NestJS: no se registra en el proceso del servidor, no expone endpoint y ningún caso de uso del backend lo invoca.
+- El CLI **nunca** escribe en PostgreSQL ni ejecuta `POST /ingesta/registro-oficial/resumenes` por sí mismo. Su única salida es un archivo JSON en la ruta indicada; el envío de ese payload al backend sigue siendo una acción separada.
+- Trabaja únicamente con un PDF ya descargado localmente. `urlResumenMensualRegistroOficial` viaja en el payload generado (tal como exige el contrato de la sección 14) pero el CLI no la descarga ni la resuelve: ese dato lo provee quien ejecuta el CLI.
+- Antes de ejecutarlo se compila el monorepo con `npm run build`. El CLI
+  rechaza opciones desconocidas o repetidas, valores obligatorios vacíos, URL
+  inválida y períodos fuera de 1900–2100. El tamaño máximo de 50 MB se valida
+  con los metadatos del archivo antes de leer sus bytes. Como el script npm se
+  ejecuta desde el workspace `packages/infraestructura`, se recomiendan rutas
+  absolutas para `--pdf` y `--salida`.
+- El CLI rechaza generar el payload si el período detectado en el contenido del PDF no coincide con el período esperado indicado por línea de comandos; en ese caso no escribe ningún archivo de salida.
+
+### `fecha` como ancla de cierre, no como cardinalidad 1:1
+
+- Una entrada puede citar más de una publicación oficial (p. ej. una fe de erratas posterior a la publicación original). El extractor **nunca** crea una segunda entrada ni una asociación de `CAMBIO` por esto.
+- Se selecciona como `publicacion` principal la referencia cronológicamente más temprana; el resto queda en `metadataExtraccion.publicacionesAdicionales` de la misma entrada, con la advertencia `MULTIPLES_PUBLICACIONES_DETECTADAS`.
+- Una fecha con forma textual válida pero imposible en el calendario no se
+  normaliza silenciosamente. La entrada y su `segmentoCrudo` se conservan,
+  `publicacion.fecha` queda `null` y se agrega
+  `FECHA_PUBLICACION_REGISTRO_OFICIAL_NO_DETECTADA`; solo las fechas
+  calendario reales participan en la selección cronológica y en la detección
+  del período.
+- Esto preserva la semántica ya establecida en la sección 14: la entrada del lote sigue creando una única `Norma`.
+
+### Campos no inventados y advertencias reutilizadas
+
+- Igual que en la sección 14, un campo no detectado con evidencia textual explícita (`tipo`, `numero`, `titulo`, `institucion`) queda `null`, nunca con un placeholder. El extractor reutiliza el vocabulario de advertencias ya definido para el lote (`TITULO_NO_DETECTADO`, `INSTITUCION_NO_DETECTADA`, `TIPO_NORMA_NO_DETECTADO`, `TIPO_PUBLICACION_REGISTRO_OFICIAL_NO_DETECTADO`) y agrega únicamente las que no tenían equivalente: `NUMERO_NORMA_NO_DETECTADO` (no pudo aislarse un identificador canónico), `FECHA_PUBLICACION_REGISTRO_OFICIAL_NO_DETECTADA` (la fecha no puede validarse como día calendario real), `ENTRADA_SIN_VINETA` (entrada real detectada sin guion inicial visual) y `DIA_SEMANA_INCONSISTENTE` (el día de semana textual no corresponde al calendario de una fecha válida; la fecha nunca se altera por esta inconsistencia, solo se señala).
+- Un tipo de publicación no reconocido (fuera de `RO`, `SRO`, `2SRO`…`7SRO`, `EE`, `EC`, `EJ`) se conserva como `tipo: null` dentro de `publicacion`, preservando el texto original en `segmentoCrudo`; nunca se normaliza a un tipo válido por parecido.
+- `confianza = 1` en toda entrada aceptada expresa certeza de que el segmento es una entrada legal real (contiene una referencia de publicación reconocible), no completitud de sus campos; no se reduce automáticamente por campos no detectados.
+- `IngerirResumenRegistroOficial` puede volver a derivar internamente una advertencia que el extractor ya reportó (p. ej. `INSTITUCION_NO_DETECTADA`). La lista final de advertencias de cada entrada se deduplica en un único punto, preservando el orden de primera aparición: ninguna advertencia real se pierde, pero ninguna se persiste dos veces.
+
+### Detección de tipo, número, título e institución (estabilización)
+
+- El tipo y número de la Norma se extraen del marcador jurídico explícito **más cercano a la cita oficial** (`Res.`, `Acdo.`, `Ord.`, `Sent.`, `Dctmn.`, `Dcto.`, `Auto.`, o el texto explícito `Ley`), no del primero que aparece en el párrafo: una mención narrativa de "Ley" mucho antes del marcador formal real (p. ej. "... conforme a la Ley de Compañías. Res. BCE-GG-011-2026.") no debe ganarle al marcador que realmente antecede a la cita.
+- Una entrada que sea realmente una ley (el marcador "Ley" aparece anunciando la entrada desde su inicio, no citada de paso en medio de una descripción) produce `tipo: "Ley"`, `numero: null` cuando el índice no trae un identificador corto separable, y `titulo` con el nombre completo de la ley. Una mención narrativa de "Ley" sin marcador propio cercano no clasifica la entrada como ley: quedan `tipo` y `numero` en `null`, nunca una descripción convertida en número.
+- `numero` contiene exclusivamente el identificador canónico. Normaliza espacios de maquetación que tocan un `-` o `/`, elimina etiquetas editoriales conocidas (`Caso`, `de causa.`) y deduplica una repetición exacta del identificador; otros espacios internos se conservan porque pueden pertenecer al identificador oficial. Si no puede aislarse con seguridad, queda `null` con `NUMERO_NORMA_NO_DETECTADO`. La normalización aplica solo a `numero`; `segmentoCrudo` conserva el texto detectado completo.
+- `seccion` e `institucion` se mantienen separadas. Un encabezado estructural (`AVISOS JUDICIALES`, `FE DE ERRATAS`, `ORDENANZAS ...`, `RESOLUCIONES ...`, `REGLAMENTO ...`) actualiza la sección y nunca se copia como institución. Un encabezado institucional sostenido en mayúsculas actualiza la institución y cierra la sección anterior. Fuera de una sección, solo el vocabulario administrativo acotado puede reconocer un prefijo institucional. Dentro de una sección, el prefijo explícito de la propia entrada antes de `:` puede identificar una institución contextual legítima aunque no esté en esa lista (por ejemplo, `Cuerpo de Bomberos de Cayambe:`); un párrafo narrativo separado, aunque termine en `:`, se ignora. Si la sección no contiene evidencia de una institución —por ejemplo, un aviso judicial sin organismo indicado— `institucion` queda `null` con `INSTITUCION_NO_DETECTADA`.
+
+### Reconstrucción textual basada en evidencia geométrica (estabilización final)
+
+- La unión de fragmentos de una misma línea en un solo texto usa un umbral de separación proporcional a la altura de línea reportada por PDF.js (no un valor absoluto propio de este documento), calibrado contra la distribución empírica de huecos entre fragmentos consecutivos del fixture piloto. Esto corrige instituciones y títulos con palabras pegadas por un umbral anteriormente miscalibrado.
+- Un guion de fin de línea dentro de un encabezado institucional/de sección se elimina únicamente cuando la línea siguiente pertenece al mismo párrafo (continuidad vertical ya validada por la propia segmentación en párrafos), nunca por el contenido textual ni por una lista de instituciones conocidas. Esta reconstrucción se aplica solo a encabezados; un guion de fin de línea dentro del cuerpo de una entrada (p. ej. un identificador partido) sigue gobernado únicamente por la normalización de espacios ya existente para `numero`.
+- Cuando, pese a toda la evidencia geométrica disponible, `institucion` conserva una transición de minúscula a mayúscula sin ningún espacio entre medio, es indicio de que el extractor recibió ese fragmento como un único TextItem sin ningún hueco interno que reconstruir: en ese caso `institucion` queda `null` con `INSTITUCION_NO_DETECTADA` en vez de publicar el texto pegado. Esta señal reemplaza un parche anterior que reescribía literalmente la frase "Gobierno Autónomo Descentralizado"; ese parche no distinguía este caso de cualquier otro nombre institucional pegado sin evidencia geométrica y quedó retirado.
+- Para `titulo` esa misma transición de minúscula a mayúscula no es una señal segura: siglas y unidades mixtas legítimas del propio texto legal ("SARS-CoV-2", "PDyOT", "kWh") la contienen con frecuencia. La única señal usada para descartar un título es una racha de letras sin ningún espacio más larga que cualquier palabra plausible en español; en ese caso `titulo` queda `null` con `TITULO_NO_DETECTADO` en vez de publicarse pegado. `segmentoCrudo` nunca recibe ninguna de estas normalizaciones, sea cual sea su origen.
+- Ninguna de estas reconstrucciones usa nombres de instituciones, frases literales del documento piloto ni posiciones de entrada específicas: todas se basan en geometría (huecos entre fragmentos, continuidad entre líneas) o en propiedades genéricas del texto ya reconstruido.
+
+### Posible fusión de dos fichas jurídicas dentro de un mismo párrafo (`POSIBLE_FUSION_ENTRADAS`)
+
+- **La continuidad geométrica determina segmentación visual, no identidad jurídica.** Que dos cláusulas compartan la misma fila física o el mismo párrafo (sin salto de línea/párrafo detectable entre ellas) es evidencia de cuántos párrafos hay en la página, nunca de que describan una sola ficha jurídica. Una versión anterior de esta documentación afirmaba lo contrario para un caso puntual del fixture piloto; esa afirmación era incorrecta y queda corregida aquí.
+- Una entrada puede citar, dentro de su propio texto, un identificador jurídico distinto al de su propia `numero` sin que eso sea evidencia de fusión — por ejemplo, al mencionar un caso constitucional acumulado con múltiples identificadores pero una sola apertura jurídica, o al reformar/derogar explícitamente una norma anterior ("Se reforma la Resolución Nro. X..."). El parser sigue sin dividir entradas por la cantidad de identificadores mencionados en el texto.
+- Cuando, dentro de un mismo párrafo, el propio texto exhibe evidencia genérica y puramente estructural de que mezcla dos cláusulas jurídicas distintas — una cláusula de apertura que se repite textualmente dentro del párrafo, asociada a dos o más identificadores de causa distintos — se aplica una política fail-closed: **no se divide automáticamente el párrafo en dos entradas** (no hay evidencia suficiente para separar de forma confiable qué texto pertenece a cada una) y tampoco se elige arbitrariamente cuál identificador es el correcto. En su lugar, la entrada se conserva única, con `numero: null`, `titulo: null`, `tipo` preservado si el marcador jurídico final sigue siendo inequívoco, `confianza: 1` (hay certeza de que el segmento contiene una entrada legal publicada, aunque sus campos editoriales queden ambiguos) y la advertencia `POSIBLE_FUSION_ENTRADAS` además de `NUMERO_NORMA_NO_DETECTADO` y `TITULO_NO_DETECTADO`. `segmentoCrudo` conserva ambos identificadores en conflicto sin ninguna reescritura: la revisión editorial resuelve después cuál es el número y título verdaderos.
+- Esta detección no consulta ninguna fuente externa ni usa conocimiento fuera del propio texto del párrafo, y no depende de ninguna posición de entrada, página, nombre propio ni identificador concreto del fixture piloto: se valida contra las 869 entradas reales sin ningún falso positivo.
+
+### Fixture de referencia
+
+- El PDF piloto (índice mensual de mayo de 2026, 53 páginas) es el fixture de integración inicial y vive versionado en el repositorio (`packages/infraestructura/.../__tests__/fixtures/`). Los tests de este bloque no dependen de red. No se agregan automáticamente índices mensuales futuros a este fixture; agregar uno nuevo es una decisión explícita posterior.
+
+### Fuera de alcance (Fase 5C, primer bloque)
+
+Descarga del PDF por URL, envío automático del payload a `POST /ingesta/registro-oficial/resumenes`, OCR, LLM, scheduler/cron, colas/workers, procesamiento masivo de múltiples índices mensuales y cualquier modificación del contrato HTTP existente (sección 14) o de la resolución de fuentes (sección 15).

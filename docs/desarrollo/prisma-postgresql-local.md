@@ -218,23 +218,33 @@ TEST_DATABASE_URL="postgresql://normativo:normativo@localhost:5433/normativo_tes
 ```
 
 > **`test:prisma` valida antes de migrar.** El script corre a través del runner
-> `scripts/ejecutar-tests-prisma.js`, que **exige** `TEST_DATABASE_URL` y valida
-> que apunte a `normativo_test` en host local **antes** de ejecutar
-> `prisma migrate deploy`. `DATABASE_URL` **nunca** la sustituye: si
-> `TEST_DATABASE_URL` falta o es insegura, el proceso aborta sin tocar Prisma.
-> La validación reutiliza `scripts/validar-url-base-datos.js` (única fuente de
-> verdad) y la URL validada se pasa como `DATABASE_URL` solo a los procesos
-> hijos. Para una URL de test no local se requiere
+> `scripts/ejecutar-tests-prisma.js`, que **exige** `TEST_DATABASE_URL` y,
+> por defecto, valida que apunte exactamente a `normativo_test` en un host
+> local antes de ejecutar `prisma migrate deploy`. `DATABASE_URL` **nunca**
+> la sustituye: si `TEST_DATABASE_URL` falta o es insegura, el proceso aborta
+> sin tocar Prisma. La validación reutiliza
+> `scripts/validar-url-base-datos.js` (única fuente de verdad) y la URL
+> validada se pasa como `DATABASE_URL` solo a los procesos hijos. Para una
+> `normativo_test` no local se requiere
 > `PERMITIR_TEST_DATABASE_URL_NO_LOCAL=true`.
+>
+> Para aislar una corrida destructiva puede habilitarse explícitamente una
+> base PostgreSQL **local y efímera** con
+> `PERMITIR_TEST_DATABASE_EFIMERA=true`. Su nombre debe cumplir
+> `normativo_test_<sufijo>`, con sufijo en minúsculas compuesto solo por
+> letras, dígitos y guion bajo. El opt-in se acepta únicamente con valor
+> exacto `true`; no permite hosts remotos, ni siquiera combinado con
+> `PERMITIR_TEST_DATABASE_URL_NO_LOCAL=true`. La base debe crearse antes de
+> la corrida y eliminarse al terminar.
 
 - Adaptadores: `src/persistencia/__tests__/prisma-adaptadores.test.ts`.
 - E2E HTTP Prisma: `src/__tests__/normas-prisma.e2e.test.ts` (usa
   `@nestjs/testing` + `supertest`; no requiere un servidor externo).
 
-Si `TEST_DATABASE_URL` está definido pero no apunta a `normativo_test` en un host
-local permitido, los tests fallan a propósito para no escribir en una base
-equivocada. Para escenarios excepcionales puede usarse
-`PERMITIR_TEST_DATABASE_URL_NO_LOCAL=true`, pero no debe ser el flujo normal.
+Si `TEST_DATABASE_URL` no satisface una de esas dos rutas autorizadas, los
+tests fallan a propósito para no escribir en una base equivocada. El opt-in
+remoto de `normativo_test` no debe ser el flujo normal; las bases efímeras
+permanecen siempre locales.
 
 ## 7. Flujo reproducible Prisma → Newman (Fase 5B)
 

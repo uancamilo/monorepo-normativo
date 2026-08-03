@@ -146,6 +146,7 @@ La Fase 1 del pipeline puebla la base de datos a partir del resumen mensual del 
 - El scraping es una función crítica restringida inicialmente al `SUPERADMINISTRADOR`; un `EDITOR` solo puede ejecutarlo si el `SUPERADMINISTRADOR` lo habilita globalmente.
 - El detalle de las reglas de esta fase está documentado en `docs/reglas-negocio.md`, sección 13.
 - La Fase 5A materializa la entrada de este pipeline en el backend: la ingesta por lote del resumen mensual (`docs/reglas-negocio.md`, sección 14; ADR 0008). El scraper externo sigue siendo futuro; el backend ya acepta, valida, deduplica y persiste sus detecciones como borradores con trazabilidad por ítem.
+- La Fase 5C agrega el primer bloque del extractor real (`docs/reglas-negocio.md`, sección 16; ADR 0010): un CLI standalone en `packages/infraestructura/src/ingesta/extractor-registro-oficial/`, externo al proceso NestJS, que lee un PDF local del índice mensual y genera el JSON del contrato de ingesta. No escribe en PostgreSQL, no llama al backend y no descarga el PDF por URL — eso queda para un bloque posterior. El dominio y la aplicación siguen sin conocer PDF.js ni detalles de extracción.
 
 ## Decisiones Clave
 

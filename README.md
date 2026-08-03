@@ -74,6 +74,7 @@ Cada fase cierra con un commit y un tag anotado (`git tag -n`):
 - Fase 4H: unicidad concurrente endurecida en la creación de usuarios internos.
 - Fase 5A: ingesta por lote del Registro Oficial en borradores (`POST /ingesta/registro-oficial/resumenes` y consulta de lotes, solo SUPERADMINISTRADOR) y flujo editorial sobre `/normas` (lista/detalle/corrección/publicación múltiple de borradores para EDITOR y SUPERADMINISTRADOR).
 - Fase 5B: resolución controlada de fuentes contra el catálogo oficial del Registro Oficial (`POST /ediciones-registro-oficial/resolver-pendientes`, solo SUPERADMINISTRADOR): adaptador HTTP real deshabilitable, resultado discriminado del puerto, procesamiento acotado y seguridad SSRF (ADR 0009).
+- Fase 5C: primer bloque del extractor real del índice mensual del Registro Oficial (`npm run build` y luego `npm run extraer:registro-oficial --workspace @normativo/infraestructura -- --pdf /ruta/absoluta/indice.pdf --periodo AAAA-MM --url https://... --version-extractor <version> --salida /ruta/absoluta/salida.json`): CLI standalone externo al backend, lee un PDF local y genera el JSON del contrato de ingesta; no escribe en PostgreSQL, no llama al backend y no descarga el PDF por URL. Los paths relativos se resuelven desde el workspace `packages/infraestructura`, por lo que se recomiendan paths absolutos (ADR 0010).
 
 ## Autenticación
 
@@ -172,9 +173,20 @@ del dominio. El header `x-usuario-id` quedó eliminado como mecanismo de identid
   requerirá una futura operación explícita de reapertura; hoy la vía es la
   corrección manual). Usa compare-and-set (solo escribe si sigue `PENDIENTE`
   sin URL) y la fecha oficial detectada jamás se reemplaza. El cuerpo es
-  opcional y acotado (`edicionIds` o `limite`, mutuamente excluyentes —
-  enviar ambos → 400 —, propiedades adicionales → 400); la
-  respuesta resume `procesadas/resueltas/noEncontradas/conflictivas/omitidas/erroresCatalogo/erroresPorRazon`.
+  opcional y acotado: el modo global acepta `{}`, `{ limite }` o
+  `{ edicionIds }`; `edicionIds` es mutuamente excluyente con `limite`,
+  `loteId` y `cursor`. El modo paginado por `loteId` resuelve solo las
+  ediciones únicas de ese lote de ingesta y acepta `limite`/`cursor`
+  opcionales; `cursor` exige `loteId` y es un
+  token opaco Base64URL canónico — no interpretable por el cliente, validado
+  con round-trip estricto y ligado al `loteId` de la solicitud); enviar
+  selectores incompatibles, un `cursor` sin `loteId` o propiedades
+  adicionales → 400 `SOLICITUD_INVALIDA`. La respuesta resume
+  `procesadas/resueltas/noEncontradas/conflictivas/omitidas/erroresCatalogo/erroresPorRazon`;
+  en modo `loteId` además incluye `hayMas` (booleano), `siguienteCursor`
+  (token para la próxima página o `null` si no hay más) y
+  `pendientesRestantesLote` (conteo posterior al procesamiento de la
+  página).
   `erroresPorRazon` incluye siempre las cuatro razones del catálogo (aunque
   valgan cero) y `erroresCatalogo` es exactamente su suma; no existe un
   contador genérico `erroresTransitorios`.

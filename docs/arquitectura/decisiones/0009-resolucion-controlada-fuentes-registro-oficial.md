@@ -92,6 +92,38 @@ carpeta-mes y filtrar por número.
   máximo seguro configurable, con paralelismo interno limitado que preserva el
   orden. No se añaden Redis, colas, workers ni scheduler.
 
+- **Selección paginada por lote de ingesta (`loteId`), set-based y sin
+  recorrer Normas.** El resolvedor puede acotarse a las ediciones únicas
+  originadas por un lote de ingesta concreto (Fase 5C), sin necesidad de
+  listar primero todas las pendientes del sistema. La fuente de esa
+  selección es deliberadamente la triple (tipo, número, fecha) ya persistida
+  en cada `EntradaDetectadaRegistroOficial` del lote — nunca
+  `Norma.edicionRegistroOficialId` — porque un editor puede reasignar
+  después la edición principal de una Norma sin que eso deba alterar qué
+  ediciones detectó originalmente el lote. Un puerto de solo lectura nuevo y
+  pequeño, `ConsultorEdicionesRegistroOficialPorLote`, oculta esa selección
+  al caso de uso (que sigue sin conocer joins ni SQL): en memoria resuelve
+  las triples únicas contra el repositorio de ediciones compartido; en
+  Prisma es estrictamente set-based (`groupBy` sobre las entradas del lote
+  para las triples únicas, seguido de una sola consulta de ediciones
+  coincidentes vía `OR` — nunca una consulta por entrada, por Norma ni por
+  triple individual, verificado con espías sobre el número de invocaciones
+  Prisma). El tamaño de página por defecto de este modo es 20 (distinto del
+  lote global, que sigue en 50), acotado por el mismo máximo absoluto
+  configurado. La paginación usa un cursor opaco versionado (Base64URL de
+  fecha + id de la última edición de la página, atado al `loteId` de origen:
+  un cursor mal formado o de otro lote es `SOLICITUD_INVALIDA`), de modo que
+  un fallo técnico persistente en una edición de la página no bloquea el
+  avance hacia ediciones posteriores dentro de la misma ejecución — el
+  conteo `pendientesRestantesLote`, recalculado después de procesar la
+  página sobre el lote completo, puede seguir siendo mayor que cero aunque
+  `hayMas` sea `false`, señalando que una futura ejecución sin cursor
+  volverá a encontrar esos fallos mientras sigan `PENDIENTE`. Los modos
+  existentes (`{}`, `limite`, `edicionIds`) conservan exactamente su
+  contrato de solicitud y de respuesta previos; `loteId` y `limite` sí son
+  combinables entre sí (a diferencia de `edicionIds`, que sigue siendo
+  mutuamente excluyente con los demás selectores).
+
 - **Sin amplificar solicitudes (caché/deduplicación por carpeta-mes).** Sin
   control, procesar 50 ediciones podría implicar hasta 20 páginas cada una
   (≈1000 solicitudes) aunque pertenezcan a la misma carpeta-año-mes. El
@@ -158,11 +190,17 @@ carpeta-mes y filtrar por número.
   secretos y ante cualquier fallo no se fabrica ninguna URL.
 
 - **HTTP.** Se mantiene `POST /ediciones-registro-oficial/resolver-pendientes`
-  (200) con cuerpo opcional y estrictamente validado (`edicionIds` o `limite`,
-  mutuamente excluyentes — enviar ambos → 400 `SOLICITUD_INVALIDA` —,
-  propiedades adicionales → 400). La respuesta resume
+  (200) con cuerpo opcional y estrictamente validado. Los modos globales
+  existentes aceptan `{}`, `{ limite }` o `{ edicionIds }`;
+  `edicionIds` es mutuamente excluyente con `limite`, `loteId` y
+  `cursor`. El modo por lote acepta `{ loteId }`, opcionalmente con
+  `limite` y un `cursor` opaco emitido por la respuesta anterior;
+  `cursor` sin `loteId`, cursores inválidos y propiedades adicionales
+  producen 400 `SOLICITUD_INVALIDA`. La respuesta siempre resume
   `procesadas/resueltas/noEncontradas/conflictivas/omitidas/erroresCatalogo/erroresPorRazon`,
-  sin ocultar fallos del catálogo como `NO_ENCONTRADA` ni colapsarlos en un
+  y en modo `loteId` agrega `hayMas`, `siguienteCursor` y
+  `pendientesRestantesLote`, sin ocultar fallos del catálogo como
+  `NO_ENCONTRADA` ni colapsarlos en un
   contador genérico: `erroresPorRazon` incluye siempre las cuatro razones del
   puerto (aunque valgan cero) y `erroresCatalogo` es exactamente su suma. No
   existe `erroresTransitorios`. No se exponen URLs consultadas, HTML ni
