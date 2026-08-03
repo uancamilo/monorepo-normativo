@@ -4,6 +4,7 @@ import {
   ActualizarNorma,
   CambiarEdicionNorma,
   ConsultorCambiosEdicionRegistroOficial,
+  ConsultorEdicionesRegistroOficialPorLote,
   ConsultarContenidoNorma,
   ConsultarDetalleEdicionRegistroOficial,
   ConsultarEdicionesRegistroOficial,
@@ -362,11 +363,13 @@ import { construirCatalogoRegistroOficial } from './catalogo/construir-catalogo-
       useFactory: (
         repositorioUsuarios: RepositorioUsuarios,
         repositorioEdiciones: RepositorioEdicionesRegistroOficial,
+        consultorEdicionesPorLote: ConsultorEdicionesRegistroOficialPorLote,
       ) => {
         const configuracion = obtenerConfiguracionCatalogoRegistroOficial();
         return new ResolverFuenteRegistroOficial({
           repositorioUsuarios,
           repositorioEdiciones,
+          consultorEdicionesPorLote,
           catalogoRegistroOficial:
             construirCatalogoRegistroOficial(configuracion),
           limiteMaximoEdiciones: configuracion.maxEdicionesPorEjecucion,
@@ -376,6 +379,7 @@ import { construirCatalogoRegistroOficial } from './catalogo/construir-catalogo-
       inject: [
         TOKEN_REPOSITORIO_USUARIOS,
         TOKEN_REPOSITORIO_EDICIONES_REGISTRO_OFICIAL,
+        TOKEN_REPOSITORIO_INGESTA_REGISTRO_OFICIAL,
       ],
     },
   ],

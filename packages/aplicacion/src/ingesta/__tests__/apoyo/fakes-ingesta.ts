@@ -1,4 +1,10 @@
-import { EdicionRegistroOficial, Norma, RolUsuario, Usuario } from '@normativo/dominio';
+import {
+  EdicionRegistroOficial,
+  EstadoResolucionFuente,
+  Norma,
+  RolUsuario,
+  Usuario,
+} from '@normativo/dominio';
 import { RepositorioUsuarios } from '../../../normas/puertos/RepositorioUsuarios';
 import { GeneradorIds } from '../../../normas/puertos/GeneradorIds';
 import {
@@ -8,6 +14,12 @@ import {
   RazonConsultaCatalogoFallida,
   ResultadoConsultaCatalogoRegistroOficial,
 } from '../../../normas/puertos/CatalogoRegistroOficial';
+import {
+  ConsultorEdicionesRegistroOficialPorLote,
+  CursorEdicionesLote,
+  ResultadoConsultaEdicionesLote,
+} from '../../../normas/puertos/ConsultorEdicionesRegistroOficialPorLote';
+import { RepositorioEdicionesRegistroOficialEnMemoriaFake } from '../../../normas/casos-uso/__tests__/apoyo/fakes-normas-editorial';
 import {
   IngestaRegistroOficialAPersistir,
   RepositorioIngestaRegistroOficial,
@@ -20,7 +32,6 @@ import {
 } from '../../modelos/IngestaRegistroOficial';
 import { OrigenRegistroOficialNorma } from '../../../normas/modelos/VistaEditorialNorma';
 import { SolicitudIngerirResumenRegistroOficial } from '../../casos-uso/IngerirResumenRegistroOficial';
-import { RepositorioEdicionesRegistroOficialEnMemoriaFake } from '../../../normas/casos-uso/__tests__/apoyo/fakes-normas-editorial';
 
 export class RepositorioUsuariosFake implements RepositorioUsuarios {
   private readonly usuariosPorId = new Map<string, Usuario>();
@@ -224,6 +235,11 @@ export class CatalogoRegistroOficialFake implements CatalogoRegistroOficial {
     this.fallosPorClave.set(claveCatalogo(clave), razon);
   }
 
+  /** Limpia un fallo previamente registrado (simula que el catálogo se recuperó). */
+  limpiarFallo(clave: ClaveCatalogoFake): void {
+    this.fallosPorClave.delete(claveCatalogo(clave));
+  }
+
   async buscarEdiciones(
     consulta: ConsultaCatalogoRegistroOficial,
   ): Promise<ResultadoConsultaCatalogoRegistroOficial> {
@@ -235,6 +251,123 @@ export class CatalogoRegistroOficialFake implements CatalogoRegistroOficial {
     }
     return { exitoso: true, candidatas: this.candidatasPorClave.get(clave) ?? [] };
   }
+}
+
+/**
+ * Fake del puerto de selección por lote. Registra qué `edicionId` (ya
+ * deduplicados por triple, como haría un adaptador real) fueron detectados
+ * por cada lote, pero SIEMPRE lee el estado actual de cada edición desde el
+ * repositorio de ediciones compartido en cada llamada — igual que un
+ * adaptador real, nunca una foto fija tomada al registrar — para que
+ * `pendientesRestantesLote` y la elegibilidad reflejen correctamente los
+ * cambios que la propia resolución fue escribiendo durante el procesamiento
+ * de la página.
+ */
+export class ConsultorEdicionesRegistroOficialPorLoteFake
+  implements ConsultorEdicionesRegistroOficialPorLote
+{
+  private readonly edicionIdsPorLote = new Map<string, string[]>();
+  private readonly lotesConocidos = new Set<string>();
+  /** Observabilidad de pruebas: cada llamada recibida, en orden. */
+  readonly llamadasPagina: Array<{
+    loteId: string;
+    limite: number;
+    cursor: CursorEdicionesLote | null;
+  }> = [];
+  readonly llamadasConteo: string[] = [];
+
+  constructor(
+    private readonly repositorioEdiciones: RepositorioEdicionesRegistroOficialEnMemoriaFake,
+  ) {}
+
+  /** Un lote real, con las ediciones (posiblemente repetidas) que detectó. */
+  registrarLote(loteId: string, edicionIds: string[]): void {
+    this.lotesConocidos.add(loteId);
+    this.edicionIdsPorLote.set(loteId, edicionIds);
+  }
+
+  /** Marca el lote como existente sin ninguna edición asociada aún. */
+  registrarLoteVacio(loteId: string): void {
+    this.lotesConocidos.add(loteId);
+    if (!this.edicionIdsPorLote.has(loteId)) {
+      this.edicionIdsPorLote.set(loteId, []);
+    }
+  }
+
+  /**
+   * Agrega una edición más al lote (simula una entrada adicional cuya
+   * triple resolvió a esta misma edición); llamar dos veces con el mismo
+   * `edicionId` reproduce "varias entradas con la misma triple".
+   */
+  agregarEdicionAlLote(loteId: string, edicionId: string): void {
+    this.lotesConocidos.add(loteId);
+    const actuales = this.edicionIdsPorLote.get(loteId) ?? [];
+    this.edicionIdsPorLote.set(loteId, [...actuales, edicionId]);
+  }
+
+  async listarPaginaPendientes(
+    loteId: string,
+    limite: number,
+    cursor: CursorEdicionesLote | null,
+  ): Promise<ResultadoConsultaEdicionesLote> {
+    this.llamadasPagina.push({ loteId, limite, cursor });
+    if (!this.lotesConocidos.has(loteId)) {
+      return { loteEncontrado: false };
+    }
+    const elegibles = await this.elegiblesOrdenadas(loteId);
+    const desdeCursor =
+      cursor === null
+        ? elegibles
+        : elegibles.filter((edicion) => esPosteriorAlCursor(edicion, cursor));
+    return {
+      loteEncontrado: true,
+      ediciones: desdeCursor.slice(0, limite),
+      hayMas: desdeCursor.length > limite,
+    };
+  }
+
+  async contarPendientesDelLote(loteId: string): Promise<number> {
+    this.llamadasConteo.push(loteId);
+    if (!this.lotesConocidos.has(loteId)) {
+      return 0;
+    }
+    return (await this.elegiblesOrdenadas(loteId)).length;
+  }
+
+  private async elegiblesOrdenadas(
+    loteId: string,
+  ): Promise<EdicionRegistroOficial[]> {
+    const ids = [...new Set(this.edicionIdsPorLote.get(loteId) ?? [])];
+    const ediciones = await this.repositorioEdiciones.buscarPorIds(ids);
+    return ediciones
+      .filter(
+        (edicion) =>
+          edicion.estadoResolucionFuente ===
+            EstadoResolucionFuente.PENDIENTE && edicion.urlPdf === null,
+      )
+      .sort(compararEdicionesPendientesLote);
+  }
+}
+
+function compararEdicionesPendientesLote(
+  a: EdicionRegistroOficial,
+  b: EdicionRegistroOficial,
+): number {
+  const diferenciaFecha =
+    a.fechaPublicacionOficial.getTime() - b.fechaPublicacionOficial.getTime();
+  return diferenciaFecha !== 0 ? diferenciaFecha : a.id.localeCompare(b.id);
+}
+
+function esPosteriorAlCursor(
+  edicion: EdicionRegistroOficial,
+  cursor: CursorEdicionesLote,
+): boolean {
+  const fechaEdicion = edicion.fechaPublicacionOficial.getTime();
+  const fechaCursor = cursor.fechaPublicacionOficial.getTime();
+  if (fechaEdicion !== fechaCursor) {
+    return fechaEdicion > fechaCursor;
+  }
+  return edicion.id > cursor.edicionId;
 }
 
 function claveCatalogo(clave: ClaveCatalogoFake): string {

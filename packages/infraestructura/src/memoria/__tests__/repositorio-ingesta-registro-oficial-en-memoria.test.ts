@@ -14,6 +14,8 @@ import { RepositorioIngestaRegistroOficialEnMemoria } from '../RepositorioIngest
 import { RepositorioNormasEnMemoria } from '../RepositorioNormasEnMemoria';
 import { RepositorioEdicionesRegistroOficialEnMemoria } from '../RepositorioEdicionesRegistroOficialEnMemoria';
 
+const URL_TERMINAL = 'https://www.registroficial.gob.ec/ediciones/ro-terminal.pdf';
+
 function crearLote(
   parcial: Partial<LoteIngestaRegistroOficial> = {},
 ): LoteIngestaRegistroOficial {
@@ -242,5 +244,256 @@ describe('RepositorioIngestaRegistroOficialEnMemoria', () => {
         },
       ],
     ]);
+  });
+
+  describe('listarPaginaPendientes / contarPendientesDelLote (selección por triples del lote)', () => {
+    it('selecciona las ediciones únicas cuyas triples fueron detectadas por el lote', async () => {
+      const { repositorio, repositorioEdiciones } = crearRepositorios();
+      await repositorio.guardarIngesta({
+        lote: crearLote(),
+        entradas: [
+          crearEntrada({
+            id: 'e1',
+            normaId: 'norma-1',
+            publicacionNumero: 500,
+            publicacionFecha: new Date('2026-05-02T00:00:00.000Z'),
+          }),
+          crearEntrada({
+            id: 'e2',
+            normaId: 'norma-2',
+            publicacionNumero: 501,
+            publicacionFecha: new Date('2026-05-03T00:00:00.000Z'),
+          }),
+        ],
+        normas: [
+          crearNormaBorrador('norma-1', 'edicion-500'),
+          crearNormaBorrador('norma-2', 'edicion-501'),
+        ],
+        ediciones: [
+          crearEdicion({ id: 'edicion-500', numeroPublicacionRegistroOficial: 500, fechaPublicacionOficial: new Date('2026-05-02T00:00:00.000Z') }),
+          crearEdicion({ id: 'edicion-501', numeroPublicacionRegistroOficial: 501, fechaPublicacionOficial: new Date('2026-05-03T00:00:00.000Z') }),
+        ],
+      });
+      // Edición ajena, de otro lote, no debe aparecer.
+      await repositorioEdiciones.guardar(
+        crearEdicion({ id: 'edicion-ajena', numeroPublicacionRegistroOficial: 999 }),
+      );
+
+      const pagina = await repositorio.listarPaginaPendientes('lote-1', 20, null);
+
+      expect(pagina.loteEncontrado).toBe(true);
+      if (!pagina.loteEncontrado) return;
+      expect(pagina.ediciones.map((e) => e.id)).toEqual([
+        'edicion-500',
+        'edicion-501',
+      ]);
+      expect(pagina.hayMas).toBe(false);
+    });
+
+    it('deduplica: varias entradas con la misma triple producen una sola edición en la página', async () => {
+      const { repositorio } = crearRepositorios();
+      await repositorio.guardarIngesta({
+        lote: crearLote(),
+        entradas: [
+          crearEntrada({ id: 'e1', normaId: 'norma-1' }),
+          crearEntrada({ id: 'e2', normaId: 'norma-2' }),
+          crearEntrada({ id: 'e3', normaId: 'norma-3' }),
+        ],
+        normas: [
+          crearNormaBorrador('norma-1'),
+          crearNormaBorrador('norma-2'),
+          crearNormaBorrador('norma-3'),
+        ],
+        ediciones: [crearEdicion()],
+      });
+
+      const pagina = await repositorio.listarPaginaPendientes('lote-1', 20, null);
+
+      expect(pagina.loteEncontrado).toBe(true);
+      if (!pagina.loteEncontrado) return;
+      expect(pagina.ediciones).toHaveLength(1);
+    });
+
+    it('orden estable: fecha ascendente y luego id', async () => {
+      const { repositorio } = crearRepositorios();
+      await repositorio.guardarIngesta({
+        lote: crearLote(),
+        entradas: [
+          crearEntrada({ id: 'e1', normaId: 'norma-1', publicacionNumero: 502, publicacionFecha: new Date('2026-05-05T00:00:00.000Z') }),
+          crearEntrada({ id: 'e2', normaId: 'norma-2', publicacionNumero: 500, publicacionFecha: new Date('2026-05-01T00:00:00.000Z') }),
+          crearEntrada({ id: 'e3', normaId: 'norma-3', publicacionNumero: 501, publicacionFecha: new Date('2026-05-03T00:00:00.000Z') }),
+        ],
+        normas: [
+          crearNormaBorrador('norma-1', 'edicion-b'),
+          crearNormaBorrador('norma-2', 'edicion-a'),
+          crearNormaBorrador('norma-3', 'edicion-c'),
+        ],
+        ediciones: [
+          crearEdicion({ id: 'edicion-b', numeroPublicacionRegistroOficial: 502, fechaPublicacionOficial: new Date('2026-05-05T00:00:00.000Z') }),
+          crearEdicion({ id: 'edicion-a', numeroPublicacionRegistroOficial: 500, fechaPublicacionOficial: new Date('2026-05-01T00:00:00.000Z') }),
+          crearEdicion({ id: 'edicion-c', numeroPublicacionRegistroOficial: 501, fechaPublicacionOficial: new Date('2026-05-03T00:00:00.000Z') }),
+        ],
+      });
+
+      const pagina = await repositorio.listarPaginaPendientes('lote-1', 20, null);
+
+      expect(pagina.loteEncontrado).toBe(true);
+      if (!pagina.loteEncontrado) return;
+      expect(pagina.ediciones.map((e) => e.id)).toEqual([
+        'edicion-a',
+        'edicion-c',
+        'edicion-b',
+      ]);
+    });
+
+    it('cursor: la segunda página continúa exactamente donde terminó la primera, sin duplicar ni omitir', async () => {
+      const { repositorio } = crearRepositorios();
+      const entradas = [500, 501, 502].map((numero, indice) =>
+        crearEntrada({
+          id: `e${indice}`,
+          normaId: `norma-${indice}`,
+          publicacionNumero: numero,
+          publicacionFecha: new Date(`2026-05-0${indice + 1}T00:00:00.000Z`),
+        }),
+      );
+      const normas = [500, 501, 502].map((_, indice) =>
+        crearNormaBorrador(`norma-${indice}`, `edicion-${indice}`),
+      );
+      const ediciones = [500, 501, 502].map((numero, indice) =>
+        crearEdicion({
+          id: `edicion-${indice}`,
+          numeroPublicacionRegistroOficial: numero,
+          fechaPublicacionOficial: new Date(`2026-05-0${indice + 1}T00:00:00.000Z`),
+        }),
+      );
+      await repositorio.guardarIngesta({ lote: crearLote(), entradas, normas, ediciones });
+
+      const primera = await repositorio.listarPaginaPendientes('lote-1', 2, null);
+      expect(primera.loteEncontrado).toBe(true);
+      if (!primera.loteEncontrado) return;
+      expect(primera.ediciones.map((e) => e.id)).toEqual([
+        'edicion-0',
+        'edicion-1',
+      ]);
+      expect(primera.hayMas).toBe(true);
+
+      const ultima = primera.ediciones[primera.ediciones.length - 1];
+      const segunda = await repositorio.listarPaginaPendientes('lote-1', 2, {
+        fechaPublicacionOficial: ultima.fechaPublicacionOficial,
+        edicionId: ultima.id,
+      });
+      expect(segunda.loteEncontrado).toBe(true);
+      if (!segunda.loteEncontrado) return;
+      expect(segunda.ediciones.map((e) => e.id)).toEqual(['edicion-2']);
+      expect(segunda.hayMas).toBe(false);
+    });
+
+    it('estados: excluye RESUELTA, MANUAL, NO_ENCONTRADA y CONFLICTIVA; incluye solo PENDIENTE sin urlPdf', async () => {
+      const { repositorio, repositorioEdiciones } = crearRepositorios();
+      await repositorio.guardarIngesta({
+        lote: crearLote(),
+        entradas: [
+          crearEntrada({ id: 'e1', normaId: 'norma-1', publicacionNumero: 500 }),
+        ],
+        normas: [crearNormaBorrador('norma-1', 'edicion-pendiente')],
+        ediciones: [crearEdicion({ id: 'edicion-pendiente', numeroPublicacionRegistroOficial: 500 })],
+      });
+      const estadosTerminales: Array<[EstadoResolucionFuente, string | null]> = [
+        [EstadoResolucionFuente.RESUELTA, URL_TERMINAL],
+        [EstadoResolucionFuente.MANUAL, URL_TERMINAL],
+        [EstadoResolucionFuente.NO_ENCONTRADA, null],
+        [EstadoResolucionFuente.CONFLICTIVA, null],
+      ];
+      for (const [indice, [estado, url]] of estadosTerminales.entries()) {
+        await repositorioEdiciones.guardar(
+          crearEdicion({
+            id: `edicion-${estado}`,
+            numeroPublicacionRegistroOficial: 600 + indice,
+            urlPdf: url,
+            estadoResolucionFuente: estado,
+          }),
+        );
+      }
+
+      const pagina = await repositorio.listarPaginaPendientes('lote-1', 20, null);
+
+      expect(pagina.loteEncontrado).toBe(true);
+      if (!pagina.loteEncontrado) return;
+      expect(pagina.ediciones.map((e) => e.id)).toEqual(['edicion-pendiente']);
+    });
+
+    it('conteo residual: contarPendientesDelLote refleja el estado actual tras cambios posteriores', async () => {
+      const { repositorio, repositorioEdiciones } = crearRepositorios();
+      await repositorio.guardarIngesta({
+        lote: crearLote(),
+        entradas: [
+          crearEntrada({ id: 'e1', normaId: 'norma-1', publicacionNumero: 500 }),
+          crearEntrada({ id: 'e2', normaId: 'norma-2', publicacionNumero: 501, publicacionFecha: new Date('2026-05-03T00:00:00.000Z') }),
+        ],
+        normas: [
+          crearNormaBorrador('norma-1', 'edicion-1'),
+          crearNormaBorrador('norma-2', 'edicion-2'),
+        ],
+        ediciones: [
+          crearEdicion({ id: 'edicion-1', numeroPublicacionRegistroOficial: 500 }),
+          crearEdicion({ id: 'edicion-2', numeroPublicacionRegistroOficial: 501, fechaPublicacionOficial: new Date('2026-05-03T00:00:00.000Z') }),
+        ],
+      });
+
+      expect(await repositorio.contarPendientesDelLote('lote-1')).toBe(2);
+
+      const edicion1 = await repositorioEdiciones.buscarPorId('edicion-1');
+      await repositorioEdiciones.guardar(edicion1!.resolverFuente(URL_TERMINAL));
+
+      expect(await repositorio.contarPendientesDelLote('lote-1')).toBe(1);
+    });
+
+    it('un loteId inexistente devuelve loteEncontrado: false, tanto en la página como en el conteo', async () => {
+      const { repositorio } = crearRepositorios();
+
+      const pagina = await repositorio.listarPaginaPendientes('lote-fantasma', 20, null);
+      expect(pagina).toEqual({ loteEncontrado: false });
+      expect(await repositorio.contarPendientesDelLote('lote-fantasma')).toBe(0);
+    });
+
+    it('un lote existente donde ninguna entrada tiene triple completa no fabrica candidatas', async () => {
+      const { repositorio } = crearRepositorios();
+      await repositorio.guardarIngesta({
+        lote: crearLote(),
+        entradas: [
+          crearEntrada({
+            id: 'e1',
+            normaId: 'norma-1',
+            publicacionTipo: null,
+            publicacionNumero: null,
+            publicacionFecha: null,
+          }),
+        ],
+        normas: [
+          new Norma({
+            id: 'norma-1',
+            numero: null,
+            titulo: 'Sin edición',
+            contenido: [],
+            tipoNorma: 'Acuerdo Ministerial',
+            institucionExpide: 'Ministerio de Prueba',
+            estadoJuridico: EstadoNorma.VIGENTE,
+            estadoEditorial: EstadoEditorialNorma.BORRADOR,
+            fechaExpedicion: null,
+            edicionRegistroOficialId: null,
+            fechaPublicacionEnSistema: null,
+          }),
+        ],
+        ediciones: [],
+      });
+
+      const pagina = await repositorio.listarPaginaPendientes('lote-1', 20, null);
+
+      expect(pagina).toEqual({
+        loteEncontrado: true,
+        ediciones: [],
+        hayMas: false,
+      });
+    });
   });
 });

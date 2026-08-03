@@ -1,15 +1,22 @@
 import { Injectable } from '@nestjs/common';
 import {
+  ConsultorEdicionesRegistroOficialPorLote,
+  CursorEdicionesLote,
   EntradaDetectadaRegistroOficialAPersistir,
   IngestaRegistroOficialAPersistir,
   LoteIngestaRegistroOficial,
   OrigenRegistroOficialNorma,
   RepositorioIngestaRegistroOficial,
+  ResultadoConsultaEdicionesLote,
   ResultadoGuardarIngesta,
 } from '@normativo/aplicacion';
+import { EstadoResolucionFuentePrisma, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { mapearNormaADataPrisma } from './mapeadores/mapearNorma';
-import { mapearEdicionRegistroOficialADataPrisma } from './mapeadores/mapearEdicionRegistroOficial';
+import {
+  mapearEdicionRegistroOficialADataPrisma,
+  mapearEdicionRegistroOficialDesdePrisma,
+} from './mapeadores/mapearEdicionRegistroOficial';
 import {
   mapearEntradaDetectadaADataPrisma,
   mapearEntradaDetectadaDesdePrisma,
@@ -17,9 +24,13 @@ import {
   mapearLoteIngestaDesdePrisma,
 } from './mapeadores/mapearIngestaRegistroOficial';
 
+type TripleEdicion = { tipo: string; numero: number; fecha: Date };
+
 @Injectable()
 export class RepositorioIngestaRegistroOficialPrisma
-  implements RepositorioIngestaRegistroOficial
+  implements
+    RepositorioIngestaRegistroOficial,
+    ConsultorEdicionesRegistroOficialPorLote
 {
   constructor(private readonly prisma: PrismaService) {}
 
@@ -195,6 +206,120 @@ export class RepositorioIngestaRegistroOficialPrisma
     }
     return recuperoAlguna;
   }
+
+  async listarPaginaPendientes(
+    loteId: string,
+    limite: number,
+    cursor: CursorEdicionesLote | null,
+  ): Promise<ResultadoConsultaEdicionesLote> {
+    const lote = await this.prisma.loteIngestaRegistroOficial.findUnique({
+      where: { id: loteId },
+      select: { id: true },
+    });
+    if (lote === null) {
+      return { loteEncontrado: false };
+    }
+
+    const triples = await this.triplesUnicasDelLote(loteId);
+    if (triples.length === 0) {
+      return { loteEncontrado: true, ediciones: [], hayMas: false };
+    }
+
+    const condiciones: Prisma.EdicionRegistroOficialWhereInput[] = [
+      { OR: triples.map(condicionTriple) },
+      { estadoResolucionFuente: EstadoResolucionFuentePrisma.PENDIENTE },
+      { urlPdf: null },
+    ];
+    if (cursor !== null) {
+      condiciones.push({
+        OR: [
+          { fechaPublicacionOficial: { gt: cursor.fechaPublicacionOficial } },
+          {
+            fechaPublicacionOficial: cursor.fechaPublicacionOficial,
+            id: { gt: cursor.edicionId },
+          },
+        ],
+      });
+    }
+
+    // Set-based: dos consultas fijas (triples únicas del lote + ediciones
+    // coincidentes), nunca una por entrada, Norma ni triple individual.
+    const ediciones = await this.prisma.edicionRegistroOficial.findMany({
+      where: { AND: condiciones },
+      orderBy: [{ fechaPublicacionOficial: 'asc' }, { id: 'asc' }],
+      take: limite + 1,
+    });
+
+    return {
+      loteEncontrado: true,
+      ediciones: ediciones
+        .slice(0, Math.max(0, limite))
+        .map(mapearEdicionRegistroOficialDesdePrisma),
+      hayMas: ediciones.length > limite,
+    };
+  }
+
+  async contarPendientesDelLote(loteId: string): Promise<number> {
+    const triples = await this.triplesUnicasDelLote(loteId);
+    if (triples.length === 0) {
+      return 0;
+    }
+    return this.prisma.edicionRegistroOficial.count({
+      where: {
+        AND: [
+          { OR: triples.map(condicionTriple) },
+          { estadoResolucionFuente: EstadoResolucionFuentePrisma.PENDIENTE },
+          { urlPdf: null },
+        ],
+      },
+    });
+  }
+
+  /**
+   * Triples únicas (tipo, número, fecha) detectadas por las entradas del
+   * lote, vía `groupBy` — una sola consulta, sin importar cuántas entradas
+   * tenga el lote. Nunca recorre Normas: la fuente exclusiva es
+   * `EntradaDetectadaRegistroOficial`.
+   */
+  private async triplesUnicasDelLote(loteId: string): Promise<TripleEdicion[]> {
+    const grupos = await this.prisma.entradaDetectadaRegistroOficial.groupBy({
+      by: ['publicacionTipo', 'publicacionNumero', 'publicacionFecha'],
+      where: {
+        loteId,
+        publicacionTipo: { not: null },
+        publicacionNumero: { not: null },
+        publicacionFecha: { not: null },
+      },
+    });
+    return grupos
+      .filter(
+        (
+          grupo,
+        ): grupo is typeof grupo & {
+          publicacionTipo: string;
+          publicacionNumero: number;
+          publicacionFecha: Date;
+        } =>
+          grupo.publicacionTipo !== null &&
+          grupo.publicacionNumero !== null &&
+          grupo.publicacionFecha !== null,
+      )
+      .map((grupo) => ({
+        tipo: grupo.publicacionTipo,
+        numero: grupo.publicacionNumero,
+        fecha: grupo.publicacionFecha,
+      }));
+  }
+}
+
+function condicionTriple(
+  triple: TripleEdicion,
+): Prisma.EdicionRegistroOficialWhereInput {
+  return {
+    tipoPublicacionRegistroOficial: triple.tipo,
+    numeroPublicacionRegistroOficial: triple.numero,
+    fechaPublicacionOficial: triple.fecha,
+  };
 }
 
 function prepararReasignacionesInternas(

@@ -9,7 +9,12 @@ import {
   EdicionCatalogoRegistroOficial,
   RazonConsultaCatalogoFallida,
 } from '../../normas/puertos/CatalogoRegistroOficial';
+import { ConsultorEdicionesRegistroOficialPorLote } from '../../normas/puertos/ConsultorEdicionesRegistroOficialPorLote';
 import { PoliticaIngestaRegistroOficial } from '../politicas/PoliticaIngestaRegistroOficial';
+import {
+  codificarCursorEdicionesLote,
+  decodificarCursorEdicionesLote,
+} from './cursor-edicion-lote';
 
 /**
  * Tope operativo por ejecución: el catálogo oficial es un servicio externo y
@@ -17,6 +22,14 @@ import { PoliticaIngestaRegistroOficial } from '../politicas/PoliticaIngestaRegi
  * todas. Configurable en infraestructura.
  */
 export const LIMITE_PREDETERMINADO_EDICIONES_RESOLUCION = 50;
+
+/**
+ * Tamaño de página por defecto del modo `loteId`, distinto del modo global
+ * (50): una página operativa recomendada para revisar manualmente el
+ * resultado de un lote de ingesta recién creado. Sigue acotada por el mismo
+ * máximo absoluto configurado (`limiteMaximoEdiciones`).
+ */
+export const LIMITE_PREDETERMINADO_EDICIONES_RESOLUCION_LOTE = 20;
 
 /**
  * Paralelismo interno por defecto al consultar el catálogo. Acota la presión
@@ -27,23 +40,39 @@ export const CONCURRENCIA_PREDETERMINADA_RESOLUCION = 4;
 export type SolicitudResolverFuenteRegistroOficial = {
   usuarioAutenticadoId: string;
   /**
-   * Ediciones concretas a resolver. Si se omite, se resuelve un lote acotado
-   * de PENDIENTE sin `urlPdf`, en orden determinista. Mutuamente excluyente
-   * con `limite`.
+   * Ediciones concretas a resolver. Si se omite (y no se usa `loteId`), se
+   * resuelve un lote acotado de PENDIENTE sin `urlPdf`, en orden
+   * determinista. Mutuamente excluyente con `limite`, `loteId` y `cursor`.
    */
   edicionIds?: string[];
   /**
-   * Tope opcional del lote de pendientes a procesar. Nunca supera el máximo
-   * seguro configurado (se toma el menor de ambos). Mutuamente excluyente con
-   * `edicionIds`: enviar ambos es SOLICITUD_INVALIDA.
+   * Tope del lote de pendientes a procesar (modo global) o tamaño de página
+   * (modo `loteId`). Nunca supera el máximo seguro configurado (se toma el
+   * menor de ambos). Compatible con `loteId`; mutuamente excluyente con
+   * `edicionIds`.
    */
   limite?: number;
+  /**
+   * Selecciona exclusivamente las ediciones únicas originadas por las
+   * triples (tipo, número, fecha) persistidas en las entradas de este lote
+   * de ingesta — nunca por la asociación editorial actual de la Norma.
+   * Mutuamente excluyente con `edicionIds`. Compatible con `limite` y
+   * `cursor`.
+   */
+  loteId?: string;
+  /**
+   * Cursor opaco de continuación de una página previa del mismo `loteId`
+   * (requiere `loteId`). Un cursor inválido, mal formado o perteneciente a
+   * otro lote es SOLICITUD_INVALIDA.
+   */
+  cursor?: string;
 };
 
 export type RazonResolverFuenteFallido =
   | 'SOLICITUD_INVALIDA'
   | 'ACCESO_DENEGADO'
-  | 'CATALOGO_NO_DISPONIBLE';
+  | 'CATALOGO_NO_DISPONIBLE'
+  | 'LOTE_NO_ENCONTRADO';
 
 export type ResultadoResolucionFuenteEdicion =
   | {
@@ -66,10 +95,32 @@ export type ResultadoResolucionFuenteEdicion =
         | RazonConsultaCatalogoFallida;
     };
 
+/**
+ * Metadatos de paginación devueltos únicamente cuando la solicitud usó
+ * `loteId`: los modos existentes ({}, `limite`, `edicionIds`) nunca incluyen
+ * este campo, conservando exactamente su contrato de respuesta actual.
+ */
+export type PaginacionResolverFuenteLote = {
+  /** Existen más ediciones PENDIENTE del lote después de esta página. */
+  hayMas: boolean;
+  /** Cursor opaco para continuar; `null` cuando `hayMas` es `false`. */
+  siguienteCursor: string | null;
+  /**
+   * Ediciones únicas del lote que continúan PENDIENTE sin `urlPdf` después
+   * de procesar esta página, incluidas las que fallaron técnicamente antes
+   * del cursor actual. Puede ser mayor que cero incluso con `hayMas: false`
+   * (el recorrido de esta ejecución terminó, pero quedaron fallos técnicos
+   * para una futura ejecución desde el inicio, sin cursor).
+   */
+  pendientesRestantesLote: number;
+};
+
 export type ResultadoResolverFuenteRegistroOficial =
   | {
       exitoso: true;
       resultados: ResultadoResolucionFuenteEdicion[];
+      /** Presente solo cuando la solicitud usó `loteId`. */
+      paginacionLote?: PaginacionResolverFuenteLote;
     }
   | {
       exitoso: false;
@@ -80,6 +131,13 @@ export interface DependenciasResolverFuenteRegistroOficial {
   repositorioUsuarios: RepositorioUsuarios;
   repositorioEdiciones: RepositorioEdicionesRegistroOficial;
   catalogoRegistroOficial?: CatalogoRegistroOficial;
+  /**
+   * Puerto de solo lectura que traduce un `loteId` a sus ediciones únicas
+   * (vía las triples persistidas en las entradas del lote), set-based y sin
+   * recorrer Normas. A diferencia del catálogo, no depende de una
+   * integración externa habilitable: siempre se inyecta.
+   */
+  consultorEdicionesPorLote: ConsultorEdicionesRegistroOficialPorLote;
   politicaIngesta?: PoliticaIngestaRegistroOficial;
   /** Máximo seguro de ediciones por ejecución. Default 50. */
   limiteMaximoEdiciones?: number;
@@ -108,6 +166,7 @@ export class ResolverFuenteRegistroOficial {
   private readonly repositorioUsuarios: RepositorioUsuarios;
   private readonly repositorioEdiciones: RepositorioEdicionesRegistroOficial;
   private readonly catalogoRegistroOficial?: CatalogoRegistroOficial;
+  private readonly consultorEdicionesPorLote: ConsultorEdicionesRegistroOficialPorLote;
   private readonly politicaIngesta: PoliticaIngestaRegistroOficial;
   private readonly limiteMaximoEdiciones: number;
   private readonly maxConcurrencia: number;
@@ -116,6 +175,7 @@ export class ResolverFuenteRegistroOficial {
     this.repositorioUsuarios = dependencias.repositorioUsuarios;
     this.repositorioEdiciones = dependencias.repositorioEdiciones;
     this.catalogoRegistroOficial = dependencias.catalogoRegistroOficial;
+    this.consultorEdicionesPorLote = dependencias.consultorEdicionesPorLote;
     this.politicaIngesta =
       dependencias.politicaIngesta ?? new PoliticaIngestaRegistroOficial();
     this.limiteMaximoEdiciones = normalizarLimite(
@@ -150,6 +210,10 @@ export class ResolverFuenteRegistroOficial {
     }
     const catalogo = this.catalogoRegistroOficial;
 
+    if (solicitud.loteId !== undefined) {
+      return this.ejecutarSobreLote(solicitud, solicitud.loteId.trim(), catalogo);
+    }
+
     if (solicitud.edicionIds !== undefined) {
       const ids = solicitud.edicionIds.map((id) => id.trim());
       const resultados = await this.procesarEnLote(ids, (edicionId) =>
@@ -167,6 +231,72 @@ export class ResolverFuenteRegistroOficial {
       this.resolverEdicion(edicion, catalogo),
     );
     return { exitoso: true, resultados };
+  }
+
+  /**
+   * Modo `loteId`: página estable de las ediciones únicas originadas por las
+   * triples del lote (nunca por Norma), delegada íntegramente en
+   * `ConsultorEdicionesRegistroOficialPorLote`. Reutiliza exactamente la
+   * misma `resolverEdicion`/`procesarEnLote` que los demás modos: la
+   * decisión de RESUELTA/NO_ENCONTRADA/CONFLICTIVA/fallo técnico no cambia.
+   */
+  private async ejecutarSobreLote(
+    solicitud: SolicitudResolverFuenteRegistroOficial,
+    loteId: string,
+    catalogo: CatalogoRegistroOficial,
+  ): Promise<ResultadoResolverFuenteRegistroOficial> {
+    // esSolicitudValida ya garantizó que, si `cursor` está presente,
+    // decodifica correctamente contra este loteId; se repite aquí solo para
+    // obtener el valor decodificado, nunca para volver a decidir validez.
+    const cursor =
+      solicitud.cursor !== undefined
+        ? decodificarCursorEdicionesLote(loteId, solicitud.cursor)
+        : null;
+    const limitePagina = solicitud.limite
+      ? Math.min(solicitud.limite, this.limiteMaximoEdiciones)
+      : Math.min(
+          LIMITE_PREDETERMINADO_EDICIONES_RESOLUCION_LOTE,
+          this.limiteMaximoEdiciones,
+        );
+
+    const consulta = await this.consultorEdicionesPorLote.listarPaginaPendientes(
+      loteId,
+      limitePagina,
+      cursor,
+    );
+    if (!consulta.loteEncontrado) {
+      return { exitoso: false, razon: 'LOTE_NO_ENCONTRADO' };
+    }
+
+    const resultados = await this.procesarEnLote(
+      consulta.ediciones,
+      (edicion) => this.resolverEdicion(edicion, catalogo),
+    );
+
+    // El cursor siguiente ancla en la última edición de la página tal como
+    // la entregó el puerto, sin importar si esa edición se resolvió o falló
+    // técnicamente: así un fallo persistente no bloquea el avance dentro de
+    // esta misma ejecución.
+    const ultima = consulta.ediciones[consulta.ediciones.length - 1];
+    const siguienteCursor =
+      consulta.hayMas && ultima !== undefined
+        ? codificarCursorEdicionesLote(loteId, {
+            fechaPublicacionOficial: ultima.fechaPublicacionOficial,
+            edicionId: ultima.id,
+          })
+        : null;
+    const pendientesRestantesLote =
+      await this.consultorEdicionesPorLote.contarPendientesDelLote(loteId);
+
+    return {
+      exitoso: true,
+      resultados,
+      paginacionLote: {
+        hayMas: consulta.hayMas,
+        siguienteCursor,
+        pendientesRestantesLote,
+      },
+    };
   }
 
   private async resolverPorId(
@@ -288,12 +418,20 @@ export class ResolverFuenteRegistroOficial {
     if (esTextoVacio(solicitud.usuarioAutenticadoId)) {
       return false;
     }
-    // `edicionIds` y `limite` son selectores mutuamente excluyentes: aceptar
-    // ambos e ignorar uno en silencio ocultaría la intención de la solicitud.
+    // `edicionIds` es un selector explícito, mutuamente excluyente con
+    // `limite`, `loteId` y `cursor`: aceptar una combinación e ignorar un
+    // selector en silencio ocultaría la intención real de la solicitud.
+    // `loteId` y `limite` en cambio SÍ pueden combinarse (tamaño de página).
     if (
       solicitud.edicionIds !== undefined &&
-      solicitud.limite !== undefined
+      (solicitud.limite !== undefined ||
+        solicitud.loteId !== undefined ||
+        solicitud.cursor !== undefined)
     ) {
+      return false;
+    }
+    // Un cursor solo tiene sentido continuando la página de un loteId.
+    if (solicitud.cursor !== undefined && solicitud.loteId === undefined) {
       return false;
     }
     if (
@@ -302,6 +440,26 @@ export class ResolverFuenteRegistroOficial {
     ) {
       return false;
     }
+
+    if (solicitud.loteId !== undefined) {
+      if (esTextoVacio(solicitud.loteId)) {
+        return false;
+      }
+      // El cursor debe decodificar correctamente y pertenecer a este mismo
+      // loteId; cualquier estructura inválida o de otro lote es
+      // SOLICITUD_INVALIDA, nunca "sin cursor".
+      if (
+        solicitud.cursor !== undefined &&
+        decodificarCursorEdicionesLote(
+          solicitud.loteId.trim(),
+          solicitud.cursor,
+        ) === null
+      ) {
+        return false;
+      }
+      return true;
+    }
+
     if (solicitud.edicionIds === undefined) {
       return true;
     }

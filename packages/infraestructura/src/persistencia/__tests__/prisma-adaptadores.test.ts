@@ -1,4 +1,12 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from '@jest/globals';
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  beforeEach,
+  afterAll,
+  jest,
+} from '@jest/globals';
 import {
   EdicionRegistroOficial,
   EstadoEditorialNorma,
@@ -1300,6 +1308,9 @@ describirPrisma(
       const casoUso = new ResolverFuenteRegistroOficial({
         repositorioUsuarios: new RepositorioUsuariosPrisma(prisma),
         repositorioEdiciones: repositorio,
+        consultorEdicionesPorLote: new RepositorioIngestaRegistroOficialPrisma(
+          prisma,
+        ),
         catalogoRegistroOficial: {
           buscarEdiciones: async () => {
             avisarConsulta();
@@ -1662,6 +1673,325 @@ describirPrisma(
       expect(await repositorio.buscarLotePorPeriodo(2026, 11)).toEqual(
         expect.objectContaining({ id: 'lote-periodo-unico-a' }),
       );
+    });
+
+    describe('selección de ediciones por loteId (ConsultorEdicionesRegistroOficialPorLote, set-based)', () => {
+      type EntradaTripleFixture = {
+        sufijo: string;
+        edicionId: string;
+        numero: number;
+        fecha: string;
+      };
+
+      function construirIngestaPorTriples(
+        loteId: string,
+        periodoMes: number,
+        entradas: EntradaTripleFixture[],
+      ) {
+        const edicionesUnicasPorId = new Map<string, EdicionRegistroOficial>();
+        const normas: Norma[] = [];
+        const entradasPersistir = entradas.map((fixture, indice) => {
+          const normaId = `norma-${loteId}-${fixture.sufijo}`;
+          if (!edicionesUnicasPorId.has(fixture.edicionId)) {
+            edicionesUnicasPorId.set(
+              fixture.edicionId,
+              new EdicionRegistroOficial({
+                id: fixture.edicionId,
+                tipoPublicacionRegistroOficial: 'RO',
+                numeroPublicacionRegistroOficial: fixture.numero,
+                fechaPublicacionOficial: new Date(`${fixture.fecha}T00:00:00.000Z`),
+                urlPdf: null,
+                estadoResolucionFuente: EstadoResolucionFuente.PENDIENTE,
+              }),
+            );
+          }
+          normas.push(
+            new Norma({
+              id: normaId,
+              numero: fixture.sufijo,
+              titulo: `Norma ${loteId} ${fixture.sufijo}`,
+              contenido: [],
+              tipoNorma: 'Resolución',
+              institucionExpide: 'Institución de prueba',
+              estadoJuridico: EstadoNorma.VIGENTE,
+              estadoEditorial: EstadoEditorialNorma.BORRADOR,
+              fechaExpedicion: null,
+              edicionRegistroOficialId: fixture.edicionId,
+              fechaPublicacionEnSistema: null,
+            }),
+          );
+          return {
+            id: `entrada-${loteId}-${fixture.sufijo}`,
+            loteId,
+            posicion: indice,
+            normaId,
+            segmentoCrudo: `Resolución ${fixture.sufijo}`,
+            metadataExtraccion: {},
+            advertencias: [] as string[],
+            confianza: 1,
+            fechaCreacion: new Date('2026-08-01T00:00:00.000Z'),
+            tipoDetectado: 'Resolución',
+            numeroDetectado: fixture.sufijo,
+            tituloDetectado: `Norma ${loteId} ${fixture.sufijo}`,
+            institucionDetectada: 'Institución de prueba',
+            seccion: 'Función Ejecutiva',
+            publicacionTipo: 'RO',
+            publicacionNumero: fixture.numero,
+            publicacionFecha: new Date(`${fixture.fecha}T00:00:00.000Z`),
+          };
+        });
+
+        return {
+          lote: {
+            id: loteId,
+            huellaLote: `huella-${loteId}`,
+            periodoAnio: 2026,
+            periodoMes,
+            fechaEjecucion: new Date('2026-08-01T00:00:00.000Z'),
+            urlResumenMensualRegistroOficial: `https://www.registroficial.gob.ec/resumen-${loteId}.pdf`,
+            versionExtractor: 'fase-5c-loteid-test',
+          },
+          entradas: entradasPersistir,
+          normas,
+          ediciones: [...edicionesUnicasPorId.values()],
+        };
+      }
+
+      it('un lote con entradas repetidas para la misma triple (edición compartida) produce una sola edición en la página', async () => {
+        const repositorio = new RepositorioIngestaRegistroOficialPrisma(prisma);
+        const ingesta = construirIngestaPorTriples('lote-triples-repetidas', 1, [
+          { sufijo: 'uno', edicionId: 'edicion-triples-repetidas', numero: 701, fecha: '2026-01-05' },
+          { sufijo: 'dos', edicionId: 'edicion-triples-repetidas', numero: 701, fecha: '2026-01-05' },
+          { sufijo: 'tres', edicionId: 'edicion-triples-repetidas', numero: 701, fecha: '2026-01-05' },
+        ]);
+        expect(await repositorio.guardarIngesta(ingesta)).toEqual({ exitoso: true });
+
+        const pagina = await repositorio.listarPaginaPendientes(
+          'lote-triples-repetidas',
+          20,
+          null,
+        );
+
+        expect(pagina).toEqual({
+          loteEncontrado: true,
+          ediciones: [
+            expect.objectContaining({ id: 'edicion-triples-repetidas' }),
+          ],
+          hayMas: false,
+        });
+      });
+
+      it('otro lote con datos distintos no mezcla sus ediciones', async () => {
+        const repositorio = new RepositorioIngestaRegistroOficialPrisma(prisma);
+        const loteA = construirIngestaPorTriples('lote-distinto-a', 2, [
+          { sufijo: 'uno', edicionId: 'edicion-distinto-a', numero: 702, fecha: '2026-02-05' },
+        ]);
+        const loteB = construirIngestaPorTriples('lote-distinto-b', 3, [
+          { sufijo: 'uno', edicionId: 'edicion-distinto-b', numero: 703, fecha: '2026-03-05' },
+        ]);
+        await repositorio.guardarIngesta(loteA);
+        await repositorio.guardarIngesta(loteB);
+
+        const paginaA = await repositorio.listarPaginaPendientes('lote-distinto-a', 20, null);
+        const paginaB = await repositorio.listarPaginaPendientes('lote-distinto-b', 20, null);
+
+        expect(paginaA.loteEncontrado && paginaA.ediciones.map((e) => e.id)).toEqual([
+          'edicion-distinto-a',
+        ]);
+        expect(paginaB.loteEncontrado && paginaB.ediciones.map((e) => e.id)).toEqual([
+          'edicion-distinto-b',
+        ]);
+      });
+
+      it('excluye ediciones terminales (RESUELTA/MANUAL) e incluye una PENDIENTE que ya falló técnicamente antes', async () => {
+        const repositorio = new RepositorioIngestaRegistroOficialPrisma(prisma);
+        const repositorioEdiciones = new RepositorioEdicionesRegistroOficialPrisma(prisma);
+        const ingesta = construirIngestaPorTriples('lote-estados', 4, [
+          { sufijo: 'resuelta', edicionId: 'edicion-estados-resuelta', numero: 704, fecha: '2026-04-01' },
+          { sufijo: 'manual', edicionId: 'edicion-estados-manual', numero: 705, fecha: '2026-04-02' },
+          { sufijo: 'pendiente-fallida', edicionId: 'edicion-estados-pendiente', numero: 706, fecha: '2026-04-03' },
+        ]);
+        await repositorio.guardarIngesta(ingesta);
+        // Simula que la resolución automática ya intentó y falló (la edición
+        // permanece PENDIENTE): ninguna escritura ocurre ante un fallo técnico,
+        // así que el estado tras un fallo es indistinguible de "nunca
+        // procesada" — ambas deben seguir siendo candidatas.
+        await repositorioEdiciones.guardar(
+          (await repositorioEdiciones.buscarPorId('edicion-estados-resuelta'))!.resolverFuente(
+            'https://www.registroficial.gob.ec/ediciones/ro-704.pdf',
+          ),
+        );
+        await repositorioEdiciones.guardar(
+          (await repositorioEdiciones.buscarPorId('edicion-estados-manual'))!.corregirFuenteManualmente(
+            'https://www.registroficial.gob.ec/ediciones/ro-705-manual.pdf',
+          ),
+        );
+
+        const pagina = await repositorio.listarPaginaPendientes('lote-estados', 20, null);
+
+        expect(pagina.loteEncontrado && pagina.ediciones.map((e) => e.id)).toEqual([
+          'edicion-estados-pendiente',
+        ]);
+        expect(await repositorio.contarPendientesDelLote('lote-estados')).toBe(1);
+      });
+
+      it('pagina en más de una página con cursor, sin duplicar ni omitir ediciones', async () => {
+        const repositorio = new RepositorioIngestaRegistroOficialPrisma(prisma);
+        const ingesta = construirIngestaPorTriples('lote-paginado', 5, [
+          { sufijo: 'uno', edicionId: 'edicion-paginado-1', numero: 707, fecha: '2026-05-01' },
+          { sufijo: 'dos', edicionId: 'edicion-paginado-2', numero: 708, fecha: '2026-05-02' },
+          { sufijo: 'tres', edicionId: 'edicion-paginado-3', numero: 709, fecha: '2026-05-03' },
+        ]);
+        await repositorio.guardarIngesta(ingesta);
+
+        const primera = await repositorio.listarPaginaPendientes('lote-paginado', 2, null);
+        expect(primera.loteEncontrado).toBe(true);
+        if (!primera.loteEncontrado) return;
+        expect(primera.ediciones.map((e) => e.id)).toEqual([
+          'edicion-paginado-1',
+          'edicion-paginado-2',
+        ]);
+        expect(primera.hayMas).toBe(true);
+
+        const ultima = primera.ediciones[primera.ediciones.length - 1];
+        const segunda = await repositorio.listarPaginaPendientes('lote-paginado', 2, {
+          fechaPublicacionOficial: ultima.fechaPublicacionOficial,
+          edicionId: ultima.id,
+        });
+        expect(segunda.loteEncontrado).toBe(true);
+        if (!segunda.loteEncontrado) return;
+        expect(segunda.ediciones.map((e) => e.id)).toEqual(['edicion-paginado-3']);
+        expect(segunda.hayMas).toBe(false);
+      });
+
+      it('un loteId inexistente devuelve loteEncontrado: false', async () => {
+        const repositorio = new RepositorioIngestaRegistroOficialPrisma(prisma);
+
+        expect(
+          await repositorio.listarPaginaPendientes('lote-inexistente-prisma', 20, null),
+        ).toEqual({ loteEncontrado: false });
+        expect(await repositorio.contarPendientesDelLote('lote-inexistente-prisma')).toBe(0);
+      });
+
+      it('es set-based: el número de consultas Prisma es constante, independiente del número de entradas (sin bucle por entrada/Norma)', async () => {
+        const repositorio = new RepositorioIngestaRegistroOficialPrisma(prisma);
+        // 20 entradas repartidas en solo 4 triples distintas: si la
+        // implementación consultara una vez por entrada o por Norma, el
+        // número de llamadas escalaría con 20; set-based, se mantiene fijo.
+        const entradasFixture: EntradaTripleFixture[] = Array.from(
+          { length: 20 },
+          (_, indice) => ({
+            sufijo: `n${indice}`,
+            edicionId: `edicion-set-based-${indice % 4}`,
+            numero: 800 + (indice % 4),
+            fecha: `2026-06-0${(indice % 4) + 1}`,
+          }),
+        );
+        const ingesta = construirIngestaPorTriples(
+          'lote-set-based',
+          6,
+          entradasFixture,
+        );
+        await repositorio.guardarIngesta(ingesta);
+
+        const espiaGroupBy = jest.spyOn(
+          prisma.entradaDetectadaRegistroOficial,
+          'groupBy',
+        );
+        const espiaFindMany = jest.spyOn(prisma.edicionRegistroOficial, 'findMany');
+        const espiaFindUniqueLote = jest.spyOn(
+          prisma.loteIngestaRegistroOficial,
+          'findUnique',
+        );
+        const espiaCount = jest.spyOn(prisma.edicionRegistroOficial, 'count');
+
+        const pagina = await repositorio.listarPaginaPendientes(
+          'lote-set-based',
+          20,
+          null,
+        );
+        const pendientes = await repositorio.contarPendientesDelLote('lote-set-based');
+
+        expect(pagina.loteEncontrado).toBe(true);
+        if (pagina.loteEncontrado) {
+          expect(pagina.ediciones).toHaveLength(4);
+        }
+        expect(pendientes).toBe(4);
+        // Constante y acotado: una llamada de existencia de lote, una de
+        // triples únicas (groupBy) y una de ediciones (findMany) por
+        // `listarPaginaPendientes`; una de triples y una de conteo por
+        // `contarPendientesDelLote`. Nunca 20 (una por entrada) ni 4 en un
+        // bucle por triple.
+        expect(espiaFindUniqueLote).toHaveBeenCalledTimes(1);
+        expect(espiaGroupBy).toHaveBeenCalledTimes(2);
+        expect(espiaFindMany).toHaveBeenCalledTimes(1);
+        expect(espiaCount).toHaveBeenCalledTimes(1);
+
+        espiaGroupBy.mockRestore();
+        espiaFindMany.mockRestore();
+        espiaFindUniqueLote.mockRestore();
+        espiaCount.mockRestore();
+      });
+
+      it('un lote donde ninguna entrada tiene triple completa no fabrica candidatas ni consulta el catálogo', async () => {
+        const repositorio = new RepositorioIngestaRegistroOficialPrisma(prisma);
+        const norma = new Norma({
+          id: 'norma-sin-triple',
+          numero: null,
+          titulo: 'Norma sin edición detectada',
+          contenido: [],
+          tipoNorma: 'Resolución',
+          institucionExpide: 'Institución de prueba',
+          estadoJuridico: EstadoNorma.VIGENTE,
+          estadoEditorial: EstadoEditorialNorma.BORRADOR,
+          fechaExpedicion: null,
+          edicionRegistroOficialId: null,
+          fechaPublicacionEnSistema: null,
+        });
+        await repositorio.guardarIngesta({
+          lote: {
+            id: 'lote-sin-triple',
+            huellaLote: 'huella-lote-sin-triple',
+            periodoAnio: 2026,
+            periodoMes: 7,
+            fechaEjecucion: new Date('2026-07-01T00:00:00.000Z'),
+            urlResumenMensualRegistroOficial:
+              'https://www.registroficial.gob.ec/resumen-sin-triple.pdf',
+            versionExtractor: 'fase-5c-loteid-test',
+          },
+          entradas: [
+            {
+              id: 'entrada-sin-triple',
+              loteId: 'lote-sin-triple',
+              posicion: 0,
+              normaId: 'norma-sin-triple',
+              segmentoCrudo: 'Resolución sin identificar edición',
+              metadataExtraccion: {},
+              advertencias: ['NUMERO_PUBLICACION_REGISTRO_OFICIAL_NO_DETECTADO'],
+              confianza: 1,
+              fechaCreacion: new Date('2026-07-01T00:00:00.000Z'),
+              tipoDetectado: 'Resolución',
+              numeroDetectado: null,
+              tituloDetectado: null,
+              institucionDetectada: null,
+              seccion: null,
+              publicacionTipo: null,
+              publicacionNumero: null,
+              publicacionFecha: null,
+            },
+          ],
+          normas: [norma],
+          ediciones: [],
+        });
+
+        const pagina = await repositorio.listarPaginaPendientes('lote-sin-triple', 20, null);
+
+        expect(pagina).toEqual({
+          loteEncontrado: true,
+          ediciones: [],
+          hayMas: false,
+        });
+      });
     });
 
     it('PostgreSQL impide dos ediciones con la misma clave lógica (unique triple)', async () => {

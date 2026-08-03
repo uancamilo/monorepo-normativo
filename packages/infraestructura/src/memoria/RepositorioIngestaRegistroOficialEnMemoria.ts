@@ -1,5 +1,8 @@
 import { Injectable } from '@nestjs/common';
+import { EdicionRegistroOficial, EstadoResolucionFuente } from '@normativo/dominio';
 import {
+  ConsultorEdicionesRegistroOficialPorLote,
+  CursorEdicionesLote,
   EntradaDetectadaRegistroOficialAPersistir,
   IngestaRegistroOficialAPersistir,
   LoteIngestaRegistroOficial,
@@ -7,17 +10,21 @@ import {
   RepositorioEdicionesRegistroOficial,
   RepositorioIngestaRegistroOficial,
   RepositorioNormas,
+  ResultadoConsultaEdicionesLote,
   ResultadoGuardarIngesta,
 } from '@normativo/aplicacion';
 
 /**
- * Adaptador en memoria del puerto de ingesta del Registro Oficial (Fase 5A).
- * Comparte los repositorios de normas y ediciones en memoria para que lo
- * creado por ingesta sea visible en los casos de uso de normas/ediciones.
+ * Adaptador en memoria del puerto de ingesta del Registro Oficial (Fase 5A) y
+ * del puerto de selección de ediciones por lote (Fase 5C/5B). Comparte los
+ * repositorios de normas y ediciones en memoria para que lo creado por
+ * ingesta sea visible en los casos de uso de normas/ediciones.
  */
 @Injectable()
 export class RepositorioIngestaRegistroOficialEnMemoria
-  implements RepositorioIngestaRegistroOficial
+  implements
+    RepositorioIngestaRegistroOficial,
+    ConsultorEdicionesRegistroOficialPorLote
 {
   private readonly lotesPorId = new Map<string, LoteIngestaRegistroOficial>();
   private readonly lotesPorPeriodo = new Map<
@@ -136,6 +143,109 @@ export class RepositorioIngestaRegistroOficialEnMemoria
     }
     return { exitoso: true };
   }
+
+  async listarPaginaPendientes(
+    loteId: string,
+    limite: number,
+    cursor: CursorEdicionesLote | null,
+  ): Promise<ResultadoConsultaEdicionesLote> {
+    if (!this.lotesPorId.has(loteId)) {
+      return { loteEncontrado: false };
+    }
+    const elegibles = await this.edicionesPendientesUnicasDelLote(loteId);
+    const desdeCursor =
+      cursor === null
+        ? elegibles
+        : elegibles.filter((edicion) => esPosteriorAlCursor(edicion, cursor));
+    return {
+      loteEncontrado: true,
+      ediciones: desdeCursor.slice(0, Math.max(0, limite)),
+      hayMas: desdeCursor.length > limite,
+    };
+  }
+
+  async contarPendientesDelLote(loteId: string): Promise<number> {
+    if (!this.lotesPorId.has(loteId)) {
+      return 0;
+    }
+    return (await this.edicionesPendientesUnicasDelLote(loteId)).length;
+  }
+
+  /**
+   * Triples únicas (tipo, número, fecha) detectadas por las entradas del
+   * lote, resueltas contra el repositorio de ediciones compartido y
+   * filtradas a PENDIENTE sin `urlPdf`. Nunca recorre Normas: la fuente es
+   * exclusivamente `EntradaDetectadaRegistroOficialAPersistir`.
+   */
+  private async edicionesPendientesUnicasDelLote(
+    loteId: string,
+  ): Promise<EdicionRegistroOficial[]> {
+    const triplesPorClave = new Map<
+      string,
+      { tipo: string; numero: number; fecha: Date }
+    >();
+    for (const entrada of this.entradas) {
+      if (entrada.loteId !== loteId) {
+        continue;
+      }
+      if (
+        entrada.publicacionTipo === null ||
+        entrada.publicacionNumero === null ||
+        entrada.publicacionFecha === null
+      ) {
+        continue;
+      }
+      const clave = `${entrada.publicacionTipo}||${entrada.publicacionNumero}||${entrada.publicacionFecha.toISOString().slice(0, 10)}`;
+      if (!triplesPorClave.has(clave)) {
+        triplesPorClave.set(clave, {
+          tipo: entrada.publicacionTipo,
+          numero: entrada.publicacionNumero,
+          fecha: entrada.publicacionFecha,
+        });
+      }
+    }
+
+    const ediciones: EdicionRegistroOficial[] = [];
+    for (const { tipo, numero, fecha } of triplesPorClave.values()) {
+      const edicion = await this.repositorioEdiciones.buscarPorClave({
+        tipoPublicacionRegistroOficial: tipo,
+        numeroPublicacionRegistroOficial: numero,
+        fechaPublicacionOficial: fecha,
+      });
+      if (edicion !== null) {
+        ediciones.push(edicion);
+      }
+    }
+
+    return ediciones
+      .filter(
+        (edicion) =>
+          edicion.estadoResolucionFuente ===
+            EstadoResolucionFuente.PENDIENTE && edicion.urlPdf === null,
+      )
+      .sort(compararEdicionesPorFechaEId);
+  }
+}
+
+function compararEdicionesPorFechaEId(
+  a: EdicionRegistroOficial,
+  b: EdicionRegistroOficial,
+): number {
+  const diferenciaFecha =
+    a.fechaPublicacionOficial.getTime() - b.fechaPublicacionOficial.getTime();
+  return diferenciaFecha !== 0 ? diferenciaFecha : a.id.localeCompare(b.id);
+}
+
+function esPosteriorAlCursor(
+  edicion: EdicionRegistroOficial,
+  cursor: CursorEdicionesLote,
+): boolean {
+  const fechaEdicion = edicion.fechaPublicacionOficial.getTime();
+  const fechaCursor = cursor.fechaPublicacionOficial.getTime();
+  if (fechaEdicion !== fechaCursor) {
+    return fechaEdicion > fechaCursor;
+  }
+  return edicion.id > cursor.edicionId;
 }
 
 function clavePeriodo(periodoAnio: number, periodoMes: number): string {

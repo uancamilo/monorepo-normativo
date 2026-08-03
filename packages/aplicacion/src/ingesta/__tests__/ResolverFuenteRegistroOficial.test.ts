@@ -1,8 +1,13 @@
 import { beforeEach, describe, expect, it } from '@jest/globals';
 import { EstadoResolucionFuente, RolUsuario } from '@normativo/dominio';
-import { ResolverFuenteRegistroOficial } from '../casos-uso/ResolverFuenteRegistroOficial';
+import {
+  LIMITE_PREDETERMINADO_EDICIONES_RESOLUCION_LOTE,
+  ResolverFuenteRegistroOficial,
+} from '../casos-uso/ResolverFuenteRegistroOficial';
+import { codificarCursorEdicionesLote } from '../casos-uso/cursor-edicion-lote';
 import {
   CatalogoRegistroOficialFake,
+  ConsultorEdicionesRegistroOficialPorLoteFake,
   crearUsuarioConRol,
   RepositorioUsuariosFake,
 } from './apoyo/fakes-ingesta';
@@ -17,12 +22,16 @@ describe('ResolverFuenteRegistroOficial', () => {
   let repositorioUsuarios: RepositorioUsuariosFake;
   let repositorioEdiciones: RepositorioEdicionesRegistroOficialEnMemoriaFake;
   let catalogo: CatalogoRegistroOficialFake;
+  let consultorEdicionesPorLote: ConsultorEdicionesRegistroOficialPorLoteFake;
   let casoUso: ResolverFuenteRegistroOficial;
 
   beforeEach(() => {
     repositorioUsuarios = new RepositorioUsuariosFake();
     repositorioEdiciones = new RepositorioEdicionesRegistroOficialEnMemoriaFake();
     catalogo = new CatalogoRegistroOficialFake();
+    consultorEdicionesPorLote = new ConsultorEdicionesRegistroOficialPorLoteFake(
+      repositorioEdiciones,
+    );
     for (const rol of [
       RolUsuario.SUPERADMINISTRADOR,
       RolUsuario.EDITOR,
@@ -35,6 +44,7 @@ describe('ResolverFuenteRegistroOficial', () => {
       repositorioUsuarios,
       repositorioEdiciones,
       catalogoRegistroOficial: catalogo,
+      consultorEdicionesPorLote,
     });
   });
 
@@ -83,6 +93,7 @@ describe('ResolverFuenteRegistroOficial', () => {
     const casoUsoSinCatalogo = new ResolverFuenteRegistroOficial({
       repositorioUsuarios,
       repositorioEdiciones,
+      consultorEdicionesPorLote,
     });
 
     const resultado = await casoUsoSinCatalogo.ejecutar({
@@ -539,6 +550,7 @@ describe('ResolverFuenteRegistroOficial', () => {
       repositorioUsuarios,
       repositorioEdiciones,
       catalogoRegistroOficial: catalogo,
+      consultorEdicionesPorLote,
       limiteMaximoEdiciones: 2,
     });
 
@@ -697,6 +709,7 @@ describe('ResolverFuenteRegistroOficial', () => {
       repositorioUsuarios,
       repositorioEdiciones,
       catalogoRegistroOficial: catalogo,
+      consultorEdicionesPorLote,
       limiteMaximoEdiciones: 2,
       maxConcurrencia: 1,
     });
@@ -836,6 +849,7 @@ describe('ResolverFuenteRegistroOficial', () => {
       repositorioUsuarios,
       repositorioEdiciones,
       catalogoRegistroOficial: catalogo,
+      consultorEdicionesPorLote,
       limiteMaximoEdiciones: 2,
     });
 
@@ -848,5 +862,592 @@ describe('ResolverFuenteRegistroOficial', () => {
       throw new Error('esperaba éxito');
     }
     expect(resultado.resultados).toHaveLength(2);
+  });
+
+  describe('selección por loteId (paginación de un lote de ingesta)', () => {
+    const LOTE_A = 'lote-a';
+    const LOTE_B = 'lote-b';
+
+    function pendiente(id: string, overrides: Partial<Parameters<typeof crearEdicionRegistroOficial>[0]> = {}) {
+      const edicion = crearEdicionRegistroOficial({
+        id,
+        urlPdf: null,
+        estadoResolucionFuente: EstadoResolucionFuente.PENDIENTE,
+        ...overrides,
+      });
+      repositorioEdiciones.agregar(edicion);
+      return edicion;
+    }
+
+    function registrarCatalogoResuelto(numero: number) {
+      catalogo.registrar(
+        { tipoPublicacionRegistroOficial: 'RO', numeroPublicacionRegistroOficial: numero },
+        [{ urlPdf: `${URL_PDF}?n=${numero}`, fechaPublicacionOficial: null }],
+      );
+    }
+
+    it('1. loteId selecciona únicamente ediciones originadas por ese lote', async () => {
+      pendiente('edicion-a1', { numeroPublicacionRegistroOficial: 501 });
+      pendiente('edicion-a2', { numeroPublicacionRegistroOficial: 502 });
+      pendiente('edicion-otro', { numeroPublicacionRegistroOficial: 999 });
+      consultorEdicionesPorLote.registrarLote(LOTE_A, [
+        'edicion-a1',
+        'edicion-a2',
+      ]);
+      registrarCatalogoResuelto(501);
+      registrarCatalogoResuelto(502);
+      registrarCatalogoResuelto(999);
+
+      const resultado = await casoUso.ejecutar({
+        usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+        loteId: LOTE_A,
+      });
+
+      expect(resultado.exitoso).toBe(true);
+      if (!resultado.exitoso) return;
+      expect(resultado.resultados.map((r) => r.edicionId).sort()).toEqual([
+        'edicion-a1',
+        'edicion-a2',
+      ]);
+    });
+
+    it('2. dos lotes no mezclan sus ediciones', async () => {
+      pendiente('edicion-a1', { numeroPublicacionRegistroOficial: 501 });
+      pendiente('edicion-b1', { numeroPublicacionRegistroOficial: 601 });
+      consultorEdicionesPorLote.registrarLote(LOTE_A, ['edicion-a1']);
+      consultorEdicionesPorLote.registrarLote(LOTE_B, ['edicion-b1']);
+      registrarCatalogoResuelto(501);
+      registrarCatalogoResuelto(601);
+
+      const resultadoA = await casoUso.ejecutar({
+        usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+        loteId: LOTE_A,
+      });
+      // Se re-crea el caso de uso porque edicion-a1 ya quedó RESUELTA tras la
+      // primera pasada (idempotencia por edición, no por lote).
+      const resultadoB = await casoUso.ejecutar({
+        usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+        loteId: LOTE_B,
+      });
+
+      expect(resultadoA.exitoso).toBe(true);
+      expect(resultadoB.exitoso).toBe(true);
+      if (!resultadoA.exitoso || !resultadoB.exitoso) return;
+      expect(resultadoA.resultados.map((r) => r.edicionId)).toEqual([
+        'edicion-a1',
+      ]);
+      expect(resultadoB.resultados.map((r) => r.edicionId)).toEqual([
+        'edicion-b1',
+      ]);
+    });
+
+    it('3. varias entradas con la misma triple generan una sola edición procesada', async () => {
+      pendiente('edicion-compartida', { numeroPublicacionRegistroOficial: 501 });
+      consultorEdicionesPorLote.agregarEdicionAlLote(LOTE_A, 'edicion-compartida');
+      consultorEdicionesPorLote.agregarEdicionAlLote(LOTE_A, 'edicion-compartida');
+      consultorEdicionesPorLote.agregarEdicionAlLote(LOTE_A, 'edicion-compartida');
+      registrarCatalogoResuelto(501);
+
+      const resultado = await casoUso.ejecutar({
+        usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+        loteId: LOTE_A,
+      });
+
+      expect(resultado.exitoso).toBe(true);
+      if (!resultado.exitoso) return;
+      expect(resultado.resultados).toHaveLength(1);
+      expect(catalogo.consultas).toHaveLength(1);
+    });
+
+    it('4. la selección depende del puerto de triples del lote, no de ninguna asociación de Norma', async () => {
+      // ResolverFuenteRegistroOficial no recibe RepositorioNormas en sus
+      // dependencias (ver DependenciasResolverFuenteRegistroOficial): la
+      // única fuente posible para "qué ediciones pertenecen a este lote" es
+      // el puerto ConsultorEdicionesRegistroOficialPorLote, inyectado aquí
+      // como fake que solo conoce triples registradas explícitamente, nunca
+      // una Norma ni su edicionRegistroOficialId.
+      pendiente('edicion-a1', { numeroPublicacionRegistroOficial: 501 });
+      consultorEdicionesPorLote.registrarLote(LOTE_A, ['edicion-a1']);
+      registrarCatalogoResuelto(501);
+
+      const resultado = await casoUso.ejecutar({
+        usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+        loteId: LOTE_A,
+      });
+
+      expect(resultado.exitoso).toBe(true);
+      expect(consultorEdicionesPorLote.llamadasPagina).toHaveLength(1);
+      expect(consultorEdicionesPorLote.llamadasPagina[0].loteId).toBe(LOTE_A);
+    });
+
+    it('5. no se consulta ningún repositorio de Normas para resolver el lote', () => {
+      // Prueba estructural: el tipo de dependencias del caso de uso no
+      // incluye RepositorioNormas. Si algún día se agregara, este test
+      // dejaría de compilar y evidenciaría el cambio de contrato.
+      const dependencias: ConstructorParameters<
+        typeof ResolverFuenteRegistroOficial
+      >[0] = {
+        repositorioUsuarios,
+        repositorioEdiciones,
+        catalogoRegistroOficial: catalogo,
+        consultorEdicionesPorLote,
+      };
+      expect(dependencias).not.toHaveProperty('repositorioNormas');
+    });
+
+    it('6. solo se procesan ediciones PENDIENTE sin fuente', async () => {
+      pendiente('edicion-pendiente', { numeroPublicacionRegistroOficial: 501 });
+      repositorioEdiciones.agregar(
+        crearEdicionRegistroOficial({
+          id: 'edicion-con-url',
+          numeroPublicacionRegistroOficial: 502,
+          urlPdf: URL_PDF,
+          estadoResolucionFuente: EstadoResolucionFuente.RESUELTA,
+        }),
+      );
+      consultorEdicionesPorLote.registrarLote(LOTE_A, [
+        'edicion-pendiente',
+        'edicion-con-url',
+      ]);
+      registrarCatalogoResuelto(501);
+
+      const resultado = await casoUso.ejecutar({
+        usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+        loteId: LOTE_A,
+      });
+
+      expect(resultado.exitoso).toBe(true);
+      if (!resultado.exitoso) return;
+      // La edición ya resuelta ni siquiera aparece en la página del puerto
+      // (el fake ya la excluye, igual que haría un adaptador real).
+      expect(resultado.resultados.map((r) => r.edicionId)).toEqual([
+        'edicion-pendiente',
+      ]);
+    });
+
+    it.each([EstadoResolucionFuente.RESUELTA, EstadoResolucionFuente.MANUAL])(
+      '7. una edición %s del lote no se reprocesa (ni aparece en la página)',
+      async (estado) => {
+        pendiente('edicion-terminal', {
+          numeroPublicacionRegistroOficial: 501,
+          urlPdf: URL_PDF,
+          estadoResolucionFuente: estado,
+        });
+        consultorEdicionesPorLote.registrarLote(LOTE_A, ['edicion-terminal']);
+
+        const resultado = await casoUso.ejecutar({
+          usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+          loteId: LOTE_A,
+        });
+
+        expect(resultado.exitoso).toBe(true);
+        if (!resultado.exitoso) return;
+        expect(resultado.resultados).toHaveLength(0);
+        expect(catalogo.consultas).toHaveLength(0);
+      },
+    );
+
+    it.each([
+      EstadoResolucionFuente.NO_ENCONTRADA,
+      EstadoResolucionFuente.CONFLICTIVA,
+    ])(
+      '8. una edición %s del lote no se reprocesa (ni aparece en la página)',
+      async (estado) => {
+        pendiente('edicion-terminal', {
+          numeroPublicacionRegistroOficial: 501,
+          urlPdf: null,
+          estadoResolucionFuente: estado,
+        });
+        consultorEdicionesPorLote.registrarLote(LOTE_A, ['edicion-terminal']);
+
+        const resultado = await casoUso.ejecutar({
+          usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+          loteId: LOTE_A,
+        });
+
+        expect(resultado.exitoso).toBe(true);
+        if (!resultado.exitoso) return;
+        expect(resultado.resultados).toHaveLength(0);
+        expect(catalogo.consultas).toHaveLength(0);
+      },
+    );
+
+    it('9. un lote existente sin ninguna edición asociada (p. ej. triples incompletas) no fabrica candidatas', async () => {
+      consultorEdicionesPorLote.registrarLoteVacio(LOTE_A);
+
+      const resultado = await casoUso.ejecutar({
+        usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+        loteId: LOTE_A,
+      });
+
+      expect(resultado).toEqual({
+        exitoso: true,
+        resultados: [],
+        paginacionLote: {
+          hayMas: false,
+          siguienteCursor: null,
+          pendientesRestantesLote: 0,
+        },
+      });
+      expect(catalogo.consultas).toHaveLength(0);
+    });
+
+    it('10. loteId + limite es una combinación válida', async () => {
+      pendiente('edicion-a1', { numeroPublicacionRegistroOficial: 501 });
+      pendiente('edicion-a2', {
+        numeroPublicacionRegistroOficial: 502,
+        fechaPublicacionOficial: new Date('2026-05-03'),
+      });
+      consultorEdicionesPorLote.registrarLote(LOTE_A, [
+        'edicion-a1',
+        'edicion-a2',
+      ]);
+      registrarCatalogoResuelto(501);
+      registrarCatalogoResuelto(502);
+
+      const resultado = await casoUso.ejecutar({
+        usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+        loteId: LOTE_A,
+        limite: 1,
+      });
+
+      expect(resultado.exitoso).toBe(true);
+      if (!resultado.exitoso) return;
+      expect(resultado.resultados).toHaveLength(1);
+      expect(resultado.paginacionLote?.hayMas).toBe(true);
+      expect(resultado.paginacionLote?.siguienteCursor).not.toBeNull();
+    });
+
+    describe('11. combinaciones inválidas de selectores', () => {
+      it.each([
+        [
+          'edicionIds + loteId',
+          {
+            usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+            edicionIds: ['x'],
+            loteId: LOTE_A,
+          },
+        ],
+        [
+          'edicionIds + cursor',
+          {
+            usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+            edicionIds: ['x'],
+            cursor: 'cualquiera',
+          },
+        ],
+        [
+          'cursor sin loteId',
+          {
+            usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+            cursor: 'cualquiera',
+          },
+        ],
+        [
+          'loteId vacío',
+          { usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR', loteId: '   ' },
+        ],
+        [
+          'cursor mal formado (no es Base64URL de un JSON válido)',
+          {
+            usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+            loteId: LOTE_A,
+            cursor: 'esto-no-es-un-cursor-valido',
+          },
+        ],
+      ])('rechaza %s con SOLICITUD_INVALIDA', async (_nombre, solicitud) => {
+        const resultado = await casoUso.ejecutar(solicitud);
+        expect(resultado).toEqual({
+          exitoso: false,
+          razon: 'SOLICITUD_INVALIDA',
+        });
+      });
+
+      it('rechaza un cursor perteneciente a otro loteId', async () => {
+        pendiente('edicion-a1', { numeroPublicacionRegistroOficial: 501 });
+        consultorEdicionesPorLote.registrarLote(LOTE_A, ['edicion-a1']);
+        consultorEdicionesPorLote.registrarLoteVacio(LOTE_B);
+        const cursorDeOtroLote = codificarCursorEdicionesLote(LOTE_B, {
+          fechaPublicacionOficial: new Date('2026-05-01'),
+          edicionId: 'edicion-b1',
+        });
+
+        const resultado = await casoUso.ejecutar({
+          usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+          loteId: LOTE_A,
+          cursor: cursorDeOtroLote,
+        });
+
+        expect(resultado).toEqual({
+          exitoso: false,
+          razon: 'SOLICITUD_INVALIDA',
+        });
+      });
+    });
+
+    it('12. respeta el orden estable (fecha ascendente, luego id) reportado por el puerto', async () => {
+      pendiente('edicion-b', {
+        numeroPublicacionRegistroOficial: 502,
+        fechaPublicacionOficial: new Date('2026-05-03'),
+      });
+      pendiente('edicion-a', {
+        numeroPublicacionRegistroOficial: 501,
+        fechaPublicacionOficial: new Date('2026-05-01'),
+      });
+      consultorEdicionesPorLote.registrarLote(LOTE_A, [
+        'edicion-b',
+        'edicion-a',
+      ]);
+      registrarCatalogoResuelto(501);
+      registrarCatalogoResuelto(502);
+
+      const resultado = await casoUso.ejecutar({
+        usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+        loteId: LOTE_A,
+      });
+
+      expect(resultado.exitoso).toBe(true);
+      if (!resultado.exitoso) return;
+      expect(resultado.resultados.map((r) => r.edicionId)).toEqual([
+        'edicion-a',
+        'edicion-b',
+      ]);
+    });
+
+    it('13. dos páginas sucesivas no duplican ni omiten ediciones', async () => {
+      const fechas = ['2026-05-01', '2026-05-02', '2026-05-03'];
+      fechas.forEach((fecha, indice) => {
+        pendiente(`edicion-${indice}`, {
+          numeroPublicacionRegistroOficial: 501 + indice,
+          fechaPublicacionOficial: new Date(fecha),
+        });
+        registrarCatalogoResuelto(501 + indice);
+      });
+      consultorEdicionesPorLote.registrarLote(
+        LOTE_A,
+        fechas.map((_, indice) => `edicion-${indice}`),
+      );
+
+      const primera = await casoUso.ejecutar({
+        usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+        loteId: LOTE_A,
+        limite: 2,
+      });
+      expect(primera.exitoso).toBe(true);
+      if (!primera.exitoso) return;
+      expect(primera.paginacionLote?.hayMas).toBe(true);
+      const cursor = primera.paginacionLote?.siguienteCursor;
+      expect(cursor).not.toBeNull();
+
+      const segunda = await casoUso.ejecutar({
+        usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+        loteId: LOTE_A,
+        limite: 2,
+        cursor: cursor ?? undefined,
+      });
+      expect(segunda.exitoso).toBe(true);
+      if (!segunda.exitoso) return;
+
+      const todosLosIds = [
+        ...primera.resultados.map((r) => r.edicionId),
+        ...segunda.resultados.map((r) => r.edicionId),
+      ];
+      expect(todosLosIds.sort()).toEqual([
+        'edicion-0',
+        'edicion-1',
+        'edicion-2',
+      ]);
+      expect(new Set(todosLosIds).size).toBe(todosLosIds.length);
+      expect(segunda.paginacionLote?.hayMas).toBe(false);
+    });
+
+    it('14. una falla técnica en la primera página no impide llegar a ediciones posteriores', async () => {
+      pendiente('edicion-falla', {
+        numeroPublicacionRegistroOficial: 501,
+        fechaPublicacionOficial: new Date('2026-05-01'),
+      });
+      pendiente('edicion-ok', {
+        numeroPublicacionRegistroOficial: 502,
+        fechaPublicacionOficial: new Date('2026-05-02'),
+      });
+      consultorEdicionesPorLote.registrarLote(LOTE_A, [
+        'edicion-falla',
+        'edicion-ok',
+      ]);
+      catalogo.registrarFallo(
+        { tipoPublicacionRegistroOficial: 'RO', numeroPublicacionRegistroOficial: 501 },
+        'CATALOGO_TEMPORALMENTE_NO_DISPONIBLE',
+      );
+      registrarCatalogoResuelto(502);
+
+      const resultado = await casoUso.ejecutar({
+        usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+        loteId: LOTE_A,
+      });
+
+      expect(resultado.exitoso).toBe(true);
+      if (!resultado.exitoso) return;
+      expect(resultado.resultados).toEqual([
+        {
+          edicionId: 'edicion-falla',
+          procesada: false,
+          razon: 'CATALOGO_TEMPORALMENTE_NO_DISPONIBLE',
+        },
+        {
+          edicionId: 'edicion-ok',
+          procesada: true,
+          estadoResolucionFuente: EstadoResolucionFuente.RESUELTA,
+          urlPdf: `${URL_PDF}?n=502`,
+        },
+      ]);
+    });
+
+    it('15. una nueva ejecución sin cursor reintenta la edición que sigue pendiente por fallo técnico', async () => {
+      pendiente('edicion-falla', { numeroPublicacionRegistroOficial: 501 });
+      consultorEdicionesPorLote.registrarLote(LOTE_A, ['edicion-falla']);
+      catalogo.registrarFallo(
+        { tipoPublicacionRegistroOficial: 'RO', numeroPublicacionRegistroOficial: 501 },
+        'CATALOGO_TEMPORALMENTE_NO_DISPONIBLE',
+      );
+
+      const primera = await casoUso.ejecutar({
+        usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+        loteId: LOTE_A,
+      });
+      expect(primera.exitoso).toBe(true);
+      if (!primera.exitoso) return;
+      expect(primera.resultados[0].procesada).toBe(false);
+
+      catalogo.limpiarFallo({
+        tipoPublicacionRegistroOficial: 'RO',
+        numeroPublicacionRegistroOficial: 501,
+      });
+      registrarCatalogoResuelto(501);
+      const segunda = await casoUso.ejecutar({
+        usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+        loteId: LOTE_A,
+      });
+
+      expect(segunda.exitoso).toBe(true);
+      if (!segunda.exitoso) return;
+      expect(segunda.resultados).toEqual([
+        {
+          edicionId: 'edicion-falla',
+          procesada: true,
+          estadoResolucionFuente: EstadoResolucionFuente.RESUELTA,
+          urlPdf: `${URL_PDF}?n=501`,
+        },
+      ]);
+    });
+
+    it('16. una resolución concurrente durante el procesamiento del lote sigue protegida por el CAS existente', async () => {
+      pendiente('edicion-carrera', { numeroPublicacionRegistroOficial: 501 });
+      consultorEdicionesPorLote.registrarLote(LOTE_A, ['edicion-carrera']);
+      let notificarConsulta!: () => void;
+      let liberarConsulta!: () => void;
+      const consultaIniciada = new Promise<void>((resolve) => {
+        notificarConsulta = resolve;
+      });
+      const continuarConsulta = new Promise<void>((resolve) => {
+        liberarConsulta = resolve;
+      });
+      catalogo.buscarEdiciones = async () => {
+        notificarConsulta();
+        await continuarConsulta;
+        return {
+          exitoso: true,
+          candidatas: [{ urlPdf: URL_PDF, fechaPublicacionOficial: null }],
+        };
+      };
+
+      const resolucion = casoUso.ejecutar({
+        usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+        loteId: LOTE_A,
+      });
+      await consultaIniciada;
+      const pendienteActual = await repositorioEdiciones.buscarPorId(
+        'edicion-carrera',
+      );
+      const urlManual = 'https://www.registroficial.gob.ec/ediciones/manual.pdf';
+      await repositorioEdiciones.guardar(
+        pendienteActual!.corregirFuenteManualmente(urlManual),
+      );
+      liberarConsulta();
+
+      const resultado = await resolucion;
+      expect(resultado.exitoso).toBe(true);
+      if (!resultado.exitoso) return;
+      expect(resultado.resultados).toEqual([
+        {
+          edicionId: 'edicion-carrera',
+          procesada: false,
+          razon: 'FUENTE_YA_ESTABLECIDA',
+        },
+      ]);
+      const persistida = await repositorioEdiciones.buscarPorId('edicion-carrera');
+      expect(persistida?.estadoResolucionFuente).toBe(EstadoResolucionFuente.MANUAL);
+      expect(persistida?.urlPdf).toBe(urlManual);
+    });
+
+    it('17. pendientesRestantesLote se calcula después de procesar la página (refleja las recién resueltas)', async () => {
+      pendiente('edicion-a1', { numeroPublicacionRegistroOficial: 501 });
+      pendiente('edicion-a2', { numeroPublicacionRegistroOficial: 502 });
+      consultorEdicionesPorLote.registrarLote(LOTE_A, [
+        'edicion-a1',
+        'edicion-a2',
+      ]);
+      registrarCatalogoResuelto(501);
+      registrarCatalogoResuelto(502);
+
+      const resultado = await casoUso.ejecutar({
+        usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+        loteId: LOTE_A,
+      });
+
+      expect(resultado.exitoso).toBe(true);
+      if (!resultado.exitoso) return;
+      // Ambas se resolvieron en esta misma página: el conteo posterior debe
+      // reflejarlo, no el estado previo a procesar.
+      expect(resultado.paginacionLote?.pendientesRestantesLote).toBe(0);
+      expect(consultorEdicionesPorLote.llamadasConteo).toHaveLength(1);
+    });
+
+    it('18. puede terminar con hayMas=false y pendientesRestantesLote > 0 (fallos técnicos agotaron el recorrido de esta ejecución)', async () => {
+      pendiente('edicion-falla', { numeroPublicacionRegistroOficial: 501 });
+      consultorEdicionesPorLote.registrarLote(LOTE_A, ['edicion-falla']);
+      catalogo.registrarFallo(
+        { tipoPublicacionRegistroOficial: 'RO', numeroPublicacionRegistroOficial: 501 },
+        'RESPUESTA_CATALOGO_INVALIDA',
+      );
+
+      const resultado = await casoUso.ejecutar({
+        usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+        loteId: LOTE_A,
+      });
+
+      expect(resultado.exitoso).toBe(true);
+      if (!resultado.exitoso) return;
+      expect(resultado.paginacionLote).toEqual({
+        hayMas: false,
+        siguienteCursor: null,
+        pendientesRestantesLote: 1,
+      });
+    });
+
+    it('el tamaño de página predeterminado del modo lote es 20', () => {
+      expect(LIMITE_PREDETERMINADO_EDICIONES_RESOLUCION_LOTE).toBe(20);
+    });
+
+    it('lote inexistente devuelve LOTE_NO_ENCONTRADO', async () => {
+      const resultado = await casoUso.ejecutar({
+        usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+        loteId: 'lote-fantasma',
+      });
+
+      expect(resultado).toEqual({
+        exitoso: false,
+        razon: 'LOTE_NO_ENCONTRADO',
+      });
+    });
   });
 });

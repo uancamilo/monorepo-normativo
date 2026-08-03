@@ -45,7 +45,12 @@ const PROPIEDADES_CREAR_EDICION = [
   'urlPdf',
 ] as const;
 const PROPIEDADES_ACTUALIZAR_FUENTE = ['urlPdf'] as const;
-const PROPIEDADES_RESOLVER_PENDIENTES = ['edicionIds', 'limite'] as const;
+const PROPIEDADES_RESOLVER_PENDIENTES = [
+  'edicionIds',
+  'limite',
+  'loteId',
+  'cursor',
+] as const;
 
 /**
  * Catálogo y gestión de ediciones del Registro Oficial. La fuente (urlPdf)
@@ -149,6 +154,8 @@ export class EdicionesRegistroOficialController {
       usuarioAutenticadoId: usuario.id,
       edicionIds: cuerpo.edicionIds as string[] | undefined,
       limite: cuerpo.limite as number | undefined,
+      loteId: cuerpo.loteId as string | undefined,
+      cursor: cuerpo.cursor as string | undefined,
     });
 
     if (!resultado.exitoso) {
@@ -169,6 +176,19 @@ export class EdicionesRegistroOficialController {
       RAZONES_ERROR_CATALOGO.map((razon) => [razon, cuentaPorRazon(razon)]),
     ) as Record<(typeof RAZONES_ERROR_CATALOGO)[number], number>;
 
+    // Los tres campos de paginación solo existen en modo loteId: los modos
+    // existentes ({}, limite, edicionIds) conservan exactamente su forma de
+    // respuesta anterior, sin ganar claves nuevas.
+    const paginacionLote =
+      resultado.paginacionLote === undefined
+        ? {}
+        : {
+            hayMas: resultado.paginacionLote.hayMas,
+            siguienteCursor: resultado.paginacionLote.siguienteCursor,
+            pendientesRestantesLote:
+              resultado.paginacionLote.pendientesRestantesLote,
+          };
+
     return {
       procesadas: procesadas.length,
       resueltas: cuentaPorEstado(EstadoResolucionFuente.RESUELTA),
@@ -182,6 +202,7 @@ export class EdicionesRegistroOficialController {
         0,
       ),
       erroresPorRazon,
+      ...paginacionLote,
     };
   }
 }

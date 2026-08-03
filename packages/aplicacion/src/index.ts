@@ -6,6 +6,12 @@ export type {
   ResultadoReemplazarEdicionPrincipal,
 } from './normas/puertos/RepositorioNormas';
 export type { ConsultorOrigenRegistroOficialNorma } from './normas/puertos/ConsultorOrigenRegistroOficialNorma';
+export type {
+  ConsultorEdicionesRegistroOficialPorLote,
+  CursorEdicionesLote,
+  PaginaEdicionesLote,
+  ResultadoConsultaEdicionesLote,
+} from './normas/puertos/ConsultorEdicionesRegistroOficialPorLote';
 export type { ConsultorCambiosEdicionRegistroOficial } from './normas/puertos/ConsultorCambiosEdicionRegistroOficial';
 export type {
   RepositorioEdicionesRegistroOficial,
@@ -217,10 +223,12 @@ export type {
 export {
   CONCURRENCIA_PREDETERMINADA_RESOLUCION,
   LIMITE_PREDETERMINADO_EDICIONES_RESOLUCION,
+  LIMITE_PREDETERMINADO_EDICIONES_RESOLUCION_LOTE,
   ResolverFuenteRegistroOficial,
 } from './ingesta/casos-uso/ResolverFuenteRegistroOficial';
 export type {
   DependenciasResolverFuenteRegistroOficial,
+  PaginacionResolverFuenteLote,
   RazonResolverFuenteFallido,
   ResultadoResolucionFuenteEdicion,
   ResultadoResolverFuenteRegistroOficial,
