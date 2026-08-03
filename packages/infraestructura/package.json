@@ -15,7 +15,8 @@
     "start": "node dist/main.js",
     "test": "jest",
     "test:prisma": "node scripts/ejecutar-tests-prisma.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "extraer:registro-oficial": "node dist/ingesta/extractor-registro-oficial/cli.js"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.28",
@@ -27,6 +28,7 @@
     "@prisma/client": "^7.9.1",
     "cheerio": "^1.2.0",
     "jose": "^4.15.9",
+    "pdfjs-dist": "5.4.624",
     "pg": "^8.22.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1"
