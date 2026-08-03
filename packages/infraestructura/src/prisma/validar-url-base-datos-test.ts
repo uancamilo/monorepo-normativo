@@ -6,6 +6,7 @@
 
 interface ModuloValidarUrlBaseDatos {
   VARIABLE_PERMITIR_TEST_DATABASE_URL_NO_LOCAL: string;
+  VARIABLE_PERMITIR_TEST_DATABASE_EFIMERA: string;
   obtenerTestDatabaseUrlDesdeEntorno(
     entorno?: NodeJS.ProcessEnv,
   ): string | undefined;
@@ -17,6 +18,9 @@ const moduloValidarUrlBaseDatos: ModuloValidarUrlBaseDatos = require('../../scri
 
 export const VARIABLE_PERMITIR_TEST_DATABASE_URL_NO_LOCAL =
   moduloValidarUrlBaseDatos.VARIABLE_PERMITIR_TEST_DATABASE_URL_NO_LOCAL;
+
+export const VARIABLE_PERMITIR_TEST_DATABASE_EFIMERA =
+  moduloValidarUrlBaseDatos.VARIABLE_PERMITIR_TEST_DATABASE_EFIMERA;
 
 export function obtenerTestDatabaseUrlDesdeEntorno(
   entorno: NodeJS.ProcessEnv = process.env,

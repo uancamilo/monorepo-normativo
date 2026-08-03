@@ -59,4 +59,45 @@ describe('prepararUrlTestsPrisma', () => {
       }),
     ).toBe(urlRemota);
   });
+
+  const urlEfimeraLocal =
+    'postgresql://normativo:normativo@localhost:5433/normativo_test_loteid_abc123?schema=public';
+
+  it('acepta la base efímera local con PERMITIR_TEST_DATABASE_EFIMERA=true', () => {
+    expect(
+      prepararUrlTestsPrisma({
+        TEST_DATABASE_URL: urlEfimeraLocal,
+        PERMITIR_TEST_DATABASE_EFIMERA: 'true',
+      }),
+    ).toBe(urlEfimeraLocal);
+  });
+
+  it('rechaza la base efímera local sin el opt-in', () => {
+    expect(() =>
+      prepararUrlTestsPrisma({ TEST_DATABASE_URL: urlEfimeraLocal }),
+    ).toThrow();
+  });
+
+  it('rechaza la base efímera si es remota', () => {
+    const urlRemota =
+      'postgresql://normativo:normativo@db.example.com:5433/normativo_test_loteid_abc123?schema=public';
+    expect(() =>
+      prepararUrlTestsPrisma({
+        TEST_DATABASE_URL: urlRemota,
+        PERMITIR_TEST_DATABASE_EFIMERA: 'true',
+      }),
+    ).toThrow();
+  });
+
+  it('rechaza la base efímera remota incluso con ambos opt-ins activados', () => {
+    const urlRemota =
+      'postgresql://normativo:normativo@db.example.com:5433/normativo_test_loteid_abc123?schema=public';
+    expect(() =>
+      prepararUrlTestsPrisma({
+        TEST_DATABASE_URL: urlRemota,
+        PERMITIR_TEST_DATABASE_EFIMERA: 'true',
+        PERMITIR_TEST_DATABASE_URL_NO_LOCAL: 'true',
+      }),
+    ).toThrow();
+  });
 });

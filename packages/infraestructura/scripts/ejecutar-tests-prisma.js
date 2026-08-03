@@ -12,7 +12,12 @@
  * Reglas:
  * - TEST_DATABASE_URL es obligatoria; DATABASE_URL NO puede sustituirla.
  * - Por defecto exige base normativo_test en host local.
- * - Solo permite URL de test no local con PERMITIR_TEST_DATABASE_URL_NO_LOCAL=true.
+ * - Una `normativo_test` no local solo se permite con
+ *   PERMITIR_TEST_DATABASE_URL_NO_LOCAL=true.
+ * - También acepta bases locales efímeras de un solo uso
+ *   (`normativo_test_<sufijo_seguro>`) con PERMITIR_TEST_DATABASE_EFIMERA=true;
+ *   esta base efímera nunca admite host remoto, ni siquiera combinada con
+ *   PERMITIR_TEST_DATABASE_URL_NO_LOCAL.
  * - Si falta o es insegura, el proceso termina antes de tocar Prisma.
  * - No imprime credenciales completas.
  *
