@@ -196,6 +196,18 @@ export type {
   ResultadoGuardarIngesta,
 } from './ingesta/puertos/RepositorioIngestaRegistroOficial';
 
+export type {
+  DescargadorPdfIndiceRegistroOficial,
+  RazonDescargaPdfIndiceFallida,
+  ResultadoDescargaPdfIndice,
+} from './ingesta/puertos/DescargadorPdfIndiceRegistroOficial';
+
+export type {
+  ExtractorIndiceMensualRegistroOficial,
+  RazonExtraccionIndiceFallida,
+  ResultadoExtraccionIndice,
+} from './ingesta/puertos/ExtractorIndiceMensualRegistroOficial';
+
 export { CalculadoraHuellaLote } from './ingesta/servicios/CalculadoraHuellaLote';
 export type { ContenidoLoteParaHuella } from './ingesta/servicios/CalculadoraHuellaLote';
 
@@ -242,6 +254,23 @@ export type {
   ResultadoConsultarLoteIngestaRegistroOficial,
   SolicitudConsultarLoteIngestaRegistroOficial,
 } from './ingesta/casos-uso/ConsultarLoteIngestaRegistroOficial';
+
+export { AnalizarIndiceMensualRegistroOficial } from './ingesta/casos-uso/AnalizarIndiceMensualRegistroOficial';
+export type {
+  DependenciasAnalizarIndiceMensualRegistroOficial,
+  EstadisticasAnalisisIndiceMensual,
+  RazonAnalizarIndiceMensualFallido,
+  ResultadoAnalizarIndiceMensualRegistroOficial,
+  SolicitudAnalizarIndiceMensualRegistroOficial,
+} from './ingesta/casos-uso/AnalizarIndiceMensualRegistroOficial';
+
+export { ConfirmarIngestaIndiceMensualRegistroOficial } from './ingesta/casos-uso/ConfirmarIngestaIndiceMensualRegistroOficial';
+export type {
+  DependenciasConfirmarIngestaIndiceMensualRegistroOficial,
+  RazonConfirmarIngestaIndiceMensualFallido,
+  ResultadoConfirmarIngestaIndiceMensualRegistroOficial,
+  SolicitudConfirmarIngestaIndiceMensualRegistroOficial,
+} from './ingesta/casos-uso/ConfirmarIngestaIndiceMensualRegistroOficial';
 
 export type {
   CredencialesUsuario,
