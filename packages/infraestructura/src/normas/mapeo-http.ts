@@ -1,4 +1,5 @@
 import {
+  BadGatewayException,
   BadRequestException,
   ConflictException,
   ForbiddenException,
@@ -7,6 +8,7 @@ import {
   PayloadTooLargeException,
   ServiceUnavailableException,
   UnauthorizedException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 
 /**
@@ -64,6 +66,32 @@ export function razonAExcepcionHttp(razon: string): HttpException {
     case 'ROL_NO_PERMITIDO':
     case 'CONTRASENA_INVALIDA':
       return new BadRequestException(razon);
+    // Fase 5D: la URL no pasa el allowlist de host/esquema/puerto/userinfo
+    // — rechazo de solicitud, nunca transitorio.
+    case 'URL_PDF_INDICE_NO_PERMITIDA':
+      return new BadRequestException(razon);
+    // El problema es semántico del archivo/contenido, no de la solicitud
+    // HTTP en sí: 422 en vez de 400.
+    case 'PERIODO_INDICE_NO_DETECTADO':
+    case 'PERIODO_INDICE_NO_COINCIDE':
+    case 'PDF_INDICE_INVALIDO':
+    case 'PDF_INDICE_CIFRADO':
+    case 'PDF_INDICE_SIN_CAPA_DE_TEXTO':
+      return new UnprocessableEntityException(razon);
+    case 'PDF_INDICE_DEMASIADO_GRANDE':
+      return new PayloadTooLargeException(razon);
+    // El contenido/versión cambiaron entre el análisis y la confirmación:
+    // misma familia 409 que el resto de conflictos de estado.
+    case 'PDF_INDICE_CAMBIO_DESDE_ANALISIS':
+    case 'VERSION_EXTRACTOR_CAMBIO_DESDE_ANALISIS':
+      return new ConflictException(razon);
+    // Respuesta remota inválida/redirect/4xx del storage: el problema está
+    // en la respuesta del origen, no en nuestro servicio.
+    case 'DESCARGA_INDICE_INVALIDA':
+      return new BadGatewayException(razon);
+    // Red, timeout o 5xx remoto: transitorio.
+    case 'DESCARGA_INDICE_TEMPORALMENTE_NO_DISPONIBLE':
+      return new ServiceUnavailableException(razon);
     default:
       return new BadRequestException(razon);
   }

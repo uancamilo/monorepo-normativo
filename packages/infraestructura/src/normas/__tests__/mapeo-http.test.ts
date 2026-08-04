@@ -1,5 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 import {
+  BadGatewayException,
   BadRequestException,
   ConflictException,
   ForbiddenException,
@@ -7,6 +8,7 @@ import {
   PayloadTooLargeException,
   ServiceUnavailableException,
   UnauthorizedException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { MENSAJE_ACCESO_DENEGADO, razonAExcepcionHttp } from '../mapeo-http';
 
@@ -40,6 +42,18 @@ describe('razonAExcepcionHttp', () => {
     ['CATALOGO_NO_DISPONIBLE', ServiceUnavailableException],
     ['ROL_NO_PERMITIDO', BadRequestException],
     ['CONTRASENA_INVALIDA', BadRequestException],
+    // Fase 5D: análisis/confirmación de índice mensual por URL.
+    ['URL_PDF_INDICE_NO_PERMITIDA', BadRequestException],
+    ['PERIODO_INDICE_NO_DETECTADO', UnprocessableEntityException],
+    ['PERIODO_INDICE_NO_COINCIDE', UnprocessableEntityException],
+    ['PDF_INDICE_INVALIDO', UnprocessableEntityException],
+    ['PDF_INDICE_CIFRADO', UnprocessableEntityException],
+    ['PDF_INDICE_SIN_CAPA_DE_TEXTO', UnprocessableEntityException],
+    ['PDF_INDICE_DEMASIADO_GRANDE', PayloadTooLargeException],
+    ['PDF_INDICE_CAMBIO_DESDE_ANALISIS', ConflictException],
+    ['VERSION_EXTRACTOR_CAMBIO_DESDE_ANALISIS', ConflictException],
+    ['DESCARGA_INDICE_INVALIDA', BadGatewayException],
+    ['DESCARGA_INDICE_TEMPORALMENTE_NO_DISPONIBLE', ServiceUnavailableException],
   ])('traduce %s', (razon, excepcionEsperada) => {
     expect(razonAExcepcionHttp(razon)).toBeInstanceOf(excepcionEsperada);
   });
