@@ -11,6 +11,10 @@ import {
   ConfiguracionCatalogoRegistroOficial,
   obtenerConfiguracionCatalogoRegistroOficial,
 } from './catalogo-registro-oficial';
+import {
+  ConfiguracionIndicesRegistroOficial,
+  obtenerConfiguracionIndicesRegistroOficial,
+} from './indices-registro-oficial';
 
 export const PUERTO_POR_DEFECTO = 3000;
 
@@ -20,6 +24,7 @@ export interface ConfiguracionArranque {
   jwt: ConfiguracionJwt;
   ingesta: ConfiguracionIngesta;
   catalogoRegistroOficial: ConfiguracionCatalogoRegistroOficial;
+  indicesRegistroOficial: ConfiguracionIndicesRegistroOficial;
 }
 
 /**
@@ -50,6 +55,7 @@ export function validarConfiguracionArranque(
     ingesta: obtenerConfiguracionIngesta(entorno),
     catalogoRegistroOficial:
       obtenerConfiguracionCatalogoRegistroOficial(entorno),
+    indicesRegistroOficial: obtenerConfiguracionIndicesRegistroOficial(entorno),
   };
 }
 
