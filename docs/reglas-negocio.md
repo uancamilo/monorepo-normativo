@@ -800,3 +800,41 @@ Esta sección documenta el primer bloque del extractor real: un CLI standalone, 
 ### Fuera de alcance (Fase 5C, primer bloque)
 
 Descarga del PDF por URL, envío automático del payload a `POST /ingesta/registro-oficial/resumenes`, OCR, LLM, scheduler/cron, colas/workers, procesamiento masivo de múltiples índices mensuales y cualquier modificación del contrato HTTP existente (sección 14) o de la resolución de fuentes (sección 15).
+
+## 17. Análisis y confirmación de índices mensuales por URL (Fase 5D)
+
+### Endpoint y autorización
+
+`POST /ingesta/registro-oficial/indices/analizar` y `POST /ingesta/registro-oficial/indices/confirmar`, ambos exclusivos de `SUPERADMINISTRADOR`, verificado antes de tocar red (descarga/extracción nunca se invocan para un actor no autorizado). Operación mensual manual, API-first: una solicitud procesa exactamente un período `AAAA-MM`, sin `desde`/`hasta`, sin scraping automático del catálogo, sin scheduler, Redis, colas ni frontend (no existe todavía como repositorio).
+
+### `Analizar`: previsualización sin escritura
+
+Recibe `{ urlPdf, periodoEsperado }`. Descarga el PDF de forma acotada, calcula su SHA-256, detecta el período interno y exige coincidencia exacta con el esperado, y ejecuta el extractor de Fase 5C — no escribe absolutamente nada en repositorios de ingesta, normas ni ediciones. Garantía estructural: `Analizar` no recibe puertos con capacidad de escritura sobre lotes, entradas, normas o ediciones; solo consulta el repositorio de usuarios (puerto persistente de solo lectura) para autenticar y autorizar al actor. Responde `200` con `{ analisis, entradasDetectadas }`; `entradasDetectadas` incluye **todas** las entradas detectadas, sin muestreo. `analisis` incluye `periodoEsperado`, `periodoDetectado`, `sha256Pdf`, `versionExtractor`, `tamanioBytes`, `totalPaginas`, `totalEntradas`, `totalConAdvertencias` y `advertenciasPorTipo` (conteo determinista por código de advertencia).
+
+### `Confirmar`: vuelve a descargar y a extraer, delega en la ingesta existente
+
+Recibe `{ urlPdf, periodoEsperado, sha256PdfObservado, versionExtractorObservada }` — exactamente lo que devolvió `/analizar`. Nunca reutiliza bytes ni resultados de un análisis previo: vuelve a descargar el PDF desde cero. Compara `versionExtractorObservada` contra la versión actual del extractor **antes de descargar** (`VERSION_EXTRACTOR_CAMBIO_DESDE_ANALISIS`, 409, si difiere); recalcula el SHA-256 y lo compara **antes de extraer** (`PDF_INDICE_CAMBIO_DESDE_ANALISIS`, 409, si difiere); vuelve a extraer y a exigir coincidencia exacta de período (`PERIODO_INDICE_NO_COINCIDE`, 422, si difiere); y solo entonces delega íntegramente en el mismo caso de uso `IngerirResumenRegistroOficial` de Fase 5A (sección 14), sin reimplementar huella, idempotencia, transacción ni la protección ante carreras del mismo período. Responde `201` con `{ lote, creado, sha256Pdf, versionExtractor }` (`lote` es la misma forma que ya devuelve `POST /resumenes`). No resuelve fuentes ni publica normas; el `loteId` devuelto se usa después, manualmente, con `POST /ediciones-registro-oficial/resolver-pendientes` (sección 15).
+
+### `urlPdf` participa en la huella del lote
+
+`urlResumenMensualRegistroOficial` ya formaba parte de la huella del lote desde Fase 5A (sección 14). Como `Confirmar` persiste `urlPdf` con ese mismo nombre de campo, el mismo período mensual con la misma versión y las mismas entradas pero una URL de PDF distinta produce `EJECUCION_INGESTA_CONFLICTIVA` (409), aunque el contenido extraído coincida.
+
+### Versión del extractor
+
+La versión estable inicial es la constante de código `indice-mensual-v1` (nunca un timestamp, fecha de build, commit Git ni un valor libre del cliente). Cambia únicamente cuando cambia deliberadamente la semántica de extracción.
+
+### Seguridad de la URL (fail-closed, sin excepción de host local)
+
+`https:` obligatorio; hostname exacto `esacc.corteconstitucional.gob.ec` (igualdad estricta, nunca subcadena — rechaza subdominios y sufijos engañosos); sin usuario/contraseña embebidos; sin puerto explícito (`:443` se acepta porque se normaliza al puerto HTTPS por defecto); query string permitida (la URL real es tokenizada y no necesariamente termina en `.pdf`, no se valida por extensión); redirects nunca seguidos (cualquier 3xx es rechazo definitivo); timeout total configurable (`INDICE_REGISTRO_OFICIAL_TIMEOUT_DESCARGA_MS`, rango 1000–60000 ms, default 30000) que cubre conexión, cabeceras y lectura completa del cuerpo; límite de 50 MB durante el streaming (misma constante que Fase 5C, nunca un segundo número, verificado con conteo real de bytes y no solo con el header `Content-Length`, que puede faltar o mentir); Content-Type laxo (acepta ausente/`application/octet-stream`; permite un rechazo temprano solo cuando declara texto explícitamente incompatible, `text/*` — para las respuestas admitidas por ese filtro, la cabecera `%PDF-` y PDF.js realizan la validación definitiva del PDF). No se registra la URL completa con su token ni credenciales. Riesgo residual de DNS rebinding aceptado explícitamente (una allowlist de hostname exacto no fija la IP resuelta entre verificación y conexión); mitigado por que el actor siempre es un `SUPERADMINISTRADOR` autenticado contra un único hostname fijo.
+
+### Rendimiento
+
+Medido directamente contra el fixture real de mayo de 2026 (1 071 024 bytes, 53 páginas, 869 entradas): la extracción (PDF.js + parser) toma ~326–592 ms por ejecución. Sin timeout artificial de extracción (determinista, acotada por el límite de 50 MB); el timeout configurable solo cubre la descarga. Endpoints síncronos, sin colas ni jobs.
+
+### Formatos históricos incompatibles
+
+El extractor certificado en 2026 no se presenta como compatible automáticamente con todo el histórico. Ni `Analizar` ni `Confirmar` aplican un umbral automático de "calidad suficiente" (p. ej. rechazar por pocas entradas o muchas advertencias): el operador decide, con la previsualización completa de `Analizar`, si confirma o no. Un formato histórico incompatible se estabiliza con un ciclo TDD dedicado sobre evidencia real de ese PDF, nunca ajustando expectativas para tolerar una extracción defectuosa.
+
+### Fuera de alcance (Fase 5D)
+
+Frontend Next.js (no existe todavía como repositorio), scraping automático del catálogo, scheduler/cron, Redis, colas/workers, procesamiento de varios meses en una misma ejecución, publicación automática de normas, resolución automática de fuentes dentro de `Confirmar`, soporte garantizado para todo el histórico anterior a 2026, pinning de IP/DNS personalizado, y cualquier modificación del contrato HTTP existente de `POST /ingesta/registro-oficial/resumenes` (sección 14) o de la resolución de fuentes (sección 15).

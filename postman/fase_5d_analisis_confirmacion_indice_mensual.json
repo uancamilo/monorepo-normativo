@@ -1,0 +1,461 @@
+{
+  "info": {
+    "_postman_id": "fase-5d-analisis-confirmacion-indice-mensual",
+    "name": "Fase 5D - Analisis y confirmacion de indices mensuales por URL",
+    "description": "Fase 5D: operacion mensual manual, API-first, de analisis y confirmacion de un indice mensual del Registro Oficial a partir de la URL directa del PDF oficial. Solo SUPERADMINISTRADOR. Una solicitud procesa exactamente un periodo AAAA-MM.\n\nREQUISITOS DE EJECUCION:\n1. Backend levantado (memoria o Prisma) con las credenciales seed habituales (contrasena de semilla Password123!, solo test).\n2. La URL del PDF debe apuntar exactamente al hostname oficial verificado: esacc.corteconstitucional.gob.ec, sobre HTTPS, sin puerto explicito, sin usuario/contrasena embebidos. Cualquier otro host se rechaza con 400 URL_PDF_INDICE_NO_PERMITIDA antes de intentar ninguna descarga.\n3. IMPORTANTE: a diferencia del catalogo de Fase 5B, el descargador de Fase 5D no tiene ningun mecanismo de fixture/host local para pruebas automatizadas (por diseno: la validacion de URL no tiene excepcion de host local). Ejecutar esta coleccion contra Analizar/Confirmar con una URL real implica una descarga real al sitio oficial: hazlo de forma deliberada y puntual, nunca en un runner automatizado/CI. Las carpetas 02 y 03 documentan el flujo feliz esperado contra una URL real que debas suministrar manualmente en la variable urlPdfReal; sin ese valor, esas dos peticiones fallaran con 400 URL_PDF_INDICE_NO_PERMITIDA (comportamiento correcto, no un error de la coleccion).\n4. Las carpetas 04-06 (validacion, autorizacion, contrato) no requieren red real: ejercitan rechazos que ocurren antes de cualquier descarga.\n\nContrato:\n- POST /ingesta/registro-oficial/indices/analizar -> 200, { analisis, entradasDetectadas } (todas las entradas, sin muestreo). No escribe nada.\n- POST /ingesta/registro-oficial/indices/confirmar -> 201, { lote, creado, sha256Pdf, versionExtractor }. Vuelve a descargar y a extraer desde cero; exige version antes de descargar y sha256 antes de extraer; delega en la ingesta de Fase 5A (mismo periodo con URL distinta -> 409 EJECUCION_INGESTA_CONFLICTIVA aunque el contenido coincida).\n\nVer docs/arquitectura/decisiones/0011-analisis-confirmacion-indice-mensual-api-first.md y docs/reglas-negocio.md seccion 17.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "00 - Autenticacion",
+      "item": [
+        {
+          "name": "Login SUPERADMINISTRADOR",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200 con accessToken', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const cuerpo = pm.response.json();",
+                  "  pm.expect(cuerpo.accessToken).to.be.a('string');",
+                  "  pm.collectionVariables.set('tokenSuperadmin', cuerpo.accessToken);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"correo\": \"{{correoSuperadmin}}\",\n  \"contrasena\": \"{{contrasenaSemilla}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+          }
+        },
+        {
+          "name": "Login EDITOR",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200 con accessToken', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const cuerpo = pm.response.json();",
+                  "  pm.collectionVariables.set('tokenEditor', cuerpo.accessToken);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"correo\": \"{{correoEditor}}\",\n  \"contrasena\": \"{{contrasenaSemilla}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "01 - Analizar (flujo feliz, requiere urlPdfReal manual)",
+      "item": [
+        {
+          "name": "Analizar indice mensual",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.collectionVariables.get('urlPdfReal')) {",
+                  "  pm.test('200 con previsualizacion completa', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const cuerpo = pm.response.json();",
+                  "    pm.expect(cuerpo.analisis.periodoDetectado).to.eql({ anio: Number(pm.collectionVariables.get('periodoAnio')), mes: Number(pm.collectionVariables.get('periodoMes')) });",
+                  "    pm.expect(cuerpo.analisis.sha256Pdf).to.match(/^[0-9a-f]{64}$/);",
+                  "    pm.expect(cuerpo.entradasDetectadas.length).to.eql(cuerpo.analisis.totalEntradas);",
+                  "    pm.collectionVariables.set('sha256Observado', cuerpo.analisis.sha256Pdf);",
+                  "    pm.collectionVariables.set('versionExtractorObservada', cuerpo.analisis.versionExtractor);",
+                  "  });",
+                  "} else {",
+                  "  pm.test('sin urlPdfReal: 400 URL_PDF_INDICE_NO_PERMITIDA (esperado)', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "  });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{tokenSuperadmin}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"urlPdf\": \"{{urlPdfReal}}\",\n  \"periodoEsperado\": { \"anio\": {{periodoAnio}}, \"mes\": {{periodoMes}} }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ingesta/registro-oficial/indices/analizar",
+              "host": ["{{baseUrl}}"],
+              "path": ["ingesta", "registro-oficial", "indices", "analizar"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 - Confirmar (flujo feliz, requiere el resultado de 01)",
+      "item": [
+        {
+          "name": "Confirmar ingesta del indice analizado",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.collectionVariables.get('urlPdfReal') && pm.collectionVariables.get('sha256Observado')) {",
+                  "  pm.test('201 con lote creado y sha256/version', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "    const cuerpo = pm.response.json();",
+                  "    pm.expect(cuerpo.lote.id).to.be.a('string');",
+                  "    pm.expect(cuerpo.sha256Pdf).to.eql(pm.collectionVariables.get('sha256Observado'));",
+                  "    pm.collectionVariables.set('loteIdConfirmado', cuerpo.lote.id);",
+                  "  });",
+                  "} else {",
+                  "  pm.test('sin sha256Observado previo: 400/409 esperado (no ejecutar sin correr 01 primero)', function () {",
+                  "    pm.expect([400, 409]).to.include(pm.response.code);",
+                  "  });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{tokenSuperadmin}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"urlPdf\": \"{{urlPdfReal}}\",\n  \"periodoEsperado\": { \"anio\": {{periodoAnio}}, \"mes\": {{periodoMes}} },\n  \"sha256PdfObservado\": \"{{sha256Observado}}\",\n  \"versionExtractorObservada\": \"{{versionExtractorObservada}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ingesta/registro-oficial/indices/confirmar",
+              "host": ["{{baseUrl}}"],
+              "path": ["ingesta", "registro-oficial", "indices", "confirmar"]
+            }
+          }
+        },
+        {
+          "name": "Reintento identico (idempotente, creado=false)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.collectionVariables.get('loteIdConfirmado')) {",
+                  "  pm.test('201 con creado=false y mismo lote', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "    const cuerpo = pm.response.json();",
+                  "    pm.expect(cuerpo.creado).to.eql(false);",
+                  "    pm.expect(cuerpo.lote.id).to.eql(pm.collectionVariables.get('loteIdConfirmado'));",
+                  "  });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{tokenSuperadmin}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"urlPdf\": \"{{urlPdfReal}}\",\n  \"periodoEsperado\": { \"anio\": {{periodoAnio}}, \"mes\": {{periodoMes}} },\n  \"sha256PdfObservado\": \"{{sha256Observado}}\",\n  \"versionExtractorObservada\": \"{{versionExtractorObservada}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ingesta/registro-oficial/indices/confirmar",
+              "host": ["{{baseUrl}}"],
+              "path": ["ingesta", "registro-oficial", "indices", "confirmar"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 - Validacion y autorizacion (sin red real, siempre ejecutable)",
+      "item": [
+        {
+          "name": "Analizar: hostname no permitido -> 400 URL_PDF_INDICE_NO_PERMITIDA",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('400 URL_PDF_INDICE_NO_PERMITIDA', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "  pm.expect(pm.response.json().message).to.eql('URL_PDF_INDICE_NO_PERMITIDA');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{tokenSuperadmin}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"urlPdf\": \"https://storage.evil.example/indice.pdf\",\n  \"periodoEsperado\": { \"anio\": {{periodoAnio}}, \"mes\": {{periodoMes}} }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ingesta/registro-oficial/indices/analizar",
+              "host": ["{{baseUrl}}"],
+              "path": ["ingesta", "registro-oficial", "indices", "analizar"]
+            }
+          }
+        },
+        {
+          "name": "Analizar: propiedades adicionales -> 400 SOLICITUD_INVALIDA",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('400', function () { pm.response.to.have.status(400); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{tokenSuperadmin}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"urlPdf\": \"https://esacc.corteconstitucional.gob.ec/x\",\n  \"periodoEsperado\": { \"anio\": {{periodoAnio}}, \"mes\": {{periodoMes}} },\n  \"extra\": \"no-deberia-estar-aqui\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ingesta/registro-oficial/indices/analizar",
+              "host": ["{{baseUrl}}"],
+              "path": ["ingesta", "registro-oficial", "indices", "analizar"]
+            }
+          }
+        },
+        {
+          "name": "Analizar: EDITOR -> 403",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('403', function () {",
+                  "  pm.response.to.have.status(403);",
+                  "  pm.expect(pm.response.json().message).to.eql('Acceso denegado');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{tokenEditor}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"urlPdf\": \"https://esacc.corteconstitucional.gob.ec/x\",\n  \"periodoEsperado\": { \"anio\": {{periodoAnio}}, \"mes\": {{periodoMes}} }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ingesta/registro-oficial/indices/analizar",
+              "host": ["{{baseUrl}}"],
+              "path": ["ingesta", "registro-oficial", "indices", "analizar"]
+            }
+          }
+        },
+        {
+          "name": "Analizar: sin token -> 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": ["pm.test('401', function () { pm.response.to.have.status(401); });"],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"urlPdf\": \"https://esacc.corteconstitucional.gob.ec/x\",\n  \"periodoEsperado\": { \"anio\": {{periodoAnio}}, \"mes\": {{periodoMes}} }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ingesta/registro-oficial/indices/analizar",
+              "host": ["{{baseUrl}}"],
+              "path": ["ingesta", "registro-oficial", "indices", "analizar"]
+            }
+          }
+        },
+        {
+          "name": "Confirmar: sha256PdfObservado con formato invalido -> 400 SOLICITUD_INVALIDA",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": ["pm.test('400', function () { pm.response.to.have.status(400); });"],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{tokenSuperadmin}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"urlPdf\": \"https://esacc.corteconstitucional.gob.ec/x\",\n  \"periodoEsperado\": { \"anio\": {{periodoAnio}}, \"mes\": {{periodoMes}} },\n  \"sha256PdfObservado\": \"no-es-un-sha256\",\n  \"versionExtractorObservada\": \"indice-mensual-v1\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ingesta/registro-oficial/indices/confirmar",
+              "host": ["{{baseUrl}}"],
+              "path": ["ingesta", "registro-oficial", "indices", "confirmar"]
+            }
+          }
+        },
+        {
+          "name": "Confirmar: versionExtractorObservada distinta -> 409, sin descargar",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('409 VERSION_EXTRACTOR_CAMBIO_DESDE_ANALISIS', function () {",
+                  "  pm.response.to.have.status(409);",
+                  "  pm.expect(pm.response.json().message).to.eql('VERSION_EXTRACTOR_CAMBIO_DESDE_ANALISIS');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{tokenSuperadmin}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"urlPdf\": \"https://esacc.corteconstitucional.gob.ec/x\",\n  \"periodoEsperado\": { \"anio\": {{periodoAnio}}, \"mes\": {{periodoMes}} },\n  \"sha256PdfObservado\": \"{{sha256FormatoValidoDePrueba}}\",\n  \"versionExtractorObservada\": \"indice-mensual-v0-vieja\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ingesta/registro-oficial/indices/confirmar",
+              "host": ["{{baseUrl}}"],
+              "path": ["ingesta", "registro-oficial", "indices", "confirmar"]
+            }
+          }
+        },
+        {
+          "name": "Confirmar: EDITOR -> 403",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": ["pm.test('403', function () { pm.response.to.have.status(403); });"],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{tokenEditor}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"urlPdf\": \"https://esacc.corteconstitucional.gob.ec/x\",\n  \"periodoEsperado\": { \"anio\": {{periodoAnio}}, \"mes\": {{periodoMes}} },\n  \"sha256PdfObservado\": \"{{sha256FormatoValidoDePrueba}}\",\n  \"versionExtractorObservada\": \"indice-mensual-v1\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ingesta/registro-oficial/indices/confirmar",
+              "host": ["{{baseUrl}}"],
+              "path": ["ingesta", "registro-oficial", "indices", "confirmar"]
+            }
+          }
+        },
+        {
+          "name": "Confirmar: sin token -> 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": ["pm.test('401', function () { pm.response.to.have.status(401); });"],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"urlPdf\": \"https://esacc.corteconstitucional.gob.ec/x\",\n  \"periodoEsperado\": { \"anio\": {{periodoAnio}}, \"mes\": {{periodoMes}} },\n  \"sha256PdfObservado\": \"{{sha256FormatoValidoDePrueba}}\",\n  \"versionExtractorObservada\": \"indice-mensual-v1\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ingesta/registro-oficial/indices/confirmar",
+              "host": ["{{baseUrl}}"],
+              "path": ["ingesta", "registro-oficial", "indices", "confirmar"]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000" },
+    { "key": "correoSuperadmin", "value": "superadmin@test.com" },
+    { "key": "correoEditor", "value": "editor@test.com" },
+    { "key": "contrasenaSemilla", "value": "Password123!" },
+    { "key": "tokenSuperadmin", "value": "" },
+    { "key": "tokenEditor", "value": "" },
+    { "key": "periodoAnio", "value": "2026" },
+    { "key": "periodoMes", "value": "5" },
+    { "key": "urlPdfReal", "value": "" },
+    { "key": "sha256Observado", "value": "" },
+    { "key": "versionExtractorObservada", "value": "" },
+    { "key": "loteIdConfirmado", "value": "" },
+    {
+      "key": "sha256FormatoValidoDePrueba",
+      "value": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ]
+}

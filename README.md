@@ -75,6 +75,7 @@ Cada fase cierra con un commit y un tag anotado (`git tag -n`):
 - Fase 5A: ingesta por lote del Registro Oficial en borradores (`POST /ingesta/registro-oficial/resumenes` y consulta de lotes, solo SUPERADMINISTRADOR) y flujo editorial sobre `/normas` (lista/detalle/corrección/publicación múltiple de borradores para EDITOR y SUPERADMINISTRADOR).
 - Fase 5B: resolución controlada de fuentes contra el catálogo oficial del Registro Oficial (`POST /ediciones-registro-oficial/resolver-pendientes`, solo SUPERADMINISTRADOR): adaptador HTTP real deshabilitable, resultado discriminado del puerto, procesamiento acotado y seguridad SSRF (ADR 0009).
 - Fase 5C: primer bloque del extractor real del índice mensual del Registro Oficial (`npm run build` y luego `npm run extraer:registro-oficial --workspace @normativo/infraestructura -- --pdf /ruta/absoluta/indice.pdf --periodo AAAA-MM --url https://... --version-extractor <version> --salida /ruta/absoluta/salida.json`): CLI standalone externo al backend, lee un PDF local y genera el JSON del contrato de ingesta; no escribe en PostgreSQL, no llama al backend y no descarga el PDF por URL. Los paths relativos se resuelven desde el workspace `packages/infraestructura`, por lo que se recomiendan paths absolutos (ADR 0010).
+- Fase 5D: operación mensual API-first de análisis/confirmación de índices mensuales por URL directa del PDF oficial (`POST /ingesta/registro-oficial/indices/analizar` y `POST /ingesta/registro-oficial/indices/confirmar`, solo SUPERADMINISTRADOR): reutiliza el extractor de Fase 5C y delega la persistencia en la ingesta de Fase 5A sin duplicar huella/idempotencia; una solicitud procesa exactamente un período `AAAA-MM`, sin scraping automático, scheduler, colas ni publicación automática (ADR 0011).
 
 ## Autenticación
 
@@ -210,6 +211,54 @@ del dominio. El header `x-usuario-id` quedó eliminado como mecanismo de identid
   en localhost), timeout y tamaño de respuesta acotados, redirects no seguidos
   a ciegas y allowlist de dominio para las URLs PDF. Variables en
   `packages/infraestructura/.env.example`. Ver ADR 0009.
+- **Análisis y confirmación de índices mensuales por URL** (Fase 5D, solo
+  SUPERADMINISTRADOR): operación mensual manual, API-first, en dos pasos
+  separados — ninguno procesa rangos ni continúa automáticamente con otro
+  mes. `POST /ingesta/registro-oficial/indices/analizar` recibe
+  `{ urlPdf, periodoEsperado: {anio, mes} }`, descarga el PDF de forma
+  acotada, calcula su SHA-256, detecta el período interno (exige
+  coincidencia exacta con el esperado) y ejecuta el extractor de Fase 5C —
+  **no escribe absolutamente nada** en repositorios de ingesta, normas ni
+  ediciones. Responde 200 con `{ analisis, entradasDetectadas }`:
+  `analisis` incluye `periodoEsperado`, `periodoDetectado`, `sha256Pdf`,
+  `versionExtractor`, `tamanioBytes`, `totalPaginas`, `totalEntradas`,
+  `totalConAdvertencias` y `advertenciasPorTipo` (conteo determinista por
+  código); `entradasDetectadas` trae **todas** las entradas, sin muestreo
+  (un mes con un formato incompatible no debe poder ocultarse detrás de una
+  muestra parcial). `POST /ingesta/registro-oficial/indices/confirmar`
+  recibe `{ urlPdf, periodoEsperado, sha256PdfObservado,
+  versionExtractorObservada }` — exactamente lo que devolvió `/analizar` —,
+  compara `versionExtractorObservada` contra la versión actual **antes**
+  de descargar (protege una confirmación posterior a un despliegue que
+  cambió el extractor), vuelve a descargar el PDF desde cero (nunca
+  reutiliza bytes de un análisis previo), recalcula el SHA-256 y lo
+  compara **antes** de extraer, vuelve a extraer y a exigir coincidencia
+  exacta de período, y solo entonces delega íntegramente en el mismo caso
+  de uso de ingesta de Fase 5A (misma huella, idempotencia, transacción y
+  protección ante carreras — `urlPdf` participa en `huellaLote` como
+  `urlResumenMensualRegistroOficial`: el mismo período con una URL distinta
+  es `EJECUCION_INGESTA_CONFLICTIVA`, aunque el contenido coincida).
+  Responde 201 con `{ lote, creado, sha256Pdf, versionExtractor }` (`lote`
+  es la misma forma que ya devuelve `POST /resumenes`). Ninguno de los dos
+  endpoints resuelve fuentes ni publica normas; el `lote.id` devuelto por
+  `/confirmar` se usa después con `POST /ediciones-registro-oficial/resolver-pendientes`
+  (`{loteId}`, Fase 5B).
+  Seguridad de la URL (fail-closed, sin excepción de host local): `https:`
+  obligatorio, hostname exacto `esacc.corteconstitucional.gob.ec`
+  (comparación estricta, nunca substring — rechaza subdominios y sufijos
+  engañosos), sin usuario/contraseña embebidos, sin puerto explícito
+  (`:443` se acepta por normalizarlo WHATWG al puerto HTTPS por defecto),
+  query string permitida (la URL real es tokenizada y no termina en
+  `.pdf`), redirects nunca seguidos (cualquier 3xx es rechazo), timeout
+  total configurable (`INDICE_REGISTRO_OFICIAL_TIMEOUT_DESCARGA_MS`, rango
+  1000–60000 ms, default 30000), límite de 50 MB durante el streaming
+  (misma constante que Fase 5C, nunca un segundo número), Content-Type
+  laxo (acepta ausente/`application/octet-stream`; permite un rechazo
+  temprano solo cuando declara texto explícitamente incompatible,
+  `text/*` — para las respuestas admitidas por ese filtro, la cabecera
+  `%PDF-` y PDF.js realizan la validación definitiva del PDF).
+  No expone URLs completas con token, cuerpos remotos ni detalles internos
+  de PDF.js en los mensajes de error. Ver ADR 0011.
 - **Bootstrap operativo del SUPERADMINISTRADOR** (el seed es solo
   desarrollo/test): `npm run bootstrap:superadmin --workspace=@normativo/infraestructura`
   con `PERMITIR_BOOTSTRAP_SUPERADMIN=true`, `DATABASE_URL`,
