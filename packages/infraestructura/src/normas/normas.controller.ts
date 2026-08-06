@@ -43,6 +43,23 @@ const PROPIEDADES_ACTUALIZAR_NORMA = [
   'contenido',
 ] as const;
 const PROPIEDADES_CAMBIAR_EDICION = ['edicionRegistroOficialId'] as const;
+const PROPIEDADES_REGISTRAR_NORMA = [
+  'numero',
+  'titulo',
+  'contenido',
+  'tipoNorma',
+  'institucionExpide',
+  'estadoJuridico',
+  'fechaExpedicion',
+  'tipoPublicacionRegistroOficial',
+  'numeroPublicacionRegistroOficial',
+  'fechaPublicacionOficial',
+] as const;
+const PROPIEDADES_PUBLICAR_NORMAS = [
+  'normaIds',
+  'fechaPublicacionEnSistema',
+] as const;
+const PROPIEDADES_PUBLICAR_NORMA = ['fechaPublicacionEnSistema'] as const;
 
 /**
  * Identidad real mínima (Fase 4A): Bearer token verificado por
@@ -68,6 +85,7 @@ export class NormasController {
     @UsuarioActual() usuario: UsuarioAutenticado,
     @Body() dto: RegistrarNormaHttpDto,
   ) {
+    asegurarSoloPropiedadesPermitidas(dto, PROPIEDADES_REGISTRAR_NORMA);
     const resultado = await this.registrarNorma.ejecutar({
       usuarioAutenticadoId: usuario.id,
       numero: dto.numero ?? null,
@@ -122,6 +140,7 @@ export class NormasController {
     @UsuarioActual() usuario: UsuarioAutenticado,
     @Body() dto: PublicarNormasHttpDto,
   ) {
+    asegurarSoloPropiedadesPermitidas(dto, PROPIEDADES_PUBLICAR_NORMAS);
     const resultado = await this.publicarNormas.ejecutar({
       usuarioAutenticadoId: usuario.id,
       normaIds: dto?.normaIds,
@@ -208,11 +227,18 @@ export class NormasController {
     @Param('id') normaId: string,
     @Body() dto: PublicarNormaHttpDto,
   ) {
+    // El body es enteramente opcional en este endpoint (si falta la fecha, el
+    // caso de uso usa la actual), así que omitirlo equivale a `{}`. Solo se
+    // sustituye `undefined`: un `null` explícito, un array o propiedades
+    // adicionales siguen siendo rechazados por el guard.
+    const cuerpo = dto === undefined ? {} : dto;
+    const fechaPublicacionEnSistema = cuerpo?.fechaPublicacionEnSistema;
+    asegurarSoloPropiedadesPermitidas(cuerpo, PROPIEDADES_PUBLICAR_NORMA);
     const resultado = await this.publicarNorma.ejecutar({
       usuarioAutenticadoId: usuario.id,
       normaId,
-      fechaPublicacionEnSistema: dto?.fechaPublicacionEnSistema
-        ? new Date(dto.fechaPublicacionEnSistema)
+      fechaPublicacionEnSistema: fechaPublicacionEnSistema
+        ? new Date(fechaPublicacionEnSistema)
         : undefined,
     });
 

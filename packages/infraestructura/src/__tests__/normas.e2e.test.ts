@@ -1086,6 +1086,73 @@ describe('Normas (e2e)', () => {
     });
   });
 
+  describe('guard de propiedades adicionales en registro y publicación (H-B2)', () => {
+    it('POST /normas rechaza propiedad adicional con 400 y no registra la norma', async () => {
+      const respuesta = await registrarComoEditor({
+        propiedadNoPermitida: true,
+      });
+      expect(respuesta.status).toBe(400);
+
+      const listado = await request(servidor())
+        .get('/normas?estadoEditorial=BORRADOR')
+        .set('Authorization', await autorizacionDe(USUARIO_EDITOR));
+      expect(listado.body).toEqual([]);
+    });
+
+    it('POST /normas/:id/publicar rechaza propiedad adicional con 400 y la norma permanece BORRADOR', async () => {
+      const norma = await registrarYObtenerNorma();
+      await establecerFuentesPendientesManualmente();
+
+      const respuesta = await request(servidor())
+        .post(`/normas/${norma.id}/publicar`)
+        .set('Authorization', await autorizacionDe(USUARIO_EDITOR))
+        .send({ propiedadNoPermitida: true });
+      expect(respuesta.status).toBe(400);
+
+      const detalle = await request(servidor())
+        .get(`/normas/${norma.id}`)
+        .set('Authorization', await autorizacionDe(USUARIO_EDITOR));
+      expect(detalle.body.estadoEditorial).toBe('BORRADOR');
+    });
+
+    it('POST /normas/publicar rechaza propiedad adicional con 400 y ninguna norma cambia de estado', async () => {
+      const normas = await registrarMultiplesNormas(2, [{}, { titulo: 'Norma dos' }]);
+      await establecerFuentesPendientesManualmente();
+
+      const respuesta = await request(servidor())
+        .post('/normas/publicar')
+        .set('Authorization', await autorizacionDe(USUARIO_EDITOR))
+        .send({
+          normaIds: [normas[0].id, normas[1].id],
+          propiedadNoPermitida: true,
+        });
+      expect(respuesta.status).toBe(400);
+
+      const publicadas = await request(servidor())
+        .get('/normas?estadoEditorial=PUBLICADA')
+        .set('Authorization', await autorizacionDe(USUARIO_EDITOR));
+      expect(publicadas.body).toEqual([]);
+    });
+
+    it('POST /normas/:id/publicar sin body publica con la fecha actual (contrato documentado)', async () => {
+      const norma = await registrarYObtenerNorma();
+      await establecerFuentesPendientesManualmente();
+
+      // Sin .send() y sin Content-Type: el body se omite por completo, tal
+      // como el ejemplo curl de docs/desarrollo/prisma-postgresql-local.md.
+      const respuesta = await request(servidor())
+        .post(`/normas/${norma.id}/publicar`)
+        .set('Authorization', await autorizacionDe(USUARIO_EDITOR));
+
+      expect(respuesta.status).toBe(200);
+      expect(respuesta.body.estadoEditorial).toBe('PUBLICADA');
+      expect(typeof respuesta.body.fechaPublicacionEnSistema).toBe('string');
+      expect(
+        Number.isNaN(Date.parse(respuesta.body.fechaPublicacionEnSistema)),
+      ).toBe(false);
+    });
+  });
+
   describe('proyección y corrección de ediciones asociadas', () => {
     it('GET lista y detalle proyectan estadoResolucionFuente', async () => {
       const norma = await registrarYObtenerNorma();

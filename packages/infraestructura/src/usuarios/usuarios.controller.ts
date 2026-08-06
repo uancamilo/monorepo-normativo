@@ -4,7 +4,16 @@ import { GuardAutenticacion } from '../autenticacion/guard-autenticacion';
 import { UsuarioActual } from '../autenticacion/usuario-autenticado.decorator';
 import { UsuarioAutenticado } from '../autenticacion/usuario-autenticado';
 import { razonAExcepcionHttp } from '../normas/mapeo-http';
+import { asegurarSoloPropiedadesPermitidas } from '../normas/validar-propiedades-http';
 import { CrearUsuarioSistemaHttpDto } from './dto/crear-usuario-sistema-http.dto';
+
+const PROPIEDADES_CREAR_USUARIO_SISTEMA = [
+  'nombre',
+  'apellido',
+  'correo',
+  'rol',
+  'contrasenaInicial',
+] as const;
 
 /**
  * Gestión mínima de usuarios internos (Fase 4G): solo alta de EDITOR y
@@ -21,6 +30,7 @@ export class UsuariosController {
     @UsuarioActual() usuario: UsuarioAutenticado,
     @Body() dto: CrearUsuarioSistemaHttpDto,
   ) {
+    asegurarSoloPropiedadesPermitidas(dto, PROPIEDADES_CREAR_USUARIO_SISTEMA);
     const resultado = await this.crearUsuarioSistema.ejecutar({
       usuarioAutenticadoId: usuario.id,
       nombre: dto?.nombre,

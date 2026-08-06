@@ -8,6 +8,7 @@ import { AuthModule } from '../autenticacion/http/auth.module';
 // protegido sin depender de PERSISTENCIA del entorno.
 import { NormasModule } from '../normas/normas.module';
 import { CONTRASENA_SEMILLA } from '../memoria/RepositorioCredencialesUsuariosEnMemoria';
+import { ServicioTokens } from '../autenticacion/servicio-tokens';
 
 const CORREO_EDITOR = 'editor@test.com';
 
@@ -121,6 +122,179 @@ describe('Auth (e2e memoria)', () => {
 
     expect(respuesta.status).toBe(200);
     expect(typeof respuesta.body.accessToken).toBe('string');
+  });
+
+  it('propiedad adicional en el body rechaza con 400 y no firma token (H-B2)', async () => {
+    const respuesta = await request(servidor())
+      .post('/auth/login')
+      .send({
+        correo: CORREO_EDITOR,
+        contrasena: CONTRASENA_SEMILLA,
+        propiedadNoPermitida: true,
+      });
+
+    expect(respuesta.status).toBe(400);
+    expect(respuesta.body).not.toHaveProperty('accessToken');
+  });
+
+  describe('GET /auth/me (perfil propio)', () => {
+    const USUARIOS_SEMILLA = [
+      {
+        correo: 'superadmin@test.com',
+        id: 'usuario-superadmin-1',
+        nombre: 'Superadmin',
+        apellido: 'Uno',
+        rol: 'SUPERADMINISTRADOR',
+      },
+      {
+        correo: 'admin@test.com',
+        id: 'usuario-admin-1',
+        nombre: 'Admin',
+        apellido: 'Uno',
+        rol: 'ADMINISTRADOR',
+      },
+      {
+        correo: 'editor@test.com',
+        id: 'usuario-editor-1',
+        nombre: 'Editor',
+        apellido: 'Uno',
+        rol: 'EDITOR',
+      },
+      {
+        correo: 'suscriptor@test.com',
+        id: 'usuario-suscriptor-1',
+        nombre: 'Suscriptor',
+        apellido: 'Uno',
+        rol: 'SUSCRIPTOR',
+      },
+    ];
+
+    async function tokenDe(correo: string): Promise<string> {
+      const login = await request(servidor())
+        .post('/auth/login')
+        .send({ correo, contrasena: CONTRASENA_SEMILLA });
+      expect(login.status).toBe(200);
+      return login.body.accessToken as string;
+    }
+
+    it('login válido devuelve 200 con el shape exacto del perfil', async () => {
+      const token = await tokenDe(CORREO_EDITOR);
+
+      const respuesta = await request(servidor())
+        .get('/auth/me')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(respuesta.status).toBe(200);
+      expect(respuesta.body).toEqual({
+        id: 'usuario-editor-1',
+        nombre: 'Editor',
+        apellido: 'Uno',
+        correo: 'editor@test.com',
+        rol: 'EDITOR',
+      });
+    });
+
+    it('sin token devuelve 401', async () => {
+      const respuesta = await request(servidor()).get('/auth/me');
+      expect(respuesta.status).toBe(401);
+    });
+
+    it('con token inválido devuelve 401', async () => {
+      const respuesta = await request(servidor())
+        .get('/auth/me')
+        .set('Authorization', 'Bearer token-invalido');
+      expect(respuesta.status).toBe(401);
+    });
+
+    it('token válido cuyo sub no existe devuelve 401', async () => {
+      const servicioTokens = app.get(ServicioTokens);
+      const token = await servicioTokens.firmar({
+        usuarioId: 'usuario-que-no-existe',
+      });
+
+      const respuesta = await request(servidor())
+        .get('/auth/me')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(respuesta.status).toBe(401);
+    });
+
+    it('el rol sale del repositorio, no del claim informativo del JWT', async () => {
+      const servicioTokens = app.get(ServicioTokens);
+      // Token firmado con rol falsificado: el editor semilla se presenta como
+      // SUPERADMINISTRADOR en el claim.
+      const token = await servicioTokens.firmar({
+        usuarioId: 'usuario-editor-1',
+        rol: 'SUPERADMINISTRADOR',
+      });
+
+      const respuesta = await request(servidor())
+        .get('/auth/me')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(respuesta.status).toBe(200);
+      expect(respuesta.body.rol).toBe('EDITOR');
+      expect(respuesta.body.id).toBe('usuario-editor-1');
+    });
+
+    it('no expone passwordHash, contraseña, token ni credenciales', async () => {
+      const token = await tokenDe(CORREO_EDITOR);
+
+      const respuesta = await request(servidor())
+        .get('/auth/me')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(respuesta.status).toBe(200);
+      expect(respuesta.body).not.toHaveProperty('passwordHash');
+      expect(respuesta.body).not.toHaveProperty('hashContrasena');
+      expect(respuesta.body).not.toHaveProperty('contrasena');
+      expect(respuesta.body).not.toHaveProperty('accessToken');
+      expect(respuesta.body).not.toHaveProperty('suscripciones');
+      const serializado = JSON.stringify(respuesta.body);
+      expect(serializado).not.toContain(CONTRASENA_SEMILLA);
+      expect(serializado).not.toContain(token);
+    });
+
+    it.each(USUARIOS_SEMILLA)(
+      'el usuario semilla $rol consulta su propio perfil',
+      async (usuario) => {
+        const token = await tokenDe(usuario.correo);
+
+        const respuesta = await request(servidor())
+          .get('/auth/me')
+          .set('Authorization', `Bearer ${token}`);
+
+        expect(respuesta.status).toBe(200);
+        expect(respuesta.body).toEqual({
+          id: usuario.id,
+          nombre: usuario.nombre,
+          apellido: usuario.apellido,
+          correo: usuario.correo,
+          rol: usuario.rol,
+        });
+      },
+    );
+
+    it('no permite seleccionar otro usuario por query ni por body', async () => {
+      const token = await tokenDe(CORREO_EDITOR);
+      const ajeno = 'usuario-superadmin-1';
+
+      const porQuery = await request(servidor())
+        .get(`/auth/me?usuarioId=${ajeno}`)
+        .set('Authorization', `Bearer ${token}`);
+      const porBody = await request(servidor())
+        .get('/auth/me')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ usuarioId: ajeno });
+
+      // El parámetro ajeno se ignora por completo: siempre el perfil del sub.
+      expect(porQuery.status).toBe(200);
+      expect(porQuery.body.id).toBe('usuario-editor-1');
+      expect(porQuery.body.rol).toBe('EDITOR');
+      expect(porBody.status).toBe(200);
+      expect(porBody.body.id).toBe('usuario-editor-1');
+      expect(porBody.body.rol).toBe('EDITOR');
+    });
   });
 
   describe('POST /auth/cambiar-contrasena', () => {
@@ -238,6 +412,30 @@ describe('Auth (e2e memoria)', () => {
         });
 
       expect(respuesta.status).toBe(400);
+    });
+
+    it('propiedad adicional en el body rechaza con 400 y no cambia la contraseña (H-B2)', async () => {
+      const token = await tokenDeEditor();
+
+      const respuesta = await request(servidor())
+        .post('/auth/cambiar-contrasena')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          contrasenaActual: CONTRASENA_SEMILLA,
+          nuevaContrasena: NUEVA_CONTRASENA,
+          propiedadNoPermitida: true,
+        });
+      expect(respuesta.status).toBe(400);
+
+      const loginVieja = await request(servidor())
+        .post('/auth/login')
+        .send({ correo: CORREO_EDITOR, contrasena: CONTRASENA_SEMILLA });
+      expect(loginVieja.status).toBe(200);
+
+      const loginNueva = await request(servidor())
+        .post('/auth/login')
+        .send({ correo: CORREO_EDITOR, contrasena: NUEVA_CONTRASENA });
+      expect(loginNueva.status).toBe(401);
     });
   });
 });

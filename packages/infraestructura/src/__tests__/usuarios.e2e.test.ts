@@ -173,4 +173,20 @@ describe('Usuarios del sistema (e2e memoria)', () => {
 
     expect(respuesta.status).toBe(400);
   });
+
+  it('propiedad adicional en el body rechaza con 400 y no crea el usuario (H-B2)', async () => {
+    const token = await tokenDe('superadmin@test.com', CONTRASENA_SEMILLA);
+
+    const respuesta = await request(servidor())
+      .post('/usuarios/sistema')
+      .set('Authorization', `Bearer ${token}`)
+      .send(cuerpoUsuarioValido({ propiedadNoPermitida: true }));
+
+    expect(respuesta.status).toBe(400);
+
+    const loginCreado = await request(servidor())
+      .post('/auth/login')
+      .send({ correo: 'editor.real@test.com', contrasena: CONTRASENA_INICIAL });
+    expect(loginCreado.status).toBe(401);
+  });
 });

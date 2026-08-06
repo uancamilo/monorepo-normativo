@@ -86,6 +86,59 @@ describirPrisma(
       expect(usuario?.passwordHash?.startsWith('scrypt:v1:')).toBe(true);
     });
 
+    describe('GET /auth/me (perfil propio desde PostgreSQL)', () => {
+      it('devuelve el perfil persistido con shape exacto y sin datos sensibles', async () => {
+        const login = await iniciarSesion(CORREO_EDITOR, CONTRASENA_SEMILLA);
+        expect(login.status).toBe(200);
+        const token = login.body.accessToken as string;
+
+        const respuesta = await request(app.getHttpServer())
+          .get('/auth/me')
+          .set('Authorization', `Bearer ${token}`);
+
+        expect(respuesta.status).toBe(200);
+
+        // El rol y el correo provienen del registro persistido en PostgreSQL.
+        const persistido = await prisma.usuario.findUnique({
+          where: { correoNormalizado: CORREO_EDITOR },
+        });
+        expect(persistido).not.toBeNull();
+        expect(respuesta.body).toEqual({
+          id: persistido?.id,
+          nombre: persistido?.nombre,
+          apellido: persistido?.apellido,
+          correo: persistido?.correoNormalizado,
+          rol: persistido?.rol,
+        });
+
+        expect(respuesta.body).not.toHaveProperty('passwordHash');
+        expect(respuesta.body).not.toHaveProperty('contrasena');
+        expect(respuesta.body).not.toHaveProperty('accessToken');
+        const serializado = JSON.stringify(respuesta.body);
+        expect(serializado).not.toContain('scrypt:v1:');
+        expect(serializado).not.toContain(CONTRASENA_SEMILLA);
+      });
+
+      it('sub inexistente devuelve 401 aunque el token sea válido', async () => {
+        const { ServicioTokens } = require('../autenticacion/servicio-tokens');
+        const servicioTokens = app.get(ServicioTokens);
+        const token = await servicioTokens.firmar({
+          usuarioId: 'usuario-inexistente-prisma',
+        });
+
+        const respuesta = await request(app.getHttpServer())
+          .get('/auth/me')
+          .set('Authorization', `Bearer ${token}`);
+
+        expect(respuesta.status).toBe(401);
+      });
+
+      it('sin token devuelve 401', async () => {
+        const respuesta = await request(app.getHttpServer()).get('/auth/me');
+        expect(respuesta.status).toBe(401);
+      });
+    });
+
     it('login seed -> token -> registrar -> publicar -> consultar', async () => {
       const loginEditor = await iniciarSesion(CORREO_EDITOR, CONTRASENA_SEMILLA);
       expect(loginEditor.status).toBe(200);

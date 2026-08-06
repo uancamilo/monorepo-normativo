@@ -1,14 +1,18 @@
 import { Module } from '@nestjs/common';
 import {
   CambiarContrasenaPropia,
+  ConsultarPerfilPropio,
   IniciarSesion,
   RepositorioCredencialesUsuarios,
+  RepositorioUsuarios,
   VerificadorContrasenas,
 } from '@normativo/aplicacion';
 import { AutenticacionModule } from '../autenticacion.module';
 import { ServicioHashContrasenas } from '../hash-contrasenas';
 import { AuthController } from './auth.controller';
 import { RepositorioCredencialesUsuariosEnMemoria } from '../../memoria/RepositorioCredencialesUsuariosEnMemoria';
+import { NormasModule } from '../../normas/normas.module';
+import { TOKEN_REPOSITORIO_USUARIOS } from '../../normas/tokens';
 import {
   TOKEN_REPOSITORIO_CREDENCIALES,
   TOKEN_VERIFICADOR_CONTRASENAS,
@@ -16,9 +20,15 @@ import {
 
 /**
  * Login con credenciales en memoria (usuarios semilla locales).
+ *
+ * Importa NormasModule para reutilizar EXACTAMENTE la misma instancia de
+ * RepositorioUsuarios en memoria (TOKEN_REPOSITORIO_USUARIOS) que usan los
+ * casos de uso editoriales: `GET /auth/me` debe ver los mismos usuarios.
+ * No hay ciclo: NormasModule importa AutenticacionModule (guard/tokens), no
+ * AuthModule.
  */
 @Module({
-  imports: [AutenticacionModule],
+  imports: [AutenticacionModule, NormasModule],
   controllers: [AuthController],
   providers: [
     { provide: TOKEN_VERIFICADOR_CONTRASENAS, useClass: ServicioHashContrasenas },
@@ -49,6 +59,12 @@ import {
           generadorHashContrasenas: servicioHashContrasenas,
         }),
       inject: [TOKEN_REPOSITORIO_CREDENCIALES, TOKEN_VERIFICADOR_CONTRASENAS],
+    },
+    {
+      provide: ConsultarPerfilPropio,
+      useFactory: (repositorioUsuarios: RepositorioUsuarios) =>
+        new ConsultarPerfilPropio({ repositorioUsuarios }),
+      inject: [TOKEN_REPOSITORIO_USUARIOS],
     },
   ],
   // Compartido con la gestión mínima de usuarios (Fase 4G): misma instancia de

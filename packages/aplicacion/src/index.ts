@@ -300,6 +300,15 @@ export type {
   SolicitudCambiarContrasenaPropia,
 } from './autenticacion/casos-uso/CambiarContrasenaPropia';
 
+export { ConsultarPerfilPropio } from './autenticacion/casos-uso/ConsultarPerfilPropio';
+export type {
+  DependenciasConsultarPerfilPropio,
+  PerfilPropio,
+  RazonConsultarPerfilPropioFallido,
+  ResultadoConsultarPerfilPropio,
+  SolicitudConsultarPerfilPropio,
+} from './autenticacion/casos-uso/ConsultarPerfilPropio';
+
 export type {
   RepositorioUsuariosSistema,
   ResultadoCrearUsuarioSistemaRepositorio,
