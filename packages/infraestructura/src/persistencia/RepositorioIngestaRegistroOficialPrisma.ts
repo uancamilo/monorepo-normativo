@@ -70,6 +70,19 @@ export class RepositorioIngestaRegistroOficialPrisma
     return entradas.map(mapearEntradaDetectadaDesdePrisma);
   }
 
+  async listarEntradasPorLoteIds(
+    loteIds: string[],
+  ): Promise<EntradaDetectadaRegistroOficialAPersistir[]> {
+    if (loteIds.length === 0) {
+      return [];
+    }
+    const entradas = await this.prisma.entradaDetectadaRegistroOficial.findMany({
+      where: { loteId: { in: [...new Set(loteIds)] } },
+      orderBy: [{ loteId: 'asc' }, { posicion: 'asc' }],
+    });
+    return entradas.map(mapearEntradaDetectadaDesdePrisma);
+  }
+
   async buscarOrigenPorNormaId(
     normaId: string,
   ): Promise<OrigenRegistroOficialNorma | null> {

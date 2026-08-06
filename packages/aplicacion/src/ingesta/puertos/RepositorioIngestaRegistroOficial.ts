@@ -39,6 +39,14 @@ export interface RepositorioIngestaRegistroOficial
     loteId: string,
   ): Promise<EntradaDetectadaRegistroOficialAPersistir[]>;
   /**
+   * Variante batch de `listarEntradasPorLoteId`: todas las entradas de los
+   * lotes indicados en una sola consulta (evita N+1 al listar varios lotes).
+   * El detalle de un único lote sigue usando `listarEntradasPorLoteId`.
+   */
+  listarEntradasPorLoteIds(
+    loteIds: string[],
+  ): Promise<EntradaDetectadaRegistroOficialAPersistir[]>;
+  /**
    * Persiste de forma atómica el lote, sus entradas y las normas borrador
    * creadas. Debe garantizar la unicidad del período mensual incluso ante
    * solicitudes concurrentes.

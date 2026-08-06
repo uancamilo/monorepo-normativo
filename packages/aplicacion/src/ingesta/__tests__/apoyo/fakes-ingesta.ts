@@ -109,6 +109,15 @@ export class RepositorioIngestaRegistroOficialFake
       .sort((a, b) => a.posicion - b.posicion);
   }
 
+  async listarEntradasPorLoteIds(
+    loteIds: string[],
+  ): Promise<EntradaDetectadaRegistroOficialAPersistir[]> {
+    const idsSolicitados = new Set(loteIds);
+    return this.entradas
+      .filter((entrada) => idsSolicitados.has(entrada.loteId))
+      .sort((a, b) => a.posicion - b.posicion);
+  }
+
   async buscarOrigenPorNormaId(
     normaId: string,
   ): Promise<OrigenRegistroOficialNorma | null> {

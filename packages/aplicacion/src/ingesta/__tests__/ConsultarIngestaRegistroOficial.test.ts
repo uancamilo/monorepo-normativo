@@ -19,6 +19,7 @@ describe('Consultar lotes de ingesta del Registro Oficial', () => {
   let consultarLotes: ConsultarLotesIngestaRegistroOficial;
   let consultarLote: ConsultarLoteIngestaRegistroOficial;
   let loteId: string;
+  let ingerir: IngerirResumenRegistroOficial;
 
   beforeEach(async () => {
     repositorioUsuarios = new RepositorioUsuariosFake();
@@ -31,7 +32,7 @@ describe('Consultar lotes de ingesta del Registro Oficial', () => {
     ]) {
       repositorioUsuarios.agregar(crearUsuarioConRol(rol));
     }
-    const ingerir = new IngerirResumenRegistroOficial({
+    ingerir = new IngerirResumenRegistroOficial({
       repositorioUsuarios,
       repositorioIngesta,
       repositorioEdiciones: new RepositorioEdicionesRegistroOficialEnMemoriaFake(),
@@ -164,5 +165,82 @@ describe('Consultar lotes de ingesta del Registro Oficial', () => {
     });
 
     expect(resultado).toEqual({ exitoso: false, razon: 'SOLICITUD_INVALIDA' });
+  });
+
+  it('con varios lotes usa una sola consulta batch de entradas, no N+1 (H-B1)', async () => {
+    // Reutiliza el mismo `ingerir` (y su GeneradorIdsSecuencialFake) del
+    // beforeEach: una segunda instancia con contador propio generaría el
+    // mismo id-1 que el primer lote y los fusionaría en el repositorio fake.
+    const segundaIngesta = await ingerir.ejecutar(
+      crearSolicitudIngesta({
+        periodo: { anio: 2026, mes: 6 },
+        urlResumenMensualRegistroOficial:
+          'https://www.registroficial.gob.ec/resumen-2026-06.pdf',
+        entradasDetectadas: [
+          crearEntradaDetectada({ posicion: 0 }),
+          crearEntradaDetectada({ posicion: 1, numero: '111' }),
+        ],
+      }),
+    );
+    expect(segundaIngesta.exitoso).toBe(true);
+
+    const spyListarLotes = jest.spyOn(repositorioIngesta, 'listarLotes');
+    const spyListarEntradasPorLoteIds = jest.spyOn(
+      repositorioIngesta,
+      'listarEntradasPorLoteIds',
+    );
+    const spyListarEntradasPorLoteId = jest.spyOn(
+      repositorioIngesta,
+      'listarEntradasPorLoteId',
+    );
+
+    const resultado = await consultarLotes.ejecutar({
+      usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+    });
+
+    expect(resultado.exitoso).toBe(true);
+    if (!resultado.exitoso) {
+      return;
+    }
+    expect(resultado.lotes).toHaveLength(2);
+    expect(spyListarLotes).toHaveBeenCalledTimes(1);
+    expect(spyListarEntradasPorLoteIds).toHaveBeenCalledTimes(1);
+    expect(spyListarEntradasPorLoteId).not.toHaveBeenCalled();
+
+    // El orden de salida sigue exactamente el de listarLotes(), sin alterarlo.
+    const idsEnOrdenListarLotes = (await spyListarLotes.mock.results[0].value).map(
+      (lote: { id: string }) => lote.id,
+    );
+    expect(resultado.lotes.map((lote) => lote.id)).toEqual(idsEnOrdenListarLotes);
+
+    const loteConTres = resultado.lotes.find((lote) => lote.id === loteId);
+    expect(loteConTres?.totalEntradasDetectadas).toBe(3);
+    const loteConDos = resultado.lotes.find(
+      (lote) => lote.id !== loteId,
+    );
+    expect(loteConDos?.totalEntradasDetectadas).toBe(2);
+  });
+
+  it('sin lotes no consulta entradas y devuelve lista vacía', async () => {
+    const repositorioUsuariosVacio = new RepositorioUsuariosFake();
+    repositorioUsuariosVacio.agregar(
+      crearUsuarioConRol(RolUsuario.SUPERADMINISTRADOR),
+    );
+    const repositorioIngestaVacio = new RepositorioIngestaRegistroOficialFake();
+    const spyListarEntradasPorLoteIds = jest.spyOn(
+      repositorioIngestaVacio,
+      'listarEntradasPorLoteIds',
+    );
+    const consultarLotesVacio = new ConsultarLotesIngestaRegistroOficial({
+      repositorioUsuarios: repositorioUsuariosVacio,
+      repositorioIngesta: repositorioIngestaVacio,
+    });
+
+    const resultado = await consultarLotesVacio.ejecutar({
+      usuarioAutenticadoId: 'usuario-SUPERADMINISTRADOR',
+    });
+
+    expect(resultado).toEqual({ exitoso: true, lotes: [] });
+    expect(spyListarEntradasPorLoteIds).not.toHaveBeenCalled();
   });
 });

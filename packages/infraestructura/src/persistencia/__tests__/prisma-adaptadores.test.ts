@@ -1675,6 +1675,151 @@ describirPrisma(
       );
     });
 
+    describe('listarEntradasPorLoteIds (batch, H-B1)', () => {
+      function loteMinimo(id: string, periodoMes: number) {
+        return {
+          id,
+          huellaLote: `huella-${id}`,
+          periodoAnio: 2026,
+          periodoMes,
+          fechaEjecucion: new Date('2026-08-01T00:00:00.000Z'),
+          urlResumenMensualRegistroOficial: `https://www.registroficial.gob.ec/resumen-${id}.pdf`,
+          versionExtractor: 'fase-5f-batch-test',
+        };
+      }
+
+      function entradaConNorma(
+        loteId: string,
+        sufijo: string,
+        posicion: number,
+      ) {
+        const normaId = `norma-${loteId}-${sufijo}`;
+        const entrada = {
+          id: `entrada-${loteId}-${sufijo}`,
+          loteId,
+          posicion,
+          normaId,
+          segmentoCrudo: `Segmento ${loteId}-${sufijo}`,
+          metadataExtraccion: {},
+          advertencias: [] as string[],
+          confianza: 1,
+          fechaCreacion: new Date('2026-08-01T00:00:00.000Z'),
+          tipoDetectado: null,
+          numeroDetectado: null,
+          tituloDetectado: null,
+          institucionDetectada: null,
+          seccion: null,
+          publicacionTipo: null,
+          publicacionNumero: null,
+          publicacionFecha: null,
+        };
+        const norma = new Norma({
+          id: normaId,
+          numero: null,
+          titulo: `Norma ${loteId} ${sufijo}`,
+          contenido: [],
+          tipoNorma: 'Resolución',
+          institucionExpide: 'Institución de prueba',
+          estadoJuridico: EstadoNorma.VIGENTE,
+          estadoEditorial: EstadoEditorialNorma.BORRADOR,
+          fechaExpedicion: null,
+          edicionRegistroOficialId: null,
+          fechaPublicacionEnSistema: null,
+        });
+        return { entrada, norma };
+      }
+
+      it('usa una sola consulta findMany, con número de llamadas constante independiente de N lotes', async () => {
+        const repositorio = new RepositorioIngestaRegistroOficialPrisma(prisma);
+        for (const [id, mes] of [
+          ['lote-batch-1', 20],
+          ['lote-batch-2', 21],
+          ['lote-batch-3', 22],
+        ] as const) {
+          const a = entradaConNorma(id, 'a', 0);
+          const b = entradaConNorma(id, 'b', 1);
+          const resultado = await repositorio.guardarIngesta({
+            lote: loteMinimo(id, mes),
+            entradas: [a.entrada, b.entrada],
+            normas: [a.norma, b.norma],
+            ediciones: [],
+          });
+          expect(resultado).toEqual({ exitoso: true });
+        }
+
+        const espiaFindMany = jest.spyOn(
+          prisma.entradaDetectadaRegistroOficial,
+          'findMany',
+        );
+
+        const entradas = await repositorio.listarEntradasPorLoteIds([
+          'lote-batch-1',
+          'lote-batch-2',
+          'lote-batch-3',
+        ]);
+
+        expect(espiaFindMany).toHaveBeenCalledTimes(1);
+        expect(entradas).toHaveLength(6);
+        expect(new Set(entradas.map((e) => e.loteId))).toEqual(
+          new Set(['lote-batch-1', 'lote-batch-2', 'lote-batch-3']),
+        );
+
+        // Comparación directa con el resultado de memoria: mismo conjunto de
+        // ids independientemente del adaptador.
+        expect(entradas.map((e) => e.id).sort()).toEqual(
+          [
+            'entrada-lote-batch-1-a',
+            'entrada-lote-batch-1-b',
+            'entrada-lote-batch-2-a',
+            'entrada-lote-batch-2-b',
+            'entrada-lote-batch-3-a',
+            'entrada-lote-batch-3-b',
+          ].sort(),
+        );
+
+        espiaFindMany.mockRestore();
+      });
+
+      it('no incluye entradas de un lote no solicitado', async () => {
+        const repositorio = new RepositorioIngestaRegistroOficialPrisma(prisma);
+        const a = entradaConNorma('lote-batch-excluido-a', 'a', 0);
+        await repositorio.guardarIngesta({
+          lote: loteMinimo('lote-batch-excluido-a', 23),
+          entradas: [a.entrada],
+          normas: [a.norma],
+          ediciones: [],
+        });
+        const b = entradaConNorma('lote-batch-excluido-b', 'a', 0);
+        await repositorio.guardarIngesta({
+          lote: loteMinimo('lote-batch-excluido-b', 24),
+          entradas: [b.entrada],
+          normas: [b.norma],
+          ediciones: [],
+        });
+
+        const entradas = await repositorio.listarEntradasPorLoteIds([
+          'lote-batch-excluido-a',
+        ]);
+
+        expect(entradas.map((e) => e.loteId)).toEqual([
+          'lote-batch-excluido-a',
+        ]);
+      });
+
+      it('lista vacía de loteIds no consulta Prisma y devuelve []', async () => {
+        const repositorio = new RepositorioIngestaRegistroOficialPrisma(prisma);
+        const espiaFindMany = jest.spyOn(
+          prisma.entradaDetectadaRegistroOficial,
+          'findMany',
+        );
+
+        expect(await repositorio.listarEntradasPorLoteIds([])).toEqual([]);
+        expect(espiaFindMany).not.toHaveBeenCalled();
+
+        espiaFindMany.mockRestore();
+      });
+    });
+
     describe('selección de ediciones por loteId (ConsultorEdicionesRegistroOficialPorLote, set-based)', () => {
       type EntradaTripleFixture = {
         sufijo: string;

@@ -214,6 +214,65 @@ describe('RepositorioIngestaRegistroOficialEnMemoria', () => {
     expect(entradas.map((i) => i.id)).toEqual(['entrada-a', 'entrada-b']);
   });
 
+  describe('listarEntradasPorLoteIds (batch, H-B1)', () => {
+    it('trae en una sola llamada las entradas de varios lotes mezcladas y ordenadas por posición', async () => {
+      const { repositorio } = crearRepositorios();
+      await repositorio.guardarIngesta({
+        lote: crearLote({ id: 'lote-1' }),
+        entradas: [
+          crearEntrada({ id: 'entrada-1b', loteId: 'lote-1', posicion: 1 }),
+          crearEntrada({ id: 'entrada-1a', loteId: 'lote-1', posicion: 0 }),
+        ],
+        normas: [],
+        ediciones: [],
+      });
+      await repositorio.guardarIngesta({
+        lote: crearLote({ id: 'lote-2', periodoMes: 6 }),
+        entradas: [
+          crearEntrada({ id: 'entrada-2a', loteId: 'lote-2', posicion: 0 }),
+        ],
+        normas: [],
+        ediciones: [],
+      });
+      await repositorio.guardarIngesta({
+        lote: crearLote({ id: 'lote-3', periodoMes: 7 }),
+        entradas: [
+          crearEntrada({ id: 'entrada-3a', loteId: 'lote-3', posicion: 0 }),
+        ],
+        normas: [],
+        ediciones: [],
+      });
+
+      const entradas = await repositorio.listarEntradasPorLoteIds([
+        'lote-1',
+        'lote-2',
+      ]);
+
+      // No trae entradas del lote no solicitado (lote-3).
+      expect(entradas.map((e) => e.id).sort()).toEqual(
+        ['entrada-1a', 'entrada-1b', 'entrada-2a'].sort(),
+      );
+      expect(entradas.every((e) => e.loteId !== 'lote-3')).toBe(true);
+      // Orden determinista dentro de cada lote (por posición).
+      const deLote1 = entradas
+        .filter((e) => e.loteId === 'lote-1')
+        .map((e) => e.id);
+      expect(deLote1).toEqual(['entrada-1a', 'entrada-1b']);
+    });
+
+    it('lista vacía de loteIds devuelve []', async () => {
+      const { repositorio } = crearRepositorios();
+      await repositorio.guardarIngesta({
+        lote: crearLote(),
+        entradas: [crearEntrada()],
+        normas: [],
+        ediciones: [],
+      });
+
+      expect(await repositorio.listarEntradasPorLoteIds([])).toEqual([]);
+    });
+  });
+
   it('arma el origen individual y masivo de normas creadas por ingesta', async () => {
     const { repositorio } = crearRepositorios();
     await repositorio.guardarIngesta({

@@ -1,5 +1,6 @@
 import { RepositorioUsuarios } from '../../normas/puertos/RepositorioUsuarios';
 import { RepositorioIngestaRegistroOficial } from '../puertos/RepositorioIngestaRegistroOficial';
+import { EntradaDetectadaRegistroOficialAPersistir } from '../modelos/IngestaRegistroOficial';
 import {
   armarResumenLoteIngesta,
   ResumenLoteIngestaRegistroOficial,
@@ -61,19 +62,39 @@ export class ConsultarLotesIngestaRegistroOficial {
     }
 
     const lotes = await this.repositorioIngesta.listarLotes();
-    const resumenes: ResumenLoteIngestaRegistroOficial[] = [];
-    for (const lote of lotes) {
-      const entradas = await this.repositorioIngesta.listarEntradasPorLoteId(
-        lote.id,
-      );
-      resumenes.push(armarResumenLoteIngesta(lote, entradas));
+    if (lotes.length === 0) {
+      return { exitoso: true, lotes: [] };
     }
+
+    const entradas = await this.repositorioIngesta.listarEntradasPorLoteIds(
+      lotes.map((lote) => lote.id),
+    );
+    const entradasPorLoteId = agruparEntradasPorLoteId(entradas);
 
     return {
       exitoso: true,
-      lotes: resumenes,
+      lotes: lotes.map((lote) =>
+        armarResumenLoteIngesta(lote, entradasPorLoteId.get(lote.id) ?? []),
+      ),
     };
   }
+}
+
+/** Agrupación O(entradas) en memoria; el orden interno por lote no importa
+ * aquí porque `armarResumenLoteIngesta` solo deriva métricas agregadas. */
+function agruparEntradasPorLoteId(
+  entradas: EntradaDetectadaRegistroOficialAPersistir[],
+): Map<string, EntradaDetectadaRegistroOficialAPersistir[]> {
+  const porLoteId = new Map<string, EntradaDetectadaRegistroOficialAPersistir[]>();
+  for (const entrada of entradas) {
+    const grupo = porLoteId.get(entrada.loteId);
+    if (grupo === undefined) {
+      porLoteId.set(entrada.loteId, [entrada]);
+    } else {
+      grupo.push(entrada);
+    }
+  }
+  return porLoteId;
 }
 
 function esTextoVacio(valor: string): boolean {
