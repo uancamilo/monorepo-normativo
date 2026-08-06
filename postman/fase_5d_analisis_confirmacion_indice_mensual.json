@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "fase-5d-analisis-confirmacion-indice-mensual",
     "name": "Fase 5D - Analisis y confirmacion de indices mensuales por URL",
-    "description": "Fase 5D: operacion mensual manual, API-first, de analisis y confirmacion de un indice mensual del Registro Oficial a partir de la URL directa del PDF oficial. Solo SUPERADMINISTRADOR. Una solicitud procesa exactamente un periodo AAAA-MM.\n\nREQUISITOS DE EJECUCION:\n1. Backend levantado (memoria o Prisma) con las credenciales seed habituales (contrasena de semilla Password123!, solo test).\n2. La URL del PDF debe apuntar exactamente al hostname oficial verificado: esacc.corteconstitucional.gob.ec, sobre HTTPS, sin puerto explicito, sin usuario/contrasena embebidos. Cualquier otro host se rechaza con 400 URL_PDF_INDICE_NO_PERMITIDA antes de intentar ninguna descarga.\n3. IMPORTANTE: a diferencia del catalogo de Fase 5B, el descargador de Fase 5D no tiene ningun mecanismo de fixture/host local para pruebas automatizadas (por diseno: la validacion de URL no tiene excepcion de host local). Ejecutar esta coleccion contra Analizar/Confirmar con una URL real implica una descarga real al sitio oficial: hazlo de forma deliberada y puntual, nunca en un runner automatizado/CI. Las carpetas 02 y 03 documentan el flujo feliz esperado contra una URL real que debas suministrar manualmente en la variable urlPdfReal; sin ese valor, esas dos peticiones fallaran con 400 URL_PDF_INDICE_NO_PERMITIDA (comportamiento correcto, no un error de la coleccion).\n4. Las carpetas 04-06 (validacion, autorizacion, contrato) no requieren red real: ejercitan rechazos que ocurren antes de cualquier descarga.\n\nContrato:\n- POST /ingesta/registro-oficial/indices/analizar -> 200, { analisis, entradasDetectadas } (todas las entradas, sin muestreo). No escribe nada.\n- POST /ingesta/registro-oficial/indices/confirmar -> 201, { lote, creado, sha256Pdf, versionExtractor }. Vuelve a descargar y a extraer desde cero; exige version antes de descargar y sha256 antes de extraer; delega en la ingesta de Fase 5A (mismo periodo con URL distinta -> 409 EJECUCION_INGESTA_CONFLICTIVA aunque el contenido coincida).\n\nVer docs/arquitectura/decisiones/0011-analisis-confirmacion-indice-mensual-api-first.md y docs/reglas-negocio.md seccion 17.",
+    "description": "Fase 5D: operacion mensual manual, API-first, de analisis y confirmacion de un indice mensual del Registro Oficial a partir de la URL directa del PDF oficial. Solo SUPERADMINISTRADOR. Una solicitud procesa exactamente un periodo AAAA-MM.\n\nREQUISITOS DE EJECUCION:\n1. Backend levantado (memoria o Prisma) con las credenciales seed habituales (contrasena de semilla Password123!, solo test).\n2. La URL del PDF debe apuntar exactamente al hostname oficial verificado: esacc.corteconstitucional.gob.ec, sobre HTTPS, sin puerto explicito, sin usuario/contrasena embebidos. Cualquier otro host se rechaza con 400 URL_PDF_INDICE_NO_PERMITIDA antes de intentar ninguna descarga.\n3. IMPORTANTE: a diferencia del catalogo de Fase 5B, el descargador de Fase 5D no tiene ningun mecanismo de fixture/host local para pruebas automatizadas (por diseno: la validacion de URL no tiene excepcion de host local). Ejecutar esta coleccion contra Analizar/Confirmar con una URL real implica una descarga real al sitio oficial: hazlo de forma deliberada y puntual, nunca en un runner automatizado/CI. Las carpetas 01 (Analizar) y 02 (Confirmar) documentan el flujo feliz esperado contra una URL real que debas suministrar manualmente en la variable urlPdfReal; sin ese valor, las solicitudes que dependen de urlPdfReal fallaran con 400 SOLICITUD_INVALIDA porque el campo obligatorio queda vacio (comportamiento correcto, no un error de la coleccion). La carpeta 03 contiene validacion y autorizacion sin necesitar red real.\n4. La carpeta 03 (validacion y autorizacion) no requiere red real: ejercita rechazos que ocurren antes de cualquier descarga. La carpeta 04 NO es validacion: es la operacion manual real de Fase 5E (consulta del lote confirmado y resolucion de fuentes por loteId); resolver-pendientes en esa carpeta puede consultar el catalogo oficial real si esta habilitado.\n\nContrato:\n- POST /ingesta/registro-oficial/indices/analizar -> 200, { analisis, entradasDetectadas } (todas las entradas, sin muestreo). No escribe nada.\n- POST /ingesta/registro-oficial/indices/confirmar -> 201, { lote, creado, sha256Pdf, versionExtractor }. Vuelve a descargar y a extraer desde cero; exige version antes de descargar y sha256 antes de extraer; delega en la ingesta de Fase 5A (mismo periodo con URL distinta -> 409 EJECUCION_INGESTA_CONFLICTIVA aunque el contenido coincida).\n\nVer docs/arquitectura/decisiones/0011-analisis-confirmacion-indice-mensual-api-first.md y docs/reglas-negocio.md seccion 17.\n\nCARPETA 04 (Fase 5E, operacion real): continua deliberadamente despues de confirmar un mes, encadenando la consulta del lote y la resolucion de fuentes por loteId (paginas de 20) sin depender de ninguna otra coleccion. Cada solicitud se omite si falta loteIdConfirmado. Protocolo operativo completo, plantilla de reporte mensual y semantica de los estados operativos: docs/operacion/fase-5e-poblacion-historica-mensual.md y docs/reglas-negocio.md seccion 18.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -16,12 +16,21 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('200 con accessToken', function () {",
-                  "  pm.response.to.have.status(200);",
-                  "  const cuerpo = pm.response.json();",
-                  "  pm.expect(cuerpo.accessToken).to.be.a('string');",
-                  "  pm.collectionVariables.set('tokenSuperadmin', cuerpo.accessToken);",
-                  "});"
+                  "(function () {",
+                  "  let cuerpo = null;",
+                  "  try { cuerpo = pm.response.json(); } catch (e) { cuerpo = null; }",
+                  "  const contratoValido = cuerpo !== null &&",
+                  "    typeof cuerpo.accessToken === 'string' && cuerpo.accessToken.length > 0 &&",
+                  "    cuerpo.tokenType === 'Bearer' &&",
+                  "    Number.isInteger(cuerpo.expiresIn) && cuerpo.expiresIn > 0;",
+                  "  pm.test('200 con contrato completo de autenticacion', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(contratoValido).to.eql(true);",
+                  "  });",
+                  "  if (pm.response.code === 200 && contratoValido) {",
+                  "    pm.collectionVariables.set('tokenSuperadmin', cuerpo.accessToken);",
+                  "  }",
+                  "})();"
                 ],
                 "type": "text/javascript"
               }
@@ -44,11 +53,21 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('200 con accessToken', function () {",
-                  "  pm.response.to.have.status(200);",
-                  "  const cuerpo = pm.response.json();",
-                  "  pm.collectionVariables.set('tokenEditor', cuerpo.accessToken);",
-                  "});"
+                  "(function () {",
+                  "  let cuerpo = null;",
+                  "  try { cuerpo = pm.response.json(); } catch (e) { cuerpo = null; }",
+                  "  const contratoValido = cuerpo !== null &&",
+                  "    typeof cuerpo.accessToken === 'string' && cuerpo.accessToken.length > 0 &&",
+                  "    cuerpo.tokenType === 'Bearer' &&",
+                  "    Number.isInteger(cuerpo.expiresIn) && cuerpo.expiresIn > 0;",
+                  "  pm.test('200 con contrato completo de autenticacion', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(contratoValido).to.eql(true);",
+                  "  });",
+                  "  if (pm.response.code === 200 && contratoValido) {",
+                  "    pm.collectionVariables.set('tokenEditor', cuerpo.accessToken);",
+                  "  }",
+                  "})();"
                 ],
                 "type": "text/javascript"
               }
@@ -63,6 +82,37 @@
             },
             "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
           }
+        },
+        {
+          "name": "Consultar perfil propio",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Perfil propio responde 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('Devuelve exactamente las cinco propiedades del perfil', () => {",
+                  "  pm.expect(json).to.be.an('object');",
+                  "  pm.expect(Object.keys(json).sort()).to.eql(['apellido','correo','id','nombre','rol']);",
+                  "});",
+                  "pm.test('No expone credenciales ni tokens', () => {",
+                  "  pm.expect(json).to.not.have.property('passwordHash');",
+                  "  pm.expect(json).to.not.have.property('hashContrasena');",
+                  "  pm.expect(json).to.not.have.property('contrasena');",
+                  "  pm.expect(json).to.not.have.property('accessToken');",
+                  "});",
+                  "pm.test('El rol corresponde al token utilizado', () => pm.expect(json.rol).to.eql('SUPERADMINISTRADOR'));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{tokenSuperadmin}}" }],
+            "url": { "raw": "{{baseUrl}}/auth/me", "host": ["{{baseUrl}}"], "path": ["auth", "me"] }
+          }
         }
       ]
     },
@@ -76,21 +126,55 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "if (pm.collectionVariables.get('urlPdfReal')) {",
-                  "  pm.test('200 con previsualizacion completa', function () {",
+                  "(function () {",
+                  "  const tieneUrlReal = Boolean(pm.collectionVariables.get('urlPdfReal'));",
+                  "  let cuerpo = null;",
+                  "  try { cuerpo = pm.response.json(); } catch (e) { cuerpo = null; }",
+                  "  if (!tieneUrlReal) {",
+                  "    pm.test('sin urlPdfReal: 400 SOLICITUD_INVALIDA', function () {",
+                  "      pm.response.to.have.status(400);",
+                  "      pm.expect(cuerpo).to.be.an('object');",
+                  "      pm.expect(cuerpo.statusCode).to.eql(400);",
+                  "      pm.expect(cuerpo.message).to.eql('SOLICITUD_INVALIDA');",
+                  "    });",
+                  "    return;",
+                  "  }",
+                  "  const esperado = { anio: Number(pm.collectionVariables.get('periodoAnio')), mes: Number(pm.collectionVariables.get('periodoMes')) };",
+                  "  const analisis = cuerpo && cuerpo.analisis;",
+                  "  const entradas = cuerpo && cuerpo.entradasDetectadas;",
+                  "  const advertencias = analisis && analisis.advertenciasPorTipo;",
+                  "  const contratoValido = analisis && Array.isArray(entradas) &&",
+                  "    analisis.periodoEsperado && analisis.periodoDetectado &&",
+                  "    /^[0-9a-f]{64}$/.test(analisis.sha256Pdf) &&",
+                  "    typeof analisis.versionExtractor === 'string' && analisis.versionExtractor.length > 0 &&",
+                  "    Number.isInteger(analisis.tamanioBytes) && analisis.tamanioBytes > 0 &&",
+                  "    Number.isInteger(analisis.totalPaginas) && analisis.totalPaginas > 0 &&",
+                  "    Number.isInteger(analisis.totalEntradas) && analisis.totalEntradas >= 0 &&",
+                  "    Number.isInteger(analisis.totalConAdvertencias) && analisis.totalConAdvertencias >= 0 &&",
+                  "    analisis.totalConAdvertencias <= analisis.totalEntradas &&",
+                  "    advertencias && typeof advertencias === 'object' && !Array.isArray(advertencias) &&",
+                  "    Object.values(advertencias).every(function (valor) { return Number.isInteger(valor) && valor >= 0; }) &&",
+                  "    entradas.length === analisis.totalEntradas;",
+                  "  pm.test('200 con previsualizacion completa y contrato valido', function () {",
                   "    pm.response.to.have.status(200);",
-                  "    const cuerpo = pm.response.json();",
-                  "    pm.expect(cuerpo.analisis.periodoDetectado).to.eql({ anio: Number(pm.collectionVariables.get('periodoAnio')), mes: Number(pm.collectionVariables.get('periodoMes')) });",
-                  "    pm.expect(cuerpo.analisis.sha256Pdf).to.match(/^[0-9a-f]{64}$/);",
-                  "    pm.expect(cuerpo.entradasDetectadas.length).to.eql(cuerpo.analisis.totalEntradas);",
-                  "    pm.collectionVariables.set('sha256Observado', cuerpo.analisis.sha256Pdf);",
-                  "    pm.collectionVariables.set('versionExtractorObservada', cuerpo.analisis.versionExtractor);",
+                  "    pm.expect(contratoValido).to.eql(true);",
+                  "    pm.expect(analisis.periodoEsperado).to.eql(esperado);",
+                  "    pm.expect(analisis.periodoDetectado).to.eql(esperado);",
                   "  });",
-                  "} else {",
-                  "  pm.test('sin urlPdfReal: 400 URL_PDF_INDICE_NO_PERMITIDA (esperado)', function () {",
-                  "    pm.response.to.have.status(400);",
+                  "  pm.test('cada entrada contiene la trazabilidad minima del extractor', function () {",
+                  "    pm.expect(Array.isArray(entradas) && entradas.every(function (entrada) {",
+                  "      return Number.isInteger(entrada.posicion) &&",
+                  "        typeof entrada.segmentoCrudo === 'string' &&",
+                  "        entrada.metadataExtraccion && typeof entrada.metadataExtraccion === 'object' &&",
+                  "        Array.isArray(entrada.advertencias) &&",
+                  "        typeof entrada.confianza === 'number';",
+                  "    })).to.eql(true);",
                   "  });",
-                  "}"
+                  "  if (pm.response.code === 200 && contratoValido) {",
+                  "    pm.collectionVariables.set('sha256Observado', analisis.sha256Pdf);",
+                  "    pm.collectionVariables.set('versionExtractorObservada', analisis.versionExtractor);",
+                  "  }",
+                  "})();"
                 ],
                 "type": "text/javascript"
               }
@@ -125,19 +209,48 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "if (pm.collectionVariables.get('urlPdfReal') && pm.collectionVariables.get('sha256Observado')) {",
-                  "  pm.test('201 con lote creado y sha256/version', function () {",
+                  "(function () {",
+                  "  const tienePrerequisitos = Boolean(pm.collectionVariables.get('urlPdfReal')) &&",
+                  "    Boolean(pm.collectionVariables.get('sha256Observado')) &&",
+                  "    Boolean(pm.collectionVariables.get('versionExtractorObservada'));",
+                  "  let cuerpo = null;",
+                  "  try { cuerpo = pm.response.json(); } catch (e) { cuerpo = null; }",
+                  "  if (!tienePrerequisitos) {",
+                  "    pm.test('sin resultado completo de Analizar: 400 SOLICITUD_INVALIDA', function () {",
+                  "      pm.response.to.have.status(400);",
+                  "      pm.expect(cuerpo).to.be.an('object');",
+                  "      pm.expect(cuerpo.statusCode).to.eql(400);",
+                  "      pm.expect(cuerpo.message).to.eql('SOLICITUD_INVALIDA');",
+                  "    });",
+                  "    return;",
+                  "  }",
+                  "  const lote = cuerpo && cuerpo.lote;",
+                  "  const esperado = { anio: Number(pm.collectionVariables.get('periodoAnio')), mes: Number(pm.collectionVariables.get('periodoMes')) };",
+                  "  const contratoValido = lote &&",
+                  "    typeof lote.id === 'string' && lote.id.length > 0 &&",
+                  "    typeof lote.huellaLote === 'string' && lote.huellaLote.length > 0 &&",
+                  "    Number.isInteger(lote.periodoAnio) && Number.isInteger(lote.periodoMes) &&",
+                  "    typeof lote.fechaEjecucion === 'string' && lote.fechaEjecucion.length > 0 &&",
+                  "    typeof lote.urlResumenMensualRegistroOficial === 'string' && lote.urlResumenMensualRegistroOficial.length > 0 &&",
+                  "    typeof lote.versionExtractor === 'string' && lote.versionExtractor.length > 0 &&",
+                  "    Number.isInteger(lote.totalEntradasDetectadas) && lote.totalEntradasDetectadas >= 0 &&",
+                  "    Number.isInteger(lote.totalConAdvertencias) && lote.totalConAdvertencias >= 0 &&",
+                  "    lote.totalConAdvertencias <= lote.totalEntradasDetectadas &&",
+                  "    typeof cuerpo.creado === 'boolean' &&",
+                  "    /^[0-9a-f]{64}$/.test(cuerpo.sha256Pdf) &&",
+                  "    typeof cuerpo.versionExtractor === 'string' && cuerpo.versionExtractor.length > 0;",
+                  "  pm.test('201 con contrato completo de confirmacion', function () {",
                   "    pm.response.to.have.status(201);",
-                  "    const cuerpo = pm.response.json();",
-                  "    pm.expect(cuerpo.lote.id).to.be.a('string');",
+                  "    pm.expect(contratoValido).to.eql(true);",
+                  "    pm.expect({ anio: lote.periodoAnio, mes: lote.periodoMes }).to.eql(esperado);",
                   "    pm.expect(cuerpo.sha256Pdf).to.eql(pm.collectionVariables.get('sha256Observado'));",
-                  "    pm.collectionVariables.set('loteIdConfirmado', cuerpo.lote.id);",
+                  "    pm.expect(cuerpo.versionExtractor).to.eql(pm.collectionVariables.get('versionExtractorObservada'));",
+                  "    pm.expect(lote.versionExtractor).to.eql(cuerpo.versionExtractor);",
                   "  });",
-                  "} else {",
-                  "  pm.test('sin sha256Observado previo: 400/409 esperado (no ejecutar sin correr 01 primero)', function () {",
-                  "    pm.expect([400, 409]).to.include(pm.response.code);",
-                  "  });",
-                  "}"
+                  "  if (pm.response.code === 201 && contratoValido) {",
+                  "    pm.collectionVariables.set('loteIdConfirmado', lote.id);",
+                  "  }",
+                  "})();"
                 ],
                 "type": "text/javascript"
               }
@@ -167,14 +280,29 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "if (pm.collectionVariables.get('loteIdConfirmado')) {",
-                  "  pm.test('201 con creado=false y mismo lote', function () {",
+                  "(function () {",
+                  "  const tieneEntradas = Boolean(pm.collectionVariables.get('urlPdfReal')) &&",
+                  "    Boolean(pm.collectionVariables.get('sha256Observado')) &&",
+                  "    Boolean(pm.collectionVariables.get('versionExtractorObservada'));",
+                  "  let cuerpo = null;",
+                  "  try { cuerpo = pm.response.json(); } catch (e) { cuerpo = null; }",
+                  "  if (!tieneEntradas) {",
+                  "    pm.test('sin resultado completo de Analizar: 400 SOLICITUD_INVALIDA', function () {",
+                  "      pm.response.to.have.status(400);",
+                  "      pm.expect(cuerpo && cuerpo.message).to.eql('SOLICITUD_INVALIDA');",
+                  "    });",
+                  "    return;",
+                  "  }",
+                  "  pm.test('201 idempotente con creado=false y mismo lote', function () {",
                   "    pm.response.to.have.status(201);",
-                  "    const cuerpo = pm.response.json();",
+                  "    pm.expect(cuerpo).to.be.an('object');",
                   "    pm.expect(cuerpo.creado).to.eql(false);",
+                  "    pm.expect(typeof (cuerpo.lote && cuerpo.lote.id) === 'string' && cuerpo.lote.id.length > 0).to.eql(true);",
                   "    pm.expect(cuerpo.lote.id).to.eql(pm.collectionVariables.get('loteIdConfirmado'));",
+                  "    pm.expect(cuerpo.sha256Pdf).to.eql(pm.collectionVariables.get('sha256Observado'));",
+                  "    pm.expect(cuerpo.versionExtractor).to.eql(pm.collectionVariables.get('versionExtractorObservada'));",
                   "  });",
-                  "}"
+                  "})();"
                 ],
                 "type": "text/javascript"
               }
@@ -211,7 +339,9 @@
                 "exec": [
                   "pm.test('400 URL_PDF_INDICE_NO_PERMITIDA', function () {",
                   "  pm.response.to.have.status(400);",
-                  "  pm.expect(pm.response.json().message).to.eql('URL_PDF_INDICE_NO_PERMITIDA');",
+                  "  const cuerpo = pm.response.json();",
+                  "  pm.expect(cuerpo.statusCode).to.eql(400);",
+                  "  pm.expect(cuerpo.message).to.eql('URL_PDF_INDICE_NO_PERMITIDA');",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -242,7 +372,12 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('400', function () { pm.response.to.have.status(400); });"
+                  "pm.test('400 SOLICITUD_INVALIDA', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "  const cuerpo = pm.response.json();",
+                  "  pm.expect(cuerpo.statusCode).to.eql(400);",
+                  "  pm.expect(cuerpo.message).to.eql('SOLICITUD_INVALIDA');",
+                  "});"
                 ],
                 "type": "text/javascript"
               }
@@ -274,7 +409,9 @@
                 "exec": [
                   "pm.test('403', function () {",
                   "  pm.response.to.have.status(403);",
-                  "  pm.expect(pm.response.json().message).to.eql('Acceso denegado');",
+                  "  const cuerpo = pm.response.json();",
+                  "  pm.expect(cuerpo.statusCode).to.eql(403);",
+                  "  pm.expect(cuerpo.message).to.eql('Acceso denegado');",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -304,7 +441,14 @@
             {
               "listen": "test",
               "script": {
-                "exec": ["pm.test('401', function () { pm.response.to.have.status(401); });"],
+                "exec": [
+                  "pm.test('401 sin token Bearer', function () {",
+                  "  pm.response.to.have.status(401);",
+                  "  const cuerpo = pm.response.json();",
+                  "  pm.expect(cuerpo.statusCode).to.eql(401);",
+                  "  pm.expect(cuerpo.message).to.eql('Se requiere un token Bearer en el header Authorization');",
+                  "});"
+                ],
                 "type": "text/javascript"
               }
             }
@@ -329,7 +473,14 @@
             {
               "listen": "test",
               "script": {
-                "exec": ["pm.test('400', function () { pm.response.to.have.status(400); });"],
+                "exec": [
+                  "pm.test('400 SOLICITUD_INVALIDA', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "  const cuerpo = pm.response.json();",
+                  "  pm.expect(cuerpo.statusCode).to.eql(400);",
+                  "  pm.expect(cuerpo.message).to.eql('SOLICITUD_INVALIDA');",
+                  "});"
+                ],
                 "type": "text/javascript"
               }
             }
@@ -360,7 +511,9 @@
                 "exec": [
                   "pm.test('409 VERSION_EXTRACTOR_CAMBIO_DESDE_ANALISIS', function () {",
                   "  pm.response.to.have.status(409);",
-                  "  pm.expect(pm.response.json().message).to.eql('VERSION_EXTRACTOR_CAMBIO_DESDE_ANALISIS');",
+                  "  const cuerpo = pm.response.json();",
+                  "  pm.expect(cuerpo.statusCode).to.eql(409);",
+                  "  pm.expect(cuerpo.message).to.eql('VERSION_EXTRACTOR_CAMBIO_DESDE_ANALISIS');",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -390,7 +543,14 @@
             {
               "listen": "test",
               "script": {
-                "exec": ["pm.test('403', function () { pm.response.to.have.status(403); });"],
+                "exec": [
+                  "pm.test('403 Acceso denegado', function () {",
+                  "  pm.response.to.have.status(403);",
+                  "  const cuerpo = pm.response.json();",
+                  "  pm.expect(cuerpo.statusCode).to.eql(403);",
+                  "  pm.expect(cuerpo.message).to.eql('Acceso denegado');",
+                  "});"
+                ],
                 "type": "text/javascript"
               }
             }
@@ -418,7 +578,14 @@
             {
               "listen": "test",
               "script": {
-                "exec": ["pm.test('401', function () { pm.response.to.have.status(401); });"],
+                "exec": [
+                  "pm.test('401 sin token Bearer', function () {",
+                  "  pm.response.to.have.status(401);",
+                  "  const cuerpo = pm.response.json();",
+                  "  pm.expect(cuerpo.statusCode).to.eql(401);",
+                  "  pm.expect(cuerpo.message).to.eql('Se requiere un token Bearer en el header Authorization');",
+                  "});"
+                ],
                 "type": "text/javascript"
               }
             }
@@ -434,6 +601,424 @@
               "raw": "{{baseUrl}}/ingesta/registro-oficial/indices/confirmar",
               "host": ["{{baseUrl}}"],
               "path": ["ingesta", "registro-oficial", "indices", "confirmar"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 - Operacion real: resolucion de fuentes por loteId (Fase 5E, manual)",
+      "description": "OPERACION MANUAL REAL, deliberadamente separada de 00-03. Continua despues de '02 - Confirmar': reutiliza {{tokenSuperadmin}} y {{loteIdConfirmado}} de esta misma coleccion, sin depender de la coleccion Fase 5B ni de ninguna variable de entorno oculta. resolver-pendientes puede consultar el catalogo oficial real si CATALOGO_REGISTRO_OFICIAL_HABILITADO=true: ejecuta cada solicitud una por una y de forma consciente, nunca con un runner automatizado. Cada solicitud se omite (pm.execution.skipRequest, cuando esa API esta disponible) si falta el dato que necesita. Los acumulados de coleccion (acumuladoResueltas, acumuladoNoEncontradas, acumuladoConflictivas, acumuladoErroresCatalogo) son solo una ayuda de sesion: el reporte mensual externo, llenado a mano tras leer cada respuesta completa, es la unica fuente de verdad (una reejecucion accidental de la misma pagina puede duplicar estos acumulados de sesion). Protocolo completo: docs/operacion/fase-5e-poblacion-historica-mensual.md.",
+      "item": [
+        {
+          "name": "1. Consultar lote confirmado (GET lotes/:id)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "(function () {",
+                  "  if (pm.collectionVariables.get('loteIdConfirmado')) {",
+                  "    return;",
+                  "  }",
+                  "  if (pm.execution && typeof pm.execution.skipRequest === 'function') {",
+                  "    console.warn('Fase 5E: loteIdConfirmado vacio. Ejecuta primero 02 - Confirmar. Se omite esta solicitud.');",
+                  "    pm.execution.skipRequest();",
+                  "    return;",
+                  "  }",
+                  "  throw new Error('Fase 5E: loteIdConfirmado vacio y pm.execution.skipRequest no esta disponible en esta version de Postman. Ejecuta primero 02 - Confirmar antes de esta solicitud (abortada para no enviar GET /ingesta/registro-oficial/lotes/ sin id).');",
+                  "})();"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "(function () {",
+                  "  if (!pm.collectionVariables.get('loteIdConfirmado')) { return; }",
+                  "  let cuerpo = null;",
+                  "  try { cuerpo = pm.response.json(); } catch (e) { cuerpo = null; }",
+                  "  const entradas = cuerpo && cuerpo.entradasDetectadas;",
+                  "  const contratoValido = cuerpo !== null &&",
+                  "    typeof cuerpo.id === 'string' && cuerpo.id.length > 0 &&",
+                  "    typeof cuerpo.huellaLote === 'string' && cuerpo.huellaLote.length > 0 &&",
+                  "    Number.isInteger(cuerpo.periodoAnio) && Number.isInteger(cuerpo.periodoMes) &&",
+                  "    typeof cuerpo.fechaEjecucion === 'string' && cuerpo.fechaEjecucion.length > 0 &&",
+                  "    typeof cuerpo.urlResumenMensualRegistroOficial === 'string' && cuerpo.urlResumenMensualRegistroOficial.length > 0 &&",
+                  "    typeof cuerpo.versionExtractor === 'string' && cuerpo.versionExtractor.length > 0 &&",
+                  "    Number.isInteger(cuerpo.totalEntradasDetectadas) && cuerpo.totalEntradasDetectadas >= 0 &&",
+                  "    Number.isInteger(cuerpo.totalConAdvertencias) && cuerpo.totalConAdvertencias >= 0 &&",
+                  "    cuerpo.totalConAdvertencias <= cuerpo.totalEntradasDetectadas &&",
+                  "    Array.isArray(entradas) && entradas.length === cuerpo.totalEntradasDetectadas;",
+                  "  pm.test('200 con contrato completo del lote confirmado', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(contratoValido).to.eql(true);",
+                  "    pm.expect(cuerpo.id).to.eql(pm.collectionVariables.get('loteIdConfirmado'));",
+                  "    pm.expect(cuerpo.periodoAnio).to.eql(Number(pm.collectionVariables.get('periodoAnio')));",
+                  "    pm.expect(cuerpo.periodoMes).to.eql(Number(pm.collectionVariables.get('periodoMes')));",
+                  "  });",
+                  "  pm.test('metricas del lote coherentes con sus entradas', function () {",
+                  "    const conAdvertencias = Array.isArray(entradas) ? entradas.filter(function (entrada) {",
+                  "      return entrada && entrada.resultadoDeteccion === 'ENTRADA_CON_ADVERTENCIAS';",
+                  "    }).length : -1;",
+                  "    pm.expect(conAdvertencias).to.eql(cuerpo.totalConAdvertencias);",
+                  "    pm.expect(entradas.every(function (entrada) {",
+                  "      return entrada && typeof entrada.id === 'string' && entrada.id.length > 0 &&",
+                  "        Number.isInteger(entrada.posicion) && typeof entrada.normaId === 'string' &&",
+                  "        typeof entrada.segmentoCrudo === 'string' && Array.isArray(entrada.advertencias) &&",
+                  "        ['ENTRADA_DETECTADA', 'ENTRADA_CON_ADVERTENCIAS'].includes(entrada.resultadoDeteccion);",
+                  "    })).to.eql(true);",
+                  "  });",
+                  "})();"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{tokenSuperadmin}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/ingesta/registro-oficial/lotes/{{loteIdConfirmado}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["ingesta", "registro-oficial", "lotes", "{{loteIdConfirmado}}"]
+            }
+          }
+        },
+        {
+          "name": "2. Resolver primera pagina por loteId (limite 20, sin cursor)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "(function () {",
+                  "  if (!pm.collectionVariables.get('loteIdConfirmado')) {",
+                  "    if (pm.execution && typeof pm.execution.skipRequest === 'function') {",
+                  "      console.warn('Fase 5E: loteIdConfirmado vacio. Ejecuta primero 02 - Confirmar. Se omite esta solicitud.');",
+                  "      pm.execution.skipRequest();",
+                  "      return;",
+                  "    }",
+                  "    throw new Error('Fase 5E: loteIdConfirmado vacio y pm.execution.skipRequest no esta disponible en esta version de Postman. Ejecuta primero 02 - Confirmar antes de esta solicitud.');",
+                  "  }",
+                  "  // Primera pagina: se limpia cualquier cursor de una pagina anterior antes",
+                  "  // de enviar, para no dejar un cursor obsoleto listo para reutilizarse en",
+                  "  // la solicitud 3.",
+                  "  pm.collectionVariables.set('cursorResolucionLote', '');",
+                  "})();"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "(function () {",
+                  "  if (!pm.collectionVariables.get('loteIdConfirmado')) {",
+                  "    return;",
+                  "  }",
+                  "",
+                  "  pm.test('200 con pagina de resolucion y metadatos de paginacion', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "  });",
+                  "  if (pm.response.code !== 200) {",
+                  "    return;",
+                  "  }",
+                  "",
+                  "  let cuerpo = null;",
+                  "  try {",
+                  "    cuerpo = pm.response.json();",
+                  "  } catch (e) {",
+                  "    cuerpo = null;",
+                  "  }",
+                  "  const razonesEsperadas = [",
+                  "    'CATALOGO_TEMPORALMENTE_NO_DISPONIBLE',",
+                  "    'RESPUESTA_CATALOGO_INVALIDA',",
+                  "    'COBERTURA_CATALOGO_NO_DISPONIBLE',",
+                  "    'BUSQUEDA_CATALOGO_INCOMPLETA'",
+                  "  ];",
+                  "  const conteos = cuerpo && [cuerpo.procesadas, cuerpo.resueltas, cuerpo.noEncontradas, cuerpo.conflictivas, cuerpo.omitidas, cuerpo.erroresCatalogo, cuerpo.pendientesRestantesLote];",
+                  "  const razonesValidas = cuerpo && cuerpo.erroresPorRazon &&",
+                  "    typeof cuerpo.erroresPorRazon === 'object' && !Array.isArray(cuerpo.erroresPorRazon) &&",
+                  "    razonesEsperadas.every(function (razon) { return Number.isInteger(cuerpo.erroresPorRazon[razon]) && cuerpo.erroresPorRazon[razon] >= 0; });",
+                  "  const contratoValido = cuerpo !== null &&",
+                  "    conteos.every(function (valor) { return Number.isInteger(valor) && valor >= 0; }) &&",
+                  "    cuerpo.procesadas <= 20 &&",
+                  "    typeof cuerpo.hayMas === 'boolean' &&",
+                  "    razonesValidas &&",
+                  "    ((cuerpo.hayMas && typeof cuerpo.siguienteCursor === 'string' && cuerpo.siguienteCursor.length > 0) ||",
+                  "      (!cuerpo.hayMas && cuerpo.siguienteCursor === null));",
+                  "  const sumaErrores = razonesValidas ? razonesEsperadas.reduce(function (suma, razon) { return suma + cuerpo.erroresPorRazon[razon]; }, 0) : -1;",
+                  "  const sumaResultados = cuerpo === null ? -1 : cuerpo.resueltas + cuerpo.noEncontradas + cuerpo.conflictivas + cuerpo.omitidas + cuerpo.erroresCatalogo;",
+                  "  pm.test('contrato completo de resolver-pendientes valido', function () {",
+                  "    pm.expect(contratoValido).to.eql(true);",
+                  "    pm.expect(cuerpo.erroresCatalogo).to.eql(sumaErrores);",
+                  "    pm.expect(cuerpo.procesadas).to.eql(sumaResultados);",
+                  "  });",
+                  "  if (!contratoValido) {",
+                  "    return;",
+                  "  }",
+                  "",
+                  "  const loteActual = pm.collectionVariables.get('loteIdConfirmado');",
+                  "  if (pm.collectionVariables.get('loteIdUltimoAcumulado') !== loteActual) {",
+                  "    pm.collectionVariables.set('acumuladoResueltas', '0');",
+                  "    pm.collectionVariables.set('acumuladoNoEncontradas', '0');",
+                  "    pm.collectionVariables.set('acumuladoConflictivas', '0');",
+                  "    pm.collectionVariables.set('acumuladoErroresCatalogo', '0');",
+                  "    pm.collectionVariables.set('loteIdUltimoAcumulado', loteActual);",
+                  "  }",
+                  "  pm.collectionVariables.set('acumuladoResueltas', String(Number(pm.collectionVariables.get('acumuladoResueltas')) + cuerpo.resueltas));",
+                  "  pm.collectionVariables.set('acumuladoNoEncontradas', String(Number(pm.collectionVariables.get('acumuladoNoEncontradas')) + cuerpo.noEncontradas));",
+                  "  pm.collectionVariables.set('acumuladoConflictivas', String(Number(pm.collectionVariables.get('acumuladoConflictivas')) + cuerpo.conflictivas));",
+                  "  pm.collectionVariables.set('acumuladoErroresCatalogo', String(Number(pm.collectionVariables.get('acumuladoErroresCatalogo')) + cuerpo.erroresCatalogo));",
+                  "  pm.collectionVariables.set('pendientesRestantesLote', String(cuerpo.pendientesRestantesLote));",
+                  "  pm.collectionVariables.set('cursorResolucionLote', cuerpo.siguienteCursor || '');",
+                  "  console.log('Fase 5E: copia esta respuesta completa (sin editarla) al reporte mensual externo antes de continuar. Los acumulados de esta coleccion son solo una ayuda de sesion: el reporte mensual externo es la fuente de verdad.');",
+                  "})();"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{tokenSuperadmin}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"loteId\": \"{{loteIdConfirmado}}\",\n  \"limite\": 20\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ediciones-registro-oficial/resolver-pendientes",
+              "host": ["{{baseUrl}}"],
+              "path": ["ediciones-registro-oficial", "resolver-pendientes"]
+            }
+          }
+        },
+        {
+          "name": "3. Continuar con el cursor devuelto (pagina siguiente)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "(function () {",
+                  "  if (pm.collectionVariables.get('loteIdConfirmado') && pm.collectionVariables.get('cursorResolucionLote')) {",
+                  "    return;",
+                  "  }",
+                  "  if (pm.execution && typeof pm.execution.skipRequest === 'function') {",
+                  "    console.warn('Fase 5E: falta loteIdConfirmado o cursorResolucionLote (no hay pagina previa con hayMas=true). Se omite esta solicitud.');",
+                  "    pm.execution.skipRequest();",
+                  "    return;",
+                  "  }",
+                  "  throw new Error('Fase 5E: falta loteIdConfirmado o cursorResolucionLote y pm.execution.skipRequest no esta disponible en esta version de Postman. Ejecuta primero una pagina con hayMas=true antes de continuar.');",
+                  "})();"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "(function () {",
+                  "  if (!pm.collectionVariables.get('loteIdConfirmado') || !pm.collectionVariables.get('cursorResolucionLote')) {",
+                  "    return;",
+                  "  }",
+                  "",
+                  "  pm.test('200 con la pagina siguiente', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "  });",
+                  "  if (pm.response.code !== 200) {",
+                  "    // Se conserva cursorResolucionLote sin modificar para poder reintentar",
+                  "    // exactamente esta misma pagina.",
+                  "    return;",
+                  "  }",
+                  "",
+                  "  let cuerpo = null;",
+                  "  try {",
+                  "    cuerpo = pm.response.json();",
+                  "  } catch (e) {",
+                  "    cuerpo = null;",
+                  "  }",
+                  "  const razonesEsperadas = [",
+                  "    'CATALOGO_TEMPORALMENTE_NO_DISPONIBLE',",
+                  "    'RESPUESTA_CATALOGO_INVALIDA',",
+                  "    'COBERTURA_CATALOGO_NO_DISPONIBLE',",
+                  "    'BUSQUEDA_CATALOGO_INCOMPLETA'",
+                  "  ];",
+                  "  const conteos = cuerpo && [cuerpo.procesadas, cuerpo.resueltas, cuerpo.noEncontradas, cuerpo.conflictivas, cuerpo.omitidas, cuerpo.erroresCatalogo, cuerpo.pendientesRestantesLote];",
+                  "  const razonesValidas = cuerpo && cuerpo.erroresPorRazon &&",
+                  "    typeof cuerpo.erroresPorRazon === 'object' && !Array.isArray(cuerpo.erroresPorRazon) &&",
+                  "    razonesEsperadas.every(function (razon) { return Number.isInteger(cuerpo.erroresPorRazon[razon]) && cuerpo.erroresPorRazon[razon] >= 0; });",
+                  "  const contratoValido = cuerpo !== null &&",
+                  "    conteos.every(function (valor) { return Number.isInteger(valor) && valor >= 0; }) &&",
+                  "    cuerpo.procesadas <= 20 &&",
+                  "    typeof cuerpo.hayMas === 'boolean' &&",
+                  "    razonesValidas &&",
+                  "    ((cuerpo.hayMas && typeof cuerpo.siguienteCursor === 'string' && cuerpo.siguienteCursor.length > 0) ||",
+                  "      (!cuerpo.hayMas && cuerpo.siguienteCursor === null));",
+                  "  const sumaErrores = razonesValidas ? razonesEsperadas.reduce(function (suma, razon) { return suma + cuerpo.erroresPorRazon[razon]; }, 0) : -1;",
+                  "  const sumaResultados = cuerpo === null ? -1 : cuerpo.resueltas + cuerpo.noEncontradas + cuerpo.conflictivas + cuerpo.omitidas + cuerpo.erroresCatalogo;",
+                  "  pm.test('contrato completo de resolver-pendientes valido', function () {",
+                  "    pm.expect(contratoValido).to.eql(true);",
+                  "    pm.expect(cuerpo.erroresCatalogo).to.eql(sumaErrores);",
+                  "    pm.expect(cuerpo.procesadas).to.eql(sumaResultados);",
+                  "  });",
+                  "  if (!contratoValido) {",
+                  "    // Se conserva cursorResolucionLote sin modificar para poder reintentar",
+                  "    // exactamente esta misma pagina.",
+                  "    return;",
+                  "  }",
+                  "",
+                  "  pm.collectionVariables.set('acumuladoResueltas', String(Number(pm.collectionVariables.get('acumuladoResueltas')) + cuerpo.resueltas));",
+                  "  pm.collectionVariables.set('acumuladoNoEncontradas', String(Number(pm.collectionVariables.get('acumuladoNoEncontradas')) + cuerpo.noEncontradas));",
+                  "  pm.collectionVariables.set('acumuladoConflictivas', String(Number(pm.collectionVariables.get('acumuladoConflictivas')) + cuerpo.conflictivas));",
+                  "  pm.collectionVariables.set('acumuladoErroresCatalogo', String(Number(pm.collectionVariables.get('acumuladoErroresCatalogo')) + cuerpo.erroresCatalogo));",
+                  "  pm.collectionVariables.set('pendientesRestantesLote', String(cuerpo.pendientesRestantesLote));",
+                  "  pm.collectionVariables.set('cursorResolucionLote', cuerpo.siguienteCursor || '');",
+                  "  console.log('Fase 5E: copia esta respuesta completa (sin editarla) al reporte mensual externo antes de continuar. Los acumulados de esta coleccion son solo una ayuda de sesion: el reporte mensual externo es la fuente de verdad.');",
+                  "})();"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{tokenSuperadmin}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"loteId\": \"{{loteIdConfirmado}}\",\n  \"limite\": 20,\n  \"cursor\": \"{{cursorResolucionLote}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ediciones-registro-oficial/resolver-pendientes",
+              "host": ["{{baseUrl}}"],
+              "path": ["ediciones-registro-oficial", "resolver-pendientes"]
+            }
+          }
+        },
+        {
+          "name": "4. Reintentar mas tarde por loteId (mismo lote, sin cursor)",
+          "description": "Uso posterior, cuando una ejecucion previa termino con hayMas=false y pendientesRestantesLote>0 (estado operativo PENDIENTE_DE_REINTENTO): vuelve a pedir la primera pagina del mismo lote, sin cursor. Mismo cuerpo que la solicitud 2 a proposito: lo que cambia es el momento en que se ejecuta, no la forma de la solicitud. No reinicia los acumulados de sesion porque loteIdConfirmado no cambio desde la ultima pagina procesada.",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "(function () {",
+                  "  if (!pm.collectionVariables.get('loteIdConfirmado')) {",
+                  "    if (pm.execution && typeof pm.execution.skipRequest === 'function') {",
+                  "      console.warn('Fase 5E: loteIdConfirmado vacio. Ejecuta primero 02 - Confirmar. Se omite esta solicitud.');",
+                  "      pm.execution.skipRequest();",
+                  "      return;",
+                  "    }",
+                  "    throw new Error('Fase 5E: loteIdConfirmado vacio y pm.execution.skipRequest no esta disponible en esta version de Postman. Ejecuta primero 02 - Confirmar antes de esta solicitud.');",
+                  "  }",
+                  "  // Reintento sin cursor: se limpia cualquier cursor de una pagina anterior",
+                  "  // antes de enviar, para no dejar un cursor obsoleto listo para",
+                  "  // reutilizarse en la solicitud 3.",
+                  "  pm.collectionVariables.set('cursorResolucionLote', '');",
+                  "})();"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "(function () {",
+                  "  if (!pm.collectionVariables.get('loteIdConfirmado')) {",
+                  "    return;",
+                  "  }",
+                  "",
+                  "  pm.test('200 con pagina de resolucion y metadatos de paginacion', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "  });",
+                  "  if (pm.response.code !== 200) {",
+                  "    return;",
+                  "  }",
+                  "",
+                  "  let cuerpo = null;",
+                  "  try {",
+                  "    cuerpo = pm.response.json();",
+                  "  } catch (e) {",
+                  "    cuerpo = null;",
+                  "  }",
+                  "  const razonesEsperadas = [",
+                  "    'CATALOGO_TEMPORALMENTE_NO_DISPONIBLE',",
+                  "    'RESPUESTA_CATALOGO_INVALIDA',",
+                  "    'COBERTURA_CATALOGO_NO_DISPONIBLE',",
+                  "    'BUSQUEDA_CATALOGO_INCOMPLETA'",
+                  "  ];",
+                  "  const conteos = cuerpo && [cuerpo.procesadas, cuerpo.resueltas, cuerpo.noEncontradas, cuerpo.conflictivas, cuerpo.omitidas, cuerpo.erroresCatalogo, cuerpo.pendientesRestantesLote];",
+                  "  const razonesValidas = cuerpo && cuerpo.erroresPorRazon &&",
+                  "    typeof cuerpo.erroresPorRazon === 'object' && !Array.isArray(cuerpo.erroresPorRazon) &&",
+                  "    razonesEsperadas.every(function (razon) { return Number.isInteger(cuerpo.erroresPorRazon[razon]) && cuerpo.erroresPorRazon[razon] >= 0; });",
+                  "  const contratoValido = cuerpo !== null &&",
+                  "    conteos.every(function (valor) { return Number.isInteger(valor) && valor >= 0; }) &&",
+                  "    cuerpo.procesadas <= 20 &&",
+                  "    typeof cuerpo.hayMas === 'boolean' &&",
+                  "    razonesValidas &&",
+                  "    ((cuerpo.hayMas && typeof cuerpo.siguienteCursor === 'string' && cuerpo.siguienteCursor.length > 0) ||",
+                  "      (!cuerpo.hayMas && cuerpo.siguienteCursor === null));",
+                  "  const sumaErrores = razonesValidas ? razonesEsperadas.reduce(function (suma, razon) { return suma + cuerpo.erroresPorRazon[razon]; }, 0) : -1;",
+                  "  const sumaResultados = cuerpo === null ? -1 : cuerpo.resueltas + cuerpo.noEncontradas + cuerpo.conflictivas + cuerpo.omitidas + cuerpo.erroresCatalogo;",
+                  "  pm.test('contrato completo de resolver-pendientes valido', function () {",
+                  "    pm.expect(contratoValido).to.eql(true);",
+                  "    pm.expect(cuerpo.erroresCatalogo).to.eql(sumaErrores);",
+                  "    pm.expect(cuerpo.procesadas).to.eql(sumaResultados);",
+                  "  });",
+                  "  if (!contratoValido) {",
+                  "    return;",
+                  "  }",
+                  "",
+                  "  const loteActual = pm.collectionVariables.get('loteIdConfirmado');",
+                  "  if (pm.collectionVariables.get('loteIdUltimoAcumulado') !== loteActual) {",
+                  "    pm.collectionVariables.set('acumuladoResueltas', '0');",
+                  "    pm.collectionVariables.set('acumuladoNoEncontradas', '0');",
+                  "    pm.collectionVariables.set('acumuladoConflictivas', '0');",
+                  "    pm.collectionVariables.set('acumuladoErroresCatalogo', '0');",
+                  "    pm.collectionVariables.set('loteIdUltimoAcumulado', loteActual);",
+                  "  }",
+                  "  pm.collectionVariables.set('acumuladoResueltas', String(Number(pm.collectionVariables.get('acumuladoResueltas')) + cuerpo.resueltas));",
+                  "  pm.collectionVariables.set('acumuladoNoEncontradas', String(Number(pm.collectionVariables.get('acumuladoNoEncontradas')) + cuerpo.noEncontradas));",
+                  "  pm.collectionVariables.set('acumuladoConflictivas', String(Number(pm.collectionVariables.get('acumuladoConflictivas')) + cuerpo.conflictivas));",
+                  "  pm.collectionVariables.set('acumuladoErroresCatalogo', String(Number(pm.collectionVariables.get('acumuladoErroresCatalogo')) + cuerpo.erroresCatalogo));",
+                  "  pm.collectionVariables.set('pendientesRestantesLote', String(cuerpo.pendientesRestantesLote));",
+                  "  pm.collectionVariables.set('cursorResolucionLote', cuerpo.siguienteCursor || '');",
+                  "  console.log('Fase 5E: copia esta respuesta completa (sin editarla) al reporte mensual externo antes de continuar. Los acumulados de esta coleccion son solo una ayuda de sesion: el reporte mensual externo es la fuente de verdad.');",
+                  "})();"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{tokenSuperadmin}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"loteId\": \"{{loteIdConfirmado}}\",\n  \"limite\": 20\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ediciones-registro-oficial/resolver-pendientes",
+              "host": ["{{baseUrl}}"],
+              "path": ["ediciones-registro-oficial", "resolver-pendientes"]
             }
           }
         }
@@ -456,6 +1041,13 @@
     {
       "key": "sha256FormatoValidoDePrueba",
       "value": "0000000000000000000000000000000000000000000000000000000000000000"
-    }
+    },
+    { "key": "cursorResolucionLote", "value": "" },
+    { "key": "pendientesRestantesLote", "value": "" },
+    { "key": "acumuladoResueltas", "value": "0" },
+    { "key": "acumuladoNoEncontradas", "value": "0" },
+    { "key": "acumuladoConflictivas", "value": "0" },
+    { "key": "acumuladoErroresCatalogo", "value": "0" },
+    { "key": "loteIdUltimoAcumulado", "value": "" }
   ]
 }

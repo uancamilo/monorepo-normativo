@@ -139,6 +139,35 @@
             "body": { "mode": "raw", "raw": "{\n  \"correo\": \"suscriptor@test.com\",\n  \"contrasena\": \"Password123!\"\n}" },
             "url": "{{baseUrl}}/auth/login"
           }
+        },
+        {
+          "name": "Consultar perfil propio",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": [
+                "pm.test('Perfil propio responde 200', () => pm.response.to.have.status(200));",
+                "const json = pm.response.json();",
+                "pm.test('Devuelve exactamente las cinco propiedades del perfil', () => {",
+                "  pm.expect(json).to.be.an('object');",
+                "  pm.expect(Object.keys(json).sort()).to.eql(['apellido','correo','id','nombre','rol']);",
+                "});",
+                "pm.test('No expone credenciales ni tokens', () => {",
+                "  pm.expect(json).to.not.have.property('passwordHash');",
+                "  pm.expect(json).to.not.have.property('hashContrasena');",
+                "  pm.expect(json).to.not.have.property('contrasena');",
+                "  pm.expect(json).to.not.have.property('accessToken');",
+                "});",
+                "pm.test('El rol corresponde al token utilizado', () => pm.expect(json.rol).to.eql('SUPERADMINISTRADOR'));"
+              ],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{tokenSuperadmin}}" }],
+            "url": "{{baseUrl}}/auth/me"
+          }
         }
       ]
     },
@@ -1358,13 +1387,18 @@
           }
         },
         {
-          "name": "SUPERADMINISTRADOR sin suscripción no consulta contenido publicado",
+          "name": "SUPERADMINISTRADOR consulta contenido publicado sin suscripción",
           "event": [{
             "listen": "test",
             "script": {
               "exec": [
-                "pm.test('SUPERADMINISTRADOR sin suscripción recibe 403', () => pm.response.to.have.status(403));",
-                "pm.test('Mensaje genérico para SUPERADMINISTRADOR', () => pm.expect(pm.response.json().message).to.eql('Acceso denegado'));"
+                "pm.test('SUPERADMINISTRADOR interno recibe 200 sin suscripción', () => pm.response.to.have.status(200));",
+                "const json = pm.response.json();",
+                "pm.test('Recibe el contenido publicado sin datos editoriales internos', () => {",
+                "  pm.expect(json.id).to.eql(pm.collectionVariables.get('normaIndividualId'));",
+                "  pm.expect(json).not.to.have.property('estadoEditorial');",
+                "  pm.expect(json).not.to.have.property('estadoResolucionFuente');",
+                "});"
               ],
               "type": "text/javascript"
             }
@@ -1376,13 +1410,18 @@
           }
         },
         {
-          "name": "EDITOR sin suscripción no consulta contenido publicado",
+          "name": "EDITOR consulta contenido publicado sin suscripción",
           "event": [{
             "listen": "test",
             "script": {
               "exec": [
-                "pm.test('EDITOR sin suscripción recibe 403', () => pm.response.to.have.status(403));",
-                "pm.test('Mensaje genérico para EDITOR', () => pm.expect(pm.response.json().message).to.eql('Acceso denegado'));"
+                "pm.test('EDITOR interno recibe 200 sin suscripción', () => pm.response.to.have.status(200));",
+                "const json = pm.response.json();",
+                "pm.test('Recibe el contenido publicado sin datos editoriales internos', () => {",
+                "  pm.expect(json.id).to.eql(pm.collectionVariables.get('normaIndividualId'));",
+                "  pm.expect(json).not.to.have.property('estadoEditorial');",
+                "  pm.expect(json).not.to.have.property('estadoResolucionFuente');",
+                "});"
               ],
               "type": "text/javascript"
             }
@@ -1394,13 +1433,18 @@
           }
         },
         {
-          "name": "ADMINISTRADOR sin suscripción no consulta contenido publicado",
+          "name": "ADMINISTRADOR consulta contenido publicado sin suscripción",
           "event": [{
             "listen": "test",
             "script": {
               "exec": [
-                "pm.test('ADMINISTRADOR sin suscripción recibe 403', () => pm.response.to.have.status(403));",
-                "pm.test('Mensaje genérico para ADMINISTRADOR', () => pm.expect(pm.response.json().message).to.eql('Acceso denegado'));"
+                "pm.test('ADMINISTRADOR interno recibe 200 sin suscripción', () => pm.response.to.have.status(200));",
+                "const json = pm.response.json();",
+                "pm.test('Recibe el contenido publicado sin datos editoriales internos', () => {",
+                "  pm.expect(json.id).to.eql(pm.collectionVariables.get('normaIndividualId'));",
+                "  pm.expect(json).not.to.have.property('estadoEditorial');",
+                "  pm.expect(json).not.to.have.property('estadoResolucionFuente');",
+                "});"
               ],
               "type": "text/javascript"
             }

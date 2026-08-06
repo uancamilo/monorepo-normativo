@@ -50,6 +50,7 @@ Seed idempotente y guía completa de Prisma/PostgreSQL local:
 - Reglas de negocio: [docs/reglas-negocio.md](docs/reglas-negocio.md)
 - Visión de arquitectura: [docs/arquitectura/vision-arquitectura.md](docs/arquitectura/vision-arquitectura.md)
 - ADRs: [docs/arquitectura/decisiones/](docs/arquitectura/decisiones/)
+- Runbook de población histórica mensual (Fase 5E): [docs/operacion/fase-5e-poblacion-historica-mensual.md](docs/operacion/fase-5e-poblacion-historica-mensual.md)
 
 ## Historial de fases
 
@@ -90,6 +91,15 @@ del dominio. El header `x-usuario-id` quedó eliminado como mecanismo de identid
   almacenan como hash scrypt (`usuarios.password_hash`, formato
   `scrypt:v1:...`); nunca en texto plano. Usuarios semilla locales usan la
   contraseña documentada `Password123!`.
+- **Perfil propio**: `GET /auth/me` (Bearer obligatorio) responde 200 con
+  exactamente `{ "id", "nombre", "apellido", "correo", "rol" }` del usuario
+  identificado por el `sub` del token. Disponible para los cuatro roles; no
+  acepta seleccionar otro usuario por ruta, query ni body. El rol se relee del
+  repositorio, nunca del claim informativo del JWT (un token con rol
+  desactualizado devuelve el rol actual). No expone hash, contraseña, tokens ni
+  suscripciones. Token ausente, inválido, expirado o con `sub` inexistente →
+  401. Es la fuente autoritativa para que el frontend restaure la sesión
+  (ver ADR 0012).
 - **Cambio de contraseña propia**: `POST /auth/cambiar-contrasena` (Bearer
   obligatorio) con `{ "contrasenaActual", "nuevaContrasena" }` → 204 sin
   cuerpo. Valida la contraseña actual, exige la política mínima (12+
@@ -259,6 +269,28 @@ del dominio. El header `x-usuario-id` quedó eliminado como mecanismo de identid
   `%PDF-` y PDF.js realizan la validación definitiva del PDF).
   No expone URLs completas con token, cuerpos remotos ni detalles internos
   de PDF.js en los mensajes de error. Ver ADR 0011.
+- **Fase 5E — población histórica controlada** (operación manual, sin
+  código nuevo): encadena `Analizar` → revisión humana → `Confirmar` →
+  consulta del lote → resolución de fuentes por `loteId` (páginas de 20)
+  para poblar meses históricos del Registro Oficial uno a la vez, en
+  cualquier orden, sin scraping automático, scheduler ni colas. Runbook
+  operativo completo (precondiciones, plantilla de reporte mensual,
+  semántica de los estados operativos y seguridad de la evidencia):
+  [docs/operacion/fase-5e-poblacion-historica-mensual.md](docs/operacion/fase-5e-poblacion-historica-mensual.md).
+  Ver también `docs/reglas-negocio.md` sección 18 y la carpeta `04` de
+  `postman/fase_5d_analisis_confirmacion_indice_mensual.json`.
+- **Frontera del frontend (ADR 0012, decisión aprobada; el frontend todavía
+  no existe)**: Next.js actuará como BFF/reverse proxy bajo el **mismo
+  origen** — el navegador solo habla con Next.js, que llama a NestJS
+  server-to-server con una URL interna exclusivamente server-side (nunca
+  `NEXT_PUBLIC_*`). El Bearer no queda accesible al JavaScript del navegador;
+  la sesión del frontend usa cookie `httpOnly`/`Secure`/`SameSite` y
+  `GET /auth/me` es la fuente autoritativa para restaurarla. En consecuencia
+  **NestJS no habilita CORS**, y las llamadas directas del navegador al
+  backend quedan fuera de la arquitectura aprobada. Las mutaciones vía BFF
+  deben tratar CSRF explícitamente. Rate limiting de `POST /auth/login` sigue
+  siendo condición obligatoria antes de exposición pública (ADR 0006). Ver
+  [docs/arquitectura/decisiones/0012-frontera-frontend-nextjs-bff-mismo-origen.md](docs/arquitectura/decisiones/0012-frontera-frontend-nextjs-bff-mismo-origen.md).
 - **Bootstrap operativo del SUPERADMINISTRADOR** (el seed es solo
   desarrollo/test): `npm run bootstrap:superadmin --workspace=@normativo/infraestructura`
   con `PERMITIR_BOOTSTRAP_SUPERADMIN=true`, `DATABASE_URL`,

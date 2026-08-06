@@ -84,7 +84,7 @@ Reglas confirmadas:
 - `EDITOR` no puede crear, leer, modificar ni borrar usuarios desde administración.
 - `EDITOR` no puede crear, leer, modificar ni borrar suscripciones.
 - `SUSCRIPTOR` no puede modificar normas, cuentas, usuarios ni suscripciones.
-- `SUPERADMINISTRADOR`, `ADMINISTRADOR`, `EDITOR` y `SUSCRIPTOR` pueden leer su propia información mínima de sesión/perfil.
+- `SUPERADMINISTRADOR`, `ADMINISTRADOR`, `EDITOR` y `SUSCRIPTOR` pueden leer su propia información mínima de sesión/perfil. Esta regla se materializa en `GET /auth/me`, que devuelve exactamente `id`, `nombre`, `apellido`, `correo` y `rol` del usuario del Bearer verificado: la identidad sale del `sub` del token (no se acepta seleccionar otro usuario por ruta, query ni body), el rol se relee del repositorio y nunca del claim informativo del JWT, y la respuesta no expone hash, contraseña, tokens ni suscripciones. Token ausente, inválido, expirado o con `sub` inexistente responde 401.
 - Dueño de cuenta y miembro no son roles globales del sistema.
 - Dueño de cuenta y miembro son conceptos internos futuros del cliente/cuenta.
 - Los privilegios administrativos completos todavía no están implementados.
@@ -838,3 +838,19 @@ El extractor certificado en 2026 no se presenta como compatible automáticamente
 ### Fuera de alcance (Fase 5D)
 
 Frontend Next.js (no existe todavía como repositorio), scraping automático del catálogo, scheduler/cron, Redis, colas/workers, procesamiento de varios meses en una misma ejecución, publicación automática de normas, resolución automática de fuentes dentro de `Confirmar`, soporte garantizado para todo el histórico anterior a 2026, pinning de IP/DNS personalizado, y cualquier modificación del contrato HTTP existente de `POST /ingesta/registro-oficial/resumenes` (sección 14) o de la resolución de fuentes (sección 15).
+
+## 18. Población histórica controlada del Registro Oficial (Fase 5E)
+
+Fase 5E es un bloque **operativo**, no de código: una auditoría técnica de solo lectura concluyó que las capacidades de Fase 5A–5D (secciones 14, 15 y 17) ya son suficientes para operar un mes histórico con seguridad, sin ninguna corrección previa. Fase 5E no agrega endpoints, puertos, columnas, tablas ni migraciones; encadena manualmente `Analizar` → revisión humana → `Confirmar` → consulta del lote → resolución de fuentes por `loteId`. Runbook operativo completo, con el request exacto de cada paso, la plantilla de reporte mensual y la seguridad de la evidencia: `docs/operacion/fase-5e-poblacion-historica-mensual.md`.
+
+### Alcance y reglas aprobadas
+
+Cada operación procesa exactamente un mes (`periodoAnio`, `periodoMes`); no se aceptan rangos ni se procesan varios meses en una misma ejecución. El operador puede empezar por cualquier mes: no hay obligación de comenzar por el más antiguo ni de seguir orden cronológico, porque cada mes es independiente (aislado por período en la ingesta y por `loteId` en la resolución de fuentes). No hay scheduler, cron, worker, Redis ni colas — cada paso es una acción manual y consciente. La fecha inicial de cobertura histórica real (el mes más antiguo con PDF disponible) se investigará después, cuando sea necesario; no es parte de este bloque. `Analizar` sigue sin escribir lotes, entradas, normas ni ediciones (sección 17). Toda confirmación exige revisión humana previa de la previsualización completa de `Analizar`; no existe ni se introduce un umbral automático de número de entradas o de advertencias para aprobar un mes. Si el formato histórico de un PDF no se interpreta correctamente, ese mes no se confirma: se seguirá el ciclo de caracterización TDD documentado en el runbook, nunca un ajuste improvisado. Tras confirmar, las fuentes se resuelven exclusivamente por `loteId`, en páginas de hasta 20 (sección 15). Fase 5E no publica normas automáticamente (sigue en BORRADOR, igual que Fase 5A). No se crea ningún frontend en este bloque. Los cinco estados operativos mensuales (`BLOQUEADO_POR_FORMATO`, `CONFIRMADO_PENDIENTE_DE_FUENTES`, `PENDIENTE_DE_REINTENTO`, `CERRADO_CON_EXCEPCIONES`, `CERRADO`) se derivan de las respuestas HTTP existentes y se registran inicialmente en un reporte externo — no se agregan columnas, tablas ni migraciones para ese seguimiento; su semántica exacta, con la evidencia y los campos de respuesta que la sustentan, está documentada en el runbook.
+
+### Seguridad de la evidencia operativa
+
+La respuesta de `Confirmar` incluye `lote.urlResumenMensualRegistroOficial`, que puede contener un token en el query string. El reporte mensual externo registra únicamente hostname (nunca la URL completa ni el query string), período, `loteId`, SHA-256, versión del extractor, métricas y resultados de resolución — nunca credenciales. Si una respuesta completa debe conservarse como evidencia de un mes bloqueado por formato, se sanea antes de guardarla o se conserva en un almacenamiento interno de acceso restringido ya existente (este bloque no diseña uno nuevo).
+
+### Fuera de alcance (Fase 5E, este bloque)
+
+Cualquier corrección de código (dominio, aplicación, infraestructura, extractor, parser), automatización de varios meses, scheduler/cron/colas, nueva persistencia para los estados operativos, frontend, medición global de la cobertura histórica real, y corrección del listado sin paginar de lotes (`GET /ingesta/registro-oficial/lotes`; el N+1 al consultar entradas por lote, documentado en el runbook, quedó resuelto en un bloque posterior mediante consulta batch — la ausencia de paginación en sí misma sigue sin corregirse, no bloqueante para procesar un mes).
